@@ -30,7 +30,7 @@ Connect to your server's terminal (e.g., via SSH) and clone the Print Vault sour
 Bash
 
 ```
-git clone https://github.com/your-username/print-vault.git
+git clone https://github.com/shaxs/print-vault.git
 cd print-vault
 ```
 
