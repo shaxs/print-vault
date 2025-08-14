@@ -1,0 +1,4 @@
+id,title,manufacturer,serial_number,status,notes,purchase_price,purchase_date,build_size_x,build_size_y,build_size_z,last_maintained_date,maintenance_reminder_date,last_carbon_replacement_date,carbon_reminder_date,maintenance_notes,photo
+7,Bambu P1P,Bambu Labs,,Active,,,,256.00,256.00,256.00,,2025-08-04,,,,
+8,Micron 180,,,Under Repair,,,,180.00,180.00,180.00,,,,,,
+6,Trident 350,Voron,,Under Repair,,,,350.00,350.00,250.00,2025-07-31,2025-08-08,2025-07-27,2025-08-08,,20240528_094421.jpg

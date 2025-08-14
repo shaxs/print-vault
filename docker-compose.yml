@@ -1,0 +1,49 @@
+services:
+  backend:
+    build: .
+    env_file:
+      - .env
+    volumes:
+      - ./data/media:/code/media
+      - static_volume:/code/staticfiles
+    expose:
+      - 8000
+    environment:
+      - DJANGO_SETTINGS_MODULE=backend.production
+      - PYTHONPATH=/code
+      - DJANGO_SECRET_KEY=${DJANGO_SECRET_KEY}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+      - APP_HOST=${APP_HOST}
+      - APP_PORT=${APP_PORT}
+    depends_on:
+      db:
+        condition: service_healthy
+
+  frontend:
+    build: ./frontend
+    ports:
+      # This exposes the application on the port defined in your .env file
+      - "${APP_PORT}:80"
+    volumes:
+      # This gives Nginx read-only access to the same media folder
+      - ./data/media:/usr/share/nginx/html/media:ro
+    depends_on:
+      - backend
+
+  db:
+    image: postgres:15
+    volumes:
+      - ./data/postgres:/var/lib/postgresql/data/
+    environment:
+      - "POSTGRES_HOST_AUTH_METHOD=trust"
+      - "POSTGRES_DB=postgres"
+      - "POSTGRES_USER=postgres"
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  static_volume:
