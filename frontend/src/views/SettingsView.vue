@@ -25,6 +25,7 @@ const isInitialRestoreModalVisible = ref(false)
 const isFinalRestoreModalVisible = ref(false)
 const restoreConfirmationText = ref('')
 const restoreCheckbox = ref(false)
+const isRestoring = ref(false) // New state to track the restore process
 
 const isInfoModalVisible = ref(false)
 const infoModalTitle = ref('')
@@ -62,8 +63,23 @@ const handleInfoModalClose = () => {
   }
 }
 
-const exportData = () => {
-  window.location.href = 'http://127.0.0.1:8000/api/export/data/'
+const exportData = async () => {
+  try {
+    const response = await APIService.exportData()
+    const url = window.URL.createObjectURL(new Blob([response.data]))
+    const link = document.createElement('a')
+    link.href = url
+    const filename =
+      response.headers['content-disposition']?.split('filename=')[1]?.replace(/"/g, '') ||
+      'print_vault_backup.zip'
+    link.setAttribute('download', filename)
+    document.body.appendChild(link)
+    link.click()
+    link.remove()
+  } catch (error) {
+    console.error('Failed to export data:', error)
+    showInfoModal('Error', 'An error occurred while exporting data.', true)
+  }
 }
 const handleInitialDelete = () => {
   isInitialDeleteModalVisible.value = true
@@ -110,6 +126,7 @@ const cancelFinalRestore = () => {
 }
 const confirmRestore = async () => {
   if (isFinalRestoreDisabled.value) return
+  isRestoring.value = true // Start loading state
   try {
     const formData = new FormData()
     formData.append('backup_file', restoreFile.value)
@@ -122,6 +139,8 @@ const confirmRestore = async () => {
     console.error('Failed to restore data:', error)
     cancelFinalRestore()
     showInfoModal('Restore Failed', errorMessage, true)
+  } finally {
+    isRestoring.value = false // Stop loading state
   }
 }
 
@@ -344,10 +363,11 @@ onMounted(() => {
       <template #footer
         ><button
           @click="confirmRestore"
-          :disabled="isFinalRestoreDisabled"
+          :disabled="isFinalRestoreDisabled || isRestoring"
           class="action-button delete-button"
         >
-          Permanently Restore Data</button
+          <span v-if="isRestoring">Restoring...</span>
+          <span v-else>Permanently Restore Data</span></button
         ><button @click="cancelFinalRestore" type="button" class="action-button cancel-button">
           Cancel
         </button></template
