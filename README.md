@@ -2,7 +2,7 @@
 
 Print Vault is a self-hosted application for managing your 3D printer inventory, parts, and projects.
 
-DISCLAIMER: This is a "vibe coded" project meant for my own personal use. While I am technical, I am no longer a developer so I relied on techncial program management experience to work with Gemini and Github Copilot to build this. 
+DISCLAIMER: This is a "vibe coded" project meant for my own personal use. While I am technical, I am no longer a developer so I relied on techncial program management experience to work with Gemini and Github Copilot to build this. It is functional and does what I need. I have done my best to containerize it and make it available to others to use. It may not be the most efficient, most definitely has undiscovered bugs, and may not be the most secure.
 
 ## Installation
 
