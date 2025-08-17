@@ -70,7 +70,9 @@ class InventoryItemSerializer(serializers.ModelSerializer):
         fields = [
             'id', 'title', 'brand', 'part_type', 'quantity', 
             'cost', 'location', 'photo', 'notes',
-            'associated_projects', 'project_ids'
+            'associated_projects', 'project_ids',
+            # --- New Fields for Consumables ---
+            'is_consumable', 'low_stock_threshold'
         ]
 
     def create(self, validated_data):

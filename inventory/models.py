@@ -93,6 +93,11 @@ class InventoryItem(models.Model):
     location = models.ForeignKey(Location, on_delete=models.SET_NULL, null=True)
     photo = models.ImageField(upload_to='inventory_photos/', null=True, blank=True)
     notes = models.TextField(null=True, blank=True)
+    
+    # --- New Fields for Consumables ---
+    is_consumable = models.BooleanField(default=False)
+    low_stock_threshold = models.IntegerField(null=True, blank=True)
+    
     class Meta:
         verbose_name = "Inventory Item"
         verbose_name_plural = "Inventory Items"

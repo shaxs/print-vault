@@ -24,8 +24,13 @@ watch(
   () => props.initialData,
   (newData) => {
     if (newData) {
-      item.value = { ...newData }
-      item.value.project_ids = newData.associated_projects.map((p) => p.id)
+      item.value = {
+        ...newData,
+        is_consumable: newData.is_consumable || false,
+        low_stock_threshold:
+          newData.low_stock_threshold === null ? null : newData.low_stock_threshold,
+      }
+      item.value.project_ids = newData.associated_projects?.map((p) => p.id) || []
       isEditMode.value = true
     } else {
       item.value = {
@@ -37,11 +42,24 @@ watch(
         cost: null,
         notes: '',
         project_ids: [],
+        is_consumable: false,
+        low_stock_threshold: null,
       }
       isEditMode.value = false
     }
   },
-  { immediate: true },
+  { immediate: true, deep: true },
+)
+
+watch(
+  () => item.value.is_consumable,
+  (isConsumable) => {
+    if (!isConsumable) {
+      item.value.low_stock_threshold = null
+    } else if (item.value.low_stock_threshold === null) {
+      item.value.low_stock_threshold = 0
+    }
+  },
 )
 
 const handleFileUpload = (event) => {
@@ -58,6 +76,10 @@ const saveItem = async () => {
   formData.append('quantity', item.value.quantity || 0)
   if (item.value.cost) formData.append('cost', item.value.cost)
   if (item.value.notes) formData.append('notes', item.value.notes)
+  formData.append('is_consumable', item.value.is_consumable)
+  if (item.value.is_consumable && item.value.low_stock_threshold !== null) {
+    formData.append('low_stock_threshold', item.value.low_stock_threshold)
+  }
 
   const brandName = item.value.brand?.name || item.value.brand
   if (brandName) formData.append('brand', JSON.stringify({ name: brandName }))
@@ -104,7 +126,6 @@ const addLocation = (newLocation) => {
   locations.value.push(location)
   item.value.location = location
 }
-// New function to handle adding projects on the fly
 const addProject = async (newProjectName) => {
   try {
     const newProjectData = { project_name: newProjectName, status: 'Planning' }
@@ -220,6 +241,22 @@ onMounted(async () => {
       <textarea id="notes" v-model="item.notes"></textarea>
     </div>
 
+    <div class="form-group checkbox-group">
+      <input id="is_consumable" type="checkbox" v-model="item.is_consumable" />
+      <label for="is_consumable">Enable Low Stock Alert</label>
+    </div>
+
+    <div v-if="item.is_consumable" class="form-group">
+      <label for="low_stock_threshold">Low Stock Warning Level</label>
+      <input
+        id="low_stock_threshold"
+        type="number"
+        v-model.number="item.low_stock_threshold"
+        min="0"
+        placeholder="e.g., 5"
+      />
+    </div>
+
     <div class="form-actions">
       <button type="submit" class="save-button">Save</button>
       <RouterLink :to="isEditMode ? `/item/${item.id}` : '/'" class="cancel-button"
@@ -320,5 +357,20 @@ textarea {
 }
 .multiselect__tag {
   background: var(--color-blue);
+}
+.checkbox-group {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 20px;
+}
+.checkbox-group input {
+  width: auto;
+}
+.checkbox-group label {
+  margin-bottom: 0;
+  font-weight: normal;
+  user-select: none;
+  cursor: pointer;
 }
 </style>

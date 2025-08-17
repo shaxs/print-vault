@@ -1,5 +1,26 @@
 <script setup>
+import { ref, onMounted } from 'vue'
 import { RouterLink, RouterView } from 'vue-router'
+import NotificationBell from '@/components/NotificationBell.vue'
+import APIService from '@/services/APIService.js'
+
+const reminders = ref([])
+const lowStockItems = ref([])
+
+const fetchNotifications = async () => {
+  try {
+    const [remindersRes, lowStockRes] = await Promise.all([
+      APIService.getReminders(),
+      APIService.getLowStockItems(),
+    ])
+    reminders.value = remindersRes.data
+    lowStockItems.value = lowStockRes.data
+  } catch (error) {
+    console.error('Failed to fetch notifications:', error)
+  }
+}
+
+onMounted(fetchNotifications)
 </script>
 
 <template>
@@ -11,14 +32,19 @@ import { RouterLink, RouterView } from 'vue-router'
       <RouterLink to="/">Inventory</RouterLink>
       <RouterLink to="/printers">Printers</RouterLink>
       <RouterLink to="/projects">Projects</RouterLink>
-      <div class="sidebar-footer">
-        <RouterLink to="/settings">Settings</RouterLink>
-      </div>
     </nav>
 
-    <main class="main-content">
-      <RouterView />
-    </main>
+    <div class="main-container">
+      <header class="main-header">
+        <div class="header-actions">
+          <NotificationBell :reminders="reminders" :low-stock-items="lowStockItems" />
+          <RouterLink to="/settings" class="settings-link">Settings</RouterLink>
+        </div>
+      </header>
+      <main class="main-content">
+        <RouterView />
+      </main>
+    </div>
   </div>
 </template>
 
@@ -58,7 +84,7 @@ import { RouterLink, RouterView } from 'vue-router'
   border-radius: 5px;
   transition: background-color 0.3s;
   margin-bottom: 5px;
-  user-select: none; /* Prevents text selection cursor */
+  user-select: none;
 }
 
 .sidebar a.router-link-exact-active,
@@ -67,37 +93,42 @@ import { RouterLink, RouterView } from 'vue-router'
   color: var(--color-heading);
 }
 
-.sidebar-footer {
-  margin-top: auto;
+.main-container {
+  flex-grow: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden; /* Prevents double scrollbars */
+}
+
+.main-header {
   display: flex;
   justify-content: flex-end;
   align-items: center;
+  padding: 1rem 2rem;
+  background-color: var(--color-background-soft);
+  border-bottom: 1px solid var(--color-border);
+  flex-shrink: 0;
+}
+
+.header-actions {
+  display: flex;
+  align-items: center;
+  gap: 1.5rem;
+}
+
+.settings-link {
+  color: var(--color-text);
+  text-decoration: none;
+  font-weight: 500;
+}
+
+.settings-link:hover {
+  color: var(--color-heading);
 }
 
 .main-content {
   flex-grow: 1;
   overflow-y: auto;
   padding: 20px;
-  min-width: 0;
-}
-@media (max-width: 768px) {
-  #app-layout {
-    flex-direction: column;
-    height: auto;
-  }
-  .sidebar {
-    width: 100%;
-    height: 60px;
-    flex-direction: row;
-    align-items: center;
-    justify-content: space-around;
-    padding: 0 10px;
-    border-right: none;
-    border-bottom: 1px solid var(--color-border);
-  }
-  .sidebar-header,
-  .sidebar-footer {
-    display: none;
-  }
 }
 </style>

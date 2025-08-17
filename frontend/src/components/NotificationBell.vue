@@ -1,107 +1,147 @@
 <script setup>
-import { ref, onMounted, computed } from 'vue'
+import { ref, computed } from 'vue'
 import { useRouter } from 'vue-router'
 import APIService from '@/services/APIService.js'
 import BaseModal from '@/components/BaseModal.vue'
 
+const props = defineProps({
+  reminders: {
+    type: Array,
+    required: true,
+  },
+  lowStockItems: {
+    type: Array,
+    required: true,
+  },
+})
+
 const router = useRouter()
-const reminders = ref([])
 const isModalVisible = ref(false)
 
-const reminderCount = computed(() => reminders.value.length)
+const allReminders = computed(() => {
+  const processed = []
+  const today = new Date().setHours(0, 0, 0, 0)
 
-const fetchReminders = async () => {
-  try {
-    const response = await APIService.getReminders()
-    const printersWithReminders = response.data
-
-    // Process the printers into a flat list of individual reminders
-    const processedReminders = []
-    const today = new Date().setHours(0, 0, 0, 0)
-
-    printersWithReminders.forEach((printer) => {
-      const maintenanceDate = printer.maintenance_reminder_date
-        ? new Date(printer.maintenance_reminder_date).setHours(0, 0, 0, 0)
-        : null
-      const carbonDate = printer.carbon_reminder_date
-        ? new Date(printer.carbon_reminder_date).setHours(0, 0, 0, 0)
-        : null
-
-      if (printer.maintenance_reminder_date) {
-        processedReminders.push({
+  props.reminders.forEach((printer) => {
+    // Check maintenance reminder
+    if (printer.maintenance_reminder_date) {
+      const maintenanceDate = new Date(printer.maintenance_reminder_date).setHours(0, 0, 0, 0)
+      // CORRECTED LOGIC: Only add the reminder if the date is today or in the past
+      if (maintenanceDate <= today) {
+        processed.push({
           id: `${printer.id}-maintenance`,
           printerId: printer.id,
           printerTitle: printer.title,
           type: 'maintenance',
-          message: `Maintenance due on ${printer.maintenance_reminder_date}`,
-          isPastDue: maintenanceDate <= today,
+          message: `Maintenance due on ${new Date(maintenanceDate).toLocaleDateString()}`,
+          date: new Date(maintenanceDate),
+          isPastDue: maintenanceDate < today,
         })
       }
-
-      if (printer.carbon_reminder_date) {
-        processedReminders.push({
+    }
+    // Check carbon filter reminder
+    if (printer.carbon_reminder_date) {
+      const carbonDate = new Date(printer.carbon_reminder_date).setHours(0, 0, 0, 0)
+      // CORRECTED LOGIC: Only add the reminder if the date is today or in the past
+      if (carbonDate <= today) {
+        processed.push({
           id: `${printer.id}-carbon`,
           printerId: printer.id,
           printerTitle: printer.title,
           type: 'carbon',
-          message: `Carbon filter change due on ${printer.carbon_reminder_date}`,
-          isPastDue: carbonDate <= today,
+          message: `Carbon filter due on ${new Date(carbonDate).toLocaleDateString()}`,
+          date: new Date(carbonDate),
+          isPastDue: carbonDate < today,
         })
       }
-    })
+    }
+  })
+  return processed.sort((a, b) => a.date - b.date)
+})
 
-    reminders.value = processedReminders
-  } catch (error) {
-    console.error('Failed to fetch reminders:', error)
-  }
+const notificationCount = computed(() => {
+  return allReminders.value.length + props.lowStockItems.length
+})
+
+const navigateToPrinter = (id) => {
+  isModalVisible.value = false
+  router.push(`/printers/${id}`)
 }
 
-const dismiss = async (printerId, type) => {
+const navigateToItem = (id) => {
+  isModalVisible.value = false
+  router.push(`/item/${id}`)
+}
+
+const dismissReminder = async (id, type) => {
+  const printerId = id.split('-')[0]
+  const updateData = {}
+
+  if (type === 'maintenance') {
+    updateData.last_maintained_date = new Date().toISOString().split('T')[0]
+    updateData.maintenance_reminder_date = null
+  } else if (type === 'carbon') {
+    updateData.last_carbon_replacement_date = new Date().toISOString().split('T')[0]
+    updateData.carbon_reminder_date = null
+  }
+
   try {
-    await APIService.dismissReminder(printerId, type)
-    fetchReminders()
+    await APIService.updatePrinter(printerId, updateData)
+    isModalVisible.value = false
+    window.location.reload()
   } catch (error) {
     console.error('Failed to dismiss reminder:', error)
   }
 }
-
-const navigateToPrinter = (printerId) => {
-  isModalVisible.value = false
-  router.push({ name: 'printer-detail', params: { id: printerId } })
-}
-
-onMounted(() => {
-  fetchReminders()
-  setInterval(fetchReminders, 300000)
-})
 </script>
 
 <template>
   <div class="notification-container">
-    <button @click="isModalVisible = true" class="bell-button">
-      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512" class="bell-svg">
+    <button @click="isModalVisible = true" class="notification-button">
+      <svg class="bell-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">
         <path
-          d="M224 512c35.32 0 63.97-28.65 63.97-64H160.03c0 35.35 28.65 64 63.97 64zm215.39-149.71c-19.32-20.76-55.47-51.99-55.47-154.29 0-77.7-54.48-139.9-127.94-155.16V32c0-17.67-14.32-32-31.98-32s-31.98 14.33-31.98 32v20.84C118.56 68.1 64.08 130.3 64.08 208c0 102.3-36.15 133.53-55.47 154.29-6 6.45-8.66 14.16-8.61 21.71.11 16.4 12.98 32 32.1 32h383.8c19.12 0 32-15.6 32.1-32 .05-7.55-2.61-15.27-8.61-21.71z"
+          d="M10 21h4c0 1.1-.9 2-2 2s-2-.9-2-2zm11-2v1H3v-1l2-2v-6c0-3.1 2.03-5.83 5-6.71V4c0-.83.67-1.5 1.5-1.5s1.5.67 1.5 1.5v.29c2.97.88 5 3.61 5 6.71v6l2 2zM12 2c-4.42 0-8 3.58-8 8v6l-2 2v1h20v-1l-2-2v-6c0-4.42-3.58-8-8-8zm-2 11c0 .55.45 1 1 1s1-.45 1-1-.45-1-1-1-1 .45-1 1zm4 0c0 .55.45 1 1 1s1-.45 1-1-.45-1-1-1-1 .45-1 1z"
+          fill="currentColor"
         />
       </svg>
-      <span v-if="reminderCount > 0" class="badge">{{ reminderCount }}</span>
+      <span v-if="notificationCount > 0" class="notification-badge">{{ notificationCount }}</span>
     </button>
-
     <BaseModal :show="isModalVisible" title="Notifications" @close="isModalVisible = false">
-      <ul v-if="reminders.length > 0" class="notification-list">
-        <li v-for="reminder in reminders" :key="reminder.id" class="dropdown-item">
-          <div @click="navigateToPrinter(reminder.printerId)" class="item-content">
-            <strong>{{ reminder.printerTitle }}</strong>
-            <p :class="{ 'past-due': reminder.isPastDue }">{{ reminder.message }}</p>
-          </div>
-          <button @click.stop="dismiss(reminder.printerId, reminder.type)" class="dismiss-button">
-            Dismiss
-          </button>
-        </li>
-      </ul>
-      <div v-else class="no-reminders">No new notifications.</div>
+      <div v-if="notificationCount > 0">
+        <div v-if="lowStockItems.length > 0">
+          <h4>Low Stock</h4>
+          <ul class="notification-list">
+            <li v-for="item in lowStockItems" :key="item.id" class="dropdown-item">
+              <div @click="navigateToItem(item.id)" class="item-content">
+                <strong>{{ item.title }}</strong>
+                <p>
+                  Quantity is at {{ item.quantity }} (Threshold: {{ item.low_stock_threshold }})
+                </p>
+              </div>
+            </li>
+          </ul>
+        </div>
+
+        <div v-if="allReminders.length > 0">
+          <h4>Maintenance</h4>
+          <ul class="notification-list">
+            <li v-for="reminder in allReminders" :key="reminder.id" class="dropdown-item">
+              <div @click="navigateToPrinter(reminder.printerId)" class="item-content">
+                <strong>{{ reminder.printerTitle }}</strong>
+                <p :class="{ 'past-due': reminder.isPastDue }">{{ reminder.message }}</p>
+              </div>
+              <button @click="dismissReminder(reminder.id, reminder.type)" class="dismiss-button">
+                Dismiss
+              </button>
+            </li>
+          </ul>
+        </div>
+      </div>
+      <p v-else>You're all caught up!</p>
       <template #footer>
-        <button @click="isModalVisible = false" class="action-button save-button">Close</button>
+        <button @click="isModalVisible = false" type="button" class="action-button cancel-button">
+          Close
+        </button>
       </template>
     </BaseModal>
   </div>
@@ -111,31 +151,26 @@ onMounted(() => {
 .notification-container {
   position: relative;
 }
-.bell-button {
+.notification-button {
   background: none;
   border: none;
-  color: var(--color-text);
   cursor: pointer;
   position: relative;
+  color: var(--color-text);
   padding: 0;
-  width: 41px;
-  height: 41px;
   display: flex;
   align-items: center;
   justify-content: center;
 }
-.bell-svg {
+.bell-icon {
   width: 24px;
   height: 24px;
   fill: currentColor;
 }
-.bell-button:hover {
-  color: var(--color-heading);
-}
-.badge {
+.notification-badge {
   position: absolute;
-  top: 5px;
-  right: 5px;
+  top: -4px;
+  right: -8px;
   background-color: var(--color-red);
   color: white;
   border-radius: 50%;
@@ -151,6 +186,16 @@ onMounted(() => {
   list-style: none;
   padding: 0;
   margin: 0;
+}
+h4 {
+  margin-top: 10px;
+  margin-bottom: 5px;
+  color: var(--color-heading);
+  border-bottom: 1px solid var(--color-border);
+  padding-bottom: 5px;
+}
+h4:first-of-type {
+  margin-top: 0;
 }
 .dropdown-item {
   display: flex;
@@ -179,19 +224,12 @@ onMounted(() => {
 }
 .dismiss-button {
   background: none;
-  border: none;
+  border: 1px solid var(--color-border);
   color: var(--color-text);
-  text-decoration: underline;
+  padding: 5px 10px;
+  border-radius: 5px;
   cursor: pointer;
-  font-size: 0.9rem;
-  padding: 5px;
-}
-.dismiss-button:hover {
-  color: var(--color-heading);
-}
-.no-reminders {
-  padding: 20px;
-  text-align: center;
+  margin-left: 10px;
 }
 .action-button {
   padding: 8px 15px;
@@ -200,15 +238,10 @@ onMounted(() => {
   font-weight: bold;
   border: none;
   cursor: pointer;
-  white-space: nowrap;
-  font-size: 0.9rem;
-  height: 36px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
 }
-.save-button {
-  background-color: var(--color-blue);
-  color: white;
+.cancel-button {
+  background-color: var(--color-background-mute);
+  color: var(--color-heading);
+  border: 1px solid var(--color-border);
 }
 </style>

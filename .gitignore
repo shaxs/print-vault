@@ -9,4 +9,17 @@ venv/
 node_modules/
 
 # IDE files
-.vscode/
+.vscode/data/media/
+
+# Local Media Files
+data/media/
+
+# Local Postgres
+data/postgres/
+
+# Local Dev Files
+frontend/dev-dist/
+frontend/.vscode/
+frontend/dev-dist/
+frontend/dev-dist/sw.js
+.gitignore

@@ -1,202 +1,167 @@
 <script setup>
-import { ref, onMounted, watch } from 'vue'
+import { ref, onMounted } from 'vue'
 import { useRoute, useRouter, RouterLink } from 'vue-router'
 import APIService from '@/services/APIService.js'
-import MainHeader from '@/components/MainHeader.vue'
 import BaseModal from '@/components/BaseModal.vue'
 
 const route = useRoute()
 const router = useRouter()
 const item = ref(null)
-const itemId = route.params.id
-const isPhotoModalVisible = ref(false)
 const isDeleteModalVisible = ref(false)
 
-const handleDeleteConfirm = async () => {
+const fetchInventoryItem = async () => {
   try {
-    await APIService.deleteInventoryItem(itemId)
-    isDeleteModalVisible.value = false
-    router.push('/')
-  } catch (error) {
-    console.error('Error deleting item:', error)
-    isDeleteModalVisible.value = false
-  }
-}
-
-const filterList = (filterKey, filterValue) => {
-  const query = {}
-  query[filterKey] = filterValue
-  router.push({ name: 'home', query })
-}
-
-onMounted(async () => {
-  try {
-    const response = await APIService.getInventoryItem(itemId)
+    const response = await APIService.getInventoryItem(route.params.id)
     item.value = response.data
   } catch (error) {
-    console.error('Error loading item details:', error)
+    console.error('Failed to fetch inventory item:', error)
   }
-})
+}
 
-watch(isPhotoModalVisible, (newValue) => {
-  const handleKeydown = (event) => {
-    if (event.key === 'Escape') {
-      isPhotoModalVisible.value = false
-    }
+const openDeleteModal = () => {
+  isDeleteModalVisible.value = true
+}
+
+const confirmDelete = async () => {
+  try {
+    await APIService.deleteInventoryItem(item.value.id)
+    router.push('/')
+  } catch (error) {
+    console.error('Failed to delete item:', error)
+  } finally {
+    isDeleteModalVisible.value = false
   }
-  if (newValue) {
-    window.addEventListener('keydown', handleKeydown)
-  } else {
-    window.removeEventListener('keydown', handleKeydown)
-  }
-})
+}
+
+onMounted(fetchInventoryItem)
 </script>
 
 <template>
-  <div class="detail-view">
-    <MainHeader
-      v-if="item"
-      :title="item.title"
-      :showSearch="false"
-      :showAddButton="false"
-      :showFilterButton="false"
-      :showColumnButton="false"
-    />
-
-    <div class="actions-bar" v-if="item">
-      <RouterLink
-        :to="{ name: 'item-edit', params: { id: item.id } }"
-        class="action-button edit-button"
-        >Edit</RouterLink
-      >
-      <button @click="isDeleteModalVisible = true" class="action-button delete-button">
-        Delete
-      </button>
-    </div>
-
-    <div v-if="item" class="details-container">
-      <div class="detail-item">
-        <span class="label">Brand</span>
-        <span
-          v-if="item.brand"
-          class="value clickable-link"
-          @click="filterList('brand__name', item.brand.name)"
-          >{{ item.brand.name }}</span
-        >
-        <span v-else class="value">N/A</span>
-      </div>
-      <div class="detail-item">
-        <span class="label">Part Type</span>
-        <span
-          v-if="item.part_type"
-          class="value clickable-link"
-          @click="filterList('part_type__name', item.part_type.name)"
-          >{{ item.part_type.name }}</span
-        >
-        <span v-else class="value">N/A</span>
-      </div>
-      <div class="detail-item">
-        <span class="label">Location</span>
-        <span
-          v-if="item.location"
-          class="value clickable-link"
-          @click="filterList('location__name', item.location.name)"
-          >{{ item.location.name }}</span
-        >
-        <span v-else class="value">N/A</span>
-      </div>
-      <div class="detail-item">
-        <span class="label">Quantity</span><span class="value">{{ item.quantity }}</span>
-      </div>
-      <div class="detail-item">
-        <span class="label">Cost</span><span class="value">${{ item.cost }}</span>
-      </div>
-      <div class="detail-item">
-        <span class="label">Associated Projects</span>
-        <div v-if="item.associated_projects && item.associated_projects.length">
-          <RouterLink
-            v-for="project in item.associated_projects"
-            :key="project.id"
-            :to="`/projects/${project.id}`"
-            class="project-link"
-            >{{ project.project_name }}</RouterLink
+  <div v-if="item" class="detail-view-container">
+    <div class="main-content">
+      <div class="item-header">
+        <h1>{{ item.title }}</h1>
+        <div class="actions">
+          <RouterLink :to="`/item/${item.id}/edit`" class="action-button edit-button"
+            >Edit</RouterLink
           >
+          <button @click="openDeleteModal" class="action-button delete-button">Delete</button>
         </div>
-        <span v-else class="value">None</span>
       </div>
-      <div class="detail-item full-width">
-        <span class="label">Notes</span>
-        <p class="value-notes">{{ item.notes || 'No notes.' }}</p>
+
+      <div class="details-grid">
+        <div class="photo-container">
+          <img v-if="item.photo" :src="item.photo" :alt="item.title" class="item-photo" />
+          <div v-else class="no-photo">No Photo</div>
+        </div>
+        <div class="info-container">
+          <div class="info-grid">
+            <div class="info-item">
+              <span class="label">Brand</span>
+              <span class="value">{{ item.brand?.name || 'N/A' }}</span>
+            </div>
+            <div class="info-item">
+              <span class="label">Part Type</span>
+              <span class="value">{{ item.part_type?.name || 'N/A' }}</span>
+            </div>
+            <div class="info-item">
+              <span class="label">Location</span>
+              <span class="value">{{ item.location?.name || 'N/A' }}</span>
+            </div>
+            <div class="info-item">
+              <span class="label">Quantity</span>
+              <span class="value">{{ item.quantity }}</span>
+            </div>
+            <div class="info-item">
+              <span class="label">Cost</span>
+              <span class="value">{{ item.cost ? `$${item.cost}` : 'N/A' }}</span>
+            </div>
+
+            <div v-if="item.is_consumable" class="info-item">
+              <span class="label">Status</span>
+              <span class="value consumable-tag">Low Stock Alert Enabled</span>
+            </div>
+            <div v-if="item.is_consumable" class="info-item">
+              <span class="label">Warning Threshold</span>
+              <span class="value">{{ item.low_stock_threshold ?? 'Not Set' }}</span>
+            </div>
+          </div>
+        </div>
       </div>
-      <div class="detail-item full-width">
-        <span class="label">Photo</span>
-        <img
-          v-if="item.photo"
-          :src="item.photo"
-          @click="isPhotoModalVisible = true"
-          alt="Inventory item photo"
-          class="detail-photo clickable"
-        />
-        <span v-else class="value">No photo.</span>
+
+      <div class="notes-section" v-if="item.notes">
+        <h2>Notes</h2>
+        <p>{{ item.notes }}</p>
       </div>
     </div>
-    <div v-else><p>Loading item details...</p></div>
+
+    <div class="sidebar">
+      <div class="sidebar-section">
+        <h3>Associated Projects</h3>
+        <ul v-if="item.associated_projects && item.associated_projects.length">
+          <li v-for="project in item.associated_projects" :key="project.id">
+            <RouterLink :to="`/project/${project.id}`">{{ project.project_name }}</RouterLink>
+          </li>
+        </ul>
+        <p v-else>No projects associated with this item.</p>
+      </div>
+    </div>
 
     <BaseModal
       :show="isDeleteModalVisible"
       title="Confirm Deletion"
       @close="isDeleteModalVisible = false"
     >
-      <p>
-        Are you sure you want to delete the item '{{ item?.title }}'? This action cannot be undone.
-      </p>
+      <p>Are you sure you want to permanently delete "{{ item.title }}"?</p>
       <template #footer>
-        <button @click="handleDeleteConfirm" class="delete-button action-button">
-          Yes, Delete
-        </button>
+        <button @click="confirmDelete" class="action-button delete-button">Yes, Delete</button>
         <button
           @click="isDeleteModalVisible = false"
           type="button"
-          class="cancel-button action-button"
+          class="action-button cancel-button"
         >
           Cancel
         </button>
       </template>
     </BaseModal>
-
-    <div v-if="isPhotoModalVisible" class="modal-overlay" @click="isPhotoModalVisible = false">
-      <div class="modal-content" @click.stop>
-        <button @click="isPhotoModalVisible = false" class="close-button">&times;</button
-        ><img :src="item.photo" alt="Full size item photo" class="modal-image" />
-      </div>
-    </div>
   </div>
+  <div v-else>Loading...</div>
 </template>
 
 <style scoped>
-.detail-view {
-  user-select: none;
+.detail-view-container {
+  display: grid;
+  grid-template-columns: 3fr 1fr;
+  gap: 20px;
+  padding: 20px;
 }
-.actions-bar {
+.main-content {
+  background-color: var(--color-background-soft);
+  padding: 20px;
+  border-radius: 8px;
+}
+.item-header {
   display: flex;
-  justify-content: flex-end;
-  gap: 10px;
+  justify-content: space-between;
+  align-items: center;
+  border-bottom: 1px solid var(--color-border);
+  padding-bottom: 15px;
   margin-bottom: 20px;
+}
+.item-header h1 {
+  color: var(--color-heading);
+}
+.actions {
+  display: flex;
+  gap: 10px;
 }
 .action-button {
   padding: 8px 15px;
-  text-decoration: none;
-  border-radius: 5px;
-  font-weight: bold;
   border: none;
+  border-radius: 5px;
+  text-decoration: none;
+  font-weight: bold;
   cursor: pointer;
-  white-space: nowrap;
-  font-size: 0.9rem;
-  height: 36px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  user-select: none; /* Prevents text selection cursor */
 }
 .edit-button {
   background-color: var(--color-blue);
@@ -206,109 +171,110 @@ watch(isPhotoModalVisible, (newValue) => {
   background-color: var(--color-red);
   color: white;
 }
-.details-container {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 20px;
-  padding: 20px;
-  background-color: var(--color-background-soft);
-  border: 1px solid var(--color-border);
-  border-radius: 8px;
-}
-.detail-item {
-  display: flex;
-  flex-direction: column;
-  flex-basis: calc(50% - 10px);
-}
-.detail-item.full-width {
-  flex-basis: 100%;
-}
-.label {
-  font-weight: bold;
-  color: var(--color-text);
-  font-size: 0.9rem;
-  margin-bottom: 5px;
-}
-.value {
-  font-size: 1.1rem;
-  color: var(--color-heading);
-}
-.value-notes {
-  font-size: 1rem;
-  white-space: pre-wrap;
-  margin: 0;
-  color: var(--color-heading);
-}
-.detail-photo {
-  max-width: 300px;
-  max-height: 300px;
-  border-radius: 8px;
-  margin-top: 5px;
-  cursor: pointer;
-}
-.project-link {
-  color: var(--color-heading);
-  text-decoration: none;
-  display: block;
-}
-.project-link:hover {
-  text-decoration: underline;
-}
-.clickable-link {
-  cursor: pointer;
-  text-decoration: underline;
-  text-decoration-color: transparent;
-  transition: text-decoration-color 0.3s;
-}
-.clickable-link:hover {
-  text-decoration-color: var(--color-heading);
-}
-.modal-overlay {
-  position: fixed;
-  top: 0;
-  left: 0;
-  width: 100%;
-  height: 100%;
-  background-color: rgba(0, 0, 0, 0.8);
-  display: flex;
-  justify-content: center;
-  align-items: center;
-  z-index: 1000;
-}
-.modal-content {
-  position: relative;
-  max-width: 90vw;
-  max-height: 90vh;
-}
-.modal-image {
-  max-width: 100%;
-  max-height: 100%;
-  display: block;
-}
-.close-button {
-  position: absolute;
-  top: -15px;
-  right: -15px;
-  background: white;
-  color: black;
-  border: none;
-  border-radius: 50%;
-  width: 30px;
-  height: 30px;
-  font-size: 24px;
-  line-height: 30px;
-  text-align: center;
-  cursor: pointer;
-  font-weight: bold;
-}
 .cancel-button {
   background-color: var(--color-background-mute);
   color: var(--color-heading);
   border: 1px solid var(--color-border);
 }
-@media (max-width: 768px) {
-  .detail-item {
-    flex-basis: 100%;
+
+.details-grid {
+  display: grid;
+  grid-template-columns: 1fr 2fr;
+  gap: 20px;
+}
+.photo-container {
+  width: 100%;
+}
+.item-photo {
+  width: 100%;
+  height: auto;
+  border-radius: 8px;
+  object-fit: cover;
+  border: 1px solid var(--color-border);
+}
+.no-photo {
+  width: 100%;
+  aspect-ratio: 1/1;
+  background-color: var(--color-background-mute);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 8px;
+  color: var(--color-text-soft);
+}
+.info-container {
+  padding-left: 20px;
+}
+.info-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 20px;
+}
+.info-item {
+  display: flex;
+  flex-direction: column;
+}
+.label {
+  font-weight: bold;
+  color: var(--color-heading);
+  margin-bottom: 5px;
+  font-size: 0.9rem;
+}
+.value {
+  color: var(--color-text);
+}
+.consumable-tag {
+  background-color: var(--color-orange-soft);
+  color: var(--color-orange-dark);
+  padding: 4px 8px;
+  border-radius: 4px;
+  font-weight: bold;
+  display: inline-block;
+  font-size: 0.85rem;
+}
+
+.notes-section {
+  margin-top: 30px;
+}
+.notes-section h2 {
+  border-bottom: 1px solid var(--color-border);
+  padding-bottom: 10px;
+  margin-bottom: 15px;
+}
+.notes-section p {
+  white-space: pre-wrap;
+}
+
+.sidebar {
+  background-color: var(--color-background-soft);
+  padding: 20px;
+  border-radius: 8px;
+  height: fit-content;
+}
+.sidebar-section h3 {
+  border-bottom: 1px solid var(--color-border);
+  padding-bottom: 10px;
+  margin-bottom: 15px;
+}
+.sidebar-section ul {
+  list-style: none;
+  padding: 0;
+}
+.sidebar-section li a {
+  text-decoration: none;
+  color: var(--color-blue);
+}
+
+@media (max-width: 992px) {
+  .detail-view-container {
+    grid-template-columns: 1fr;
+  }
+  .details-grid {
+    grid-template-columns: 1fr;
+  }
+  .info-container {
+    padding-left: 0;
+    margin-top: 20px;
   }
 }
 </style>

@@ -2,8 +2,6 @@
 import axios from 'axios'
 
 const apiClient = axios.create({
-  // CORRECTED: This now uses a relative path. The Nginx proxy will handle
-  // forwarding any requests that start with /api/ to the backend container.
   baseURL: '/api/',
 })
 
@@ -41,15 +39,24 @@ export default {
       headers: { 'Content-Type': 'multipart/form-data' },
     })
   },
-  updatePrinter(id, formData) {
-    const headers =
-      formData instanceof FormData
-        ? { 'Content-Type': 'multipart/form-data' }
-        : { 'Content-Type': 'application/json' }
-    return apiClient.patch(`printers/${id}/`, formData, { headers })
+  updatePrinter(id, data) {
+    return apiClient.patch(`printers/${id}/`, data)
   },
   deletePrinter(id) {
     return apiClient.delete(`printers/${id}/`)
+  },
+
+  // Mods
+  createMod(data) {
+    return apiClient.post('mods/', data, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    })
+  },
+  updateMod(id, data) {
+    return apiClient.patch(`mods/${id}/`, data)
+  },
+  deleteMod(id) {
+    return apiClient.delete(`mods/${id}/`)
   },
 
   // Projects
@@ -60,60 +67,23 @@ export default {
     return apiClient.get(`projects/${id}/`)
   },
   createProject(formData) {
-    const headers =
-      formData instanceof FormData
-        ? { 'Content-Type': 'multipart/form-data' }
-        : { 'Content-Type': 'application/json' }
-    return apiClient.post('projects/', formData, { headers })
-  },
-  updateProject(id, formData) {
-    return apiClient.patch(`projects/${id}/`, formData, {
+    return apiClient.post('projects/', formData, {
       headers: { 'Content-Type': 'multipart/form-data' },
     })
   },
-  updateProjectAssociations(id, associations) {
-    return apiClient.patch(`projects/${id}/`, associations)
+  updateProject(id, formData) {
+    return apiClient.put(`projects/${id}/`, formData, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    })
   },
   deleteProject(id) {
     return apiClient.delete(`projects/${id}/`)
   },
 
-  // Mods
-  createMod(formData) {
-    return apiClient.post('mods/', formData, { headers: { 'Content-Type': 'multipart/form-data' } })
-  },
-  updateMod(id, modData) {
-    return apiClient.patch(`mods/${id}/`, modData)
-  },
-  deleteMod(id) {
-    return apiClient.delete(`mods/${id}/`)
-  },
-  createModFile(formData) {
-    return apiClient.post('modfiles/', formData, {
-      headers: { 'Content-Type': 'multipart/form-data' },
-    })
-  },
-  deleteModFile(id) {
-    return apiClient.delete(`modfiles/${id}/`)
-  },
-
-  // Project Links & Files
-  createProjectLink(linkData) {
-    return apiClient.post('projectlinks/', linkData)
-  },
-  deleteProjectLink(id) {
-    return apiClient.delete(`projectlinks/${id}/`)
-  },
-  createProjectFile(formData) {
-    return apiClient.post('projectfiles/', formData, {
-      headers: { 'Content-Type': 'multipart/form-data' },
-    })
-  },
-  deleteProjectFile(id) {
-    return apiClient.delete(`projectfiles/${id}/`)
-  },
-
   // Data Management
+  exportData() {
+    return apiClient.get('export/data/', { responseType: 'blob' })
+  },
   restoreData(formData) {
     return apiClient.post('import-data/', formData, {
       headers: { 'Content-Type': 'multipart/form-data' },
@@ -123,18 +93,21 @@ export default {
     return apiClient.post('delete-all-data/')
   },
 
-  // Reminders
+  // Reminders & Notifications
   getReminders() {
     return apiClient.get('reminders/')
   },
   dismissReminder(printerId, reminderType) {
     const payload = {}
     if (reminderType === 'maintenance') {
-      payload.maintenance_reminder_date = null
+      payload.last_maintained_date = new Date().toISOString().split('T')[0]
     } else if (reminderType === 'carbon') {
-      payload.carbon_reminder_date = null
+      payload.last_carbon_replacement_date = new Date().toISOString().split('T')[0]
     }
     return apiClient.patch(`printers/${printerId}/`, payload)
+  },
+  getLowStockItems() {
+    return apiClient.get('low-stock/')
   },
 
   // Lookups
