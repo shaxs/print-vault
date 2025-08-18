@@ -1,5 +1,6 @@
 <script setup>
 import { RouterLink } from 'vue-router'
+import { ref, onMounted } from 'vue'
 
 const props = defineProps({
   title: { type: String, required: true },
@@ -16,6 +17,19 @@ const emit = defineEmits(['update:modelValue', 'open-filter', 'open-columns'])
 const clearSearch = () => {
   emit('update:modelValue', '')
 }
+
+// Theme toggle logic
+const currentTheme = ref(localStorage.getItem('theme') || 'dark')
+
+const toggleTheme = () => {
+  currentTheme.value = currentTheme.value === 'dark' ? 'light' : 'dark'
+  document.documentElement.setAttribute('data-theme', currentTheme.value)
+  localStorage.setItem('theme', currentTheme.value)
+}
+
+onMounted(() => {
+  document.documentElement.setAttribute('data-theme', currentTheme.value)
+})
 </script>
 
 <template>
@@ -39,6 +53,11 @@ const clearSearch = () => {
         <button v-if="modelValue" @click="clearSearch" class="search-clear-button">&times;</button>
       </div>
       <RouterLink v-if="showAddButton" :to="createUrl" class="add-button">+ Add</RouterLink>
+      <!-- Theme Toggle Button -->
+      <button @click="toggleTheme" class="theme-toggle">
+        <span v-if="currentTheme === 'dark'">🌙 Dark Mode</span>
+        <span v-else>☀️ Light Mode</span>
+      </button>
     </div>
   </div>
 </template>
@@ -113,6 +132,22 @@ const clearSearch = () => {
   background: none;
   border: 1px solid var(--color-border);
   color: var(--color-text);
+}
+.theme-toggle {
+  background: none;
+  border: 1px solid var(--color-border);
+  color: var(--color-text);
+  padding: 8px 15px;
+  border-radius: 5px;
+  cursor: pointer;
+  font-size: 1rem;
+  font-weight: bold;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+.theme-toggle:hover {
+  border-color: var(--color-border-hover);
 }
 
 @media (max-width: 768px) {

@@ -1,5 +1,6 @@
 /* src/assets/main.css */
 
+/* Dark Theme (default) */
 :root {
   --color-background: #121212;
   --color-background-soft: #272727;
@@ -11,9 +12,20 @@
   --color-green: #42b983;
   --color-blue: #0d6efd;
   --color-red: #dc3545;
-  --vt-c-white: #ffffff;
-  --vt-c-white-soft: #f8f8f8;
-  --vt-c-white-mute: #f2f2f2;
+}
+
+/* Light Theme */
+[data-theme='light'] {
+  --color-background: #ffffff;
+  --color-background-soft: #f8f8f8;
+  --color-background-mute: #e0e0e0;
+  --color-border: #ccc;
+  --color-border-hover: #888;
+  --color-heading: #333;
+  --color-text: #555;
+  --color-green: #42b983;
+  --color-blue: #0d6efd;
+  --color-red: #dc3545;
 }
 
 *,

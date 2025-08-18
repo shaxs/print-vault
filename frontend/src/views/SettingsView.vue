@@ -610,6 +610,67 @@ onMounted(() => {
   user-select: none;
   cursor: pointer;
 }
+.settings-container {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  padding: 20px;
+}
+
+.settings-tabs {
+  display: flex;
+  gap: 10px;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.settings-tabs button {
+  background: none;
+  border: none;
+  padding: 10px 15px;
+  cursor: pointer;
+  font-size: 1rem;
+  font-weight: bold;
+  color: var(--color-text);
+  border-bottom: 2px solid transparent;
+}
+
+.settings-tabs button.active {
+  color: var(--color-heading);
+  border-bottom-color: var(--color-blue);
+}
+
+.settings-content {
+  padding: 20px;
+  background-color: var(--color-background-soft);
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+}
+
+.preference-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 20px;
+}
+
+.theme-toggle {
+  background: none;
+  border: 1px solid var(--color-border);
+  color: var(--color-text);
+  padding: 8px 15px;
+  border-radius: 5px;
+  cursor: pointer;
+  font-size: 1rem;
+  font-weight: bold;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.theme-toggle:hover {
+  border-color: var(--color-border-hover);
+}
+
 @media (max-width: 992px) {
   .data-actions {
     grid-template-columns: 1fr;
