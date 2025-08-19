@@ -21,7 +21,13 @@ onMounted(async () => {
 
 <template>
   <div>
-    <MainHeader title="Edit Project" :showSearch="false" :showAddButton="false" />
+    <MainHeader
+      title="Edit Project"
+      :showSearch="false"
+      :showAddButton="false"
+      :show-filter-button="false"
+      :show-column-button="false"
+    />
     <ProjectForm v-if="projectToEdit" :initial-data="projectToEdit" />
     <p v-else>Loading project...</p>
   </div>

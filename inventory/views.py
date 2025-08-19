@@ -144,10 +144,10 @@ class ImportDataView(APIView):
     def post(self, request, *args, **kwargs):
         backup_file = request.FILES.get('backup_file')
         if not backup_file:
-            return Response({'error': 'No backup file provided'}, status=status.HTTP_400_BAD_REQUEST)
-        
+            return Response({'error': 'No backup file provided.'}, status=status.HTTP_400_BAD_REQUEST)
+
         try:
-            # Clear existing data
+            # Clear all data in the correct order
             ProjectPrinters.objects.all().delete()
             ProjectInventory.objects.all().delete()
             ProjectFile.objects.all().delete()
@@ -161,33 +161,186 @@ class ImportDataView(APIView):
             PartType.objects.all().delete()
             Location.objects.all().delete()
 
-            # Process the zip file
+            # Clear media directory
+            media_root = settings.MEDIA_ROOT
+            if os.path.isdir(media_root):
+                for item in os.listdir(media_root):
+                    item_path = os.path.join(media_root, item)
+                    if os.path.isdir(item_path):
+                        shutil.rmtree(item_path)
+
+            # Extract all files from ZIP to media directory
             with zipfile.ZipFile(backup_file, 'r') as zf:
-                if 'inventory.csv' in zf.namelist():
-                    with zf.open('inventory.csv') as csvfile:
-                        reader = csv.reader(StringIO(csvfile.read().decode('utf-8')))
+                for member in zf.namelist():
+                    # Only extract media files (folders) and CSVs
+                    if member.startswith(('inventory_photos/', 'printer_photos/', 'project_photos/', 'mod_files/', 'project_files/')) and not member.endswith('/'):
+                        target_path = os.path.join(media_root, member)
+                        os.makedirs(os.path.dirname(target_path), exist_ok=True)
+                        with open(target_path, 'wb') as f:
+                            f.write(zf.read(member))
+                    # Optionally, extract CSVs to media_root for easier reading (not strictly necessary)
+                    elif member.endswith('.csv'):
+                        target_path = os.path.join(media_root, member)
+                        with open(target_path, 'wb') as f:
+                            f.write(zf.read(member))
+
+                def read_csv_from_zip(zipfile_obj, filename):
+                    with zipfile_obj.open(filename, 'r') as f:
+                        reader = csv.reader(StringIO(f.read().decode('utf-8')))
                         header = next(reader)
-                        for row in reader:
-                            row_data = dict(zip(header, row))
-                            
-                            brand, _ = Brand.objects.get_or_create(name=row_data['brand']) if row_data['brand'] else (None, False)
-                            part_type, _ = PartType.objects.get_or_create(name=row_data['part_type']) if row_data['part_type'] else (None, False)
-                            location, _ = Location.objects.get_or_create(name=row_data['location']) if row_data['location'] else (None, False)
-                            
-                            InventoryItem.objects.create(
-                                id=row_data['id'],
-                                title=row_data['title'],
-                                brand=brand,
-                                part_type=part_type,
-                                location=location,
-                                quantity=int(row_data['quantity'] or 0),
-                                cost=float(row_data['cost'] or 0.0),
-                                notes=row_data['notes'],
-                                is_consumable=row_data.get('is_consumable', 'false').lower() == 'true',
-                                low_stock_threshold=int(row_data.get('low_stock_threshold') or 0)
-                            )
-                # Future logic for importing other models would go here
-            return Response({'status': 'success'}, status=status.HTTP_200_OK)
+                        return [dict(zip(header, row)) for row in reader]
+
+                # Import Brands
+                if 'inventory.csv' in zf.namelist():
+                    inventory_rows = read_csv_from_zip(zf, 'inventory.csv')
+                    for row in inventory_rows:
+                        if row['brand']:
+                            Brand.objects.get_or_create(name=row['brand'])
+                        if row['part_type']:
+                            PartType.objects.get_or_create(name=row['part_type'])
+                        if row['location']:
+                            Location.objects.get_or_create(name=row['location'])
+
+                # Import Printers
+                if 'printers.csv' in zf.namelist():
+                    printer_rows = read_csv_from_zip(zf, 'printers.csv')
+                    for row in printer_rows:
+                        if row['manufacturer']:
+                            Brand.objects.get_or_create(name=row['manufacturer'])
+
+                # Import Locations, PartTypes, Brands (from other CSVs if needed)
+                # (Already handled above)
+
+                # Import Printer objects
+                if 'printers.csv' in zf.namelist():
+                    printer_rows = read_csv_from_zip(zf, 'printers.csv')
+                    for row in printer_rows:
+                        manufacturer = Brand.objects.filter(name=row['manufacturer']).first() if row['manufacturer'] else None
+                        printer = Printer(
+                            id=row['id'],
+                            title=row['title'],
+                            manufacturer=manufacturer,
+                            serial_number=row.get('serial_number') or None,  # <-- Fix here
+                            purchase_date=row.get('purchase_date', None) or None,
+                            status=row.get('status', ''),
+                            notes=row.get('notes', ''),
+                            purchase_price=row.get('purchase_price', None) or None,
+                            build_size_x=row.get('build_size_x', None) or None,
+                            build_size_y=row.get('build_size_y', None) or None,
+                            build_size_z=row.get('build_size_z', None) or None,
+                            photo=f"printer_photos/{row['photo']}" if row.get('photo') else None,
+                            last_maintained_date=row.get('last_maintained_date', None) or None,
+                            maintenance_reminder_date=row.get('maintenance_reminder_date', None) or None,
+                            last_carbon_replacement_date=row.get('last_carbon_replacement_date', None) or None,
+                            carbon_reminder_date=row.get('carbon_reminder_date', None) or None,
+                            maintenance_notes=row.get('maintenance_notes', ''),
+                            moonraker_url=row.get('moonraker_url', None)
+                        )
+                        printer.save()
+
+                # Import Inventory Items
+                if 'inventory.csv' in zf.namelist():
+                    inventory_rows = read_csv_from_zip(zf, 'inventory.csv')
+                    for row in inventory_rows:
+                        brand = Brand.objects.filter(name=row['brand']).first() if row['brand'] else None
+                        part_type = PartType.objects.filter(name=row['part_type']).first() if row['part_type'] else None
+                        location = Location.objects.filter(name=row['location']).first() if row['location'] else None
+                        item = InventoryItem(
+                            id=row['id'],
+                            title=row['title'],
+                            brand=brand,
+                            part_type=part_type,
+                            location=location,
+                            quantity=int(row['quantity']) if row['quantity'] else 0,
+                            cost=float(row['cost']) if row['cost'] else None,
+                            notes=row.get('notes', ''),
+                            photo=f"inventory_photos/{row['photo']}" if row.get('photo') else None,
+                            is_consumable=row.get('is_consumable', 'false').lower() == 'true',
+                            low_stock_threshold=int(row.get('low_stock_threshold', 0)) if row.get('low_stock_threshold') else None
+                        )
+                        item.save()
+
+                # Import Projects
+                if 'projects.csv' in zf.namelist():
+                    project_rows = read_csv_from_zip(zf, 'projects.csv')
+                    for row in project_rows:
+                        project = Project(
+                            id=row['id'],
+                            project_name=row['project_name'],
+                            description=row.get('description', ''),
+                            status=row.get('status', ''),
+                            start_date=row.get('start_date', None) or None,
+                            end_date=row.get('end_date', None) or None,
+                            notes=row.get('notes', ''),
+                            photo=f"project_photos/{row['photo']}" if row.get('photo') else None
+                        )
+                        project.save()
+
+                # Import Mods
+                if 'mods.csv' in zf.namelist():
+                    mod_rows = read_csv_from_zip(zf, 'mods.csv')
+                    for row in mod_rows:
+                        Mod.objects.create(
+                            id=row['id'],
+                            printer_id=row['printer_id'],
+                            name=row['name'],
+                            link=row['link'],
+                            status=row['status']
+                        )
+
+                # Import ModFiles
+                if 'modfiles.csv' in zf.namelist():
+                    modfile_rows = read_csv_from_zip(zf, 'modfiles.csv')
+                    for row in modfile_rows:
+                        mf = ModFile(
+                            id=row['id'],
+                            mod_id=row['mod_id'],
+                            file=f"mod_files/{row['file']}" if row.get('file') else None
+                        )
+                        mf.save()
+
+                # Import ProjectLinks
+                if 'project_links.csv' in zf.namelist():
+                    link_rows = read_csv_from_zip(zf, 'project_links.csv')
+                    for row in link_rows:
+                        ProjectLink.objects.create(
+                            id=row['id'],
+                            project_id=row['project_id'],
+                            name=row['name'],
+                            url=row['url']
+                        )
+
+                # Import ProjectFiles
+                if 'project_files.csv' in zf.namelist():
+                    file_rows = read_csv_from_zip(zf, 'project_files.csv')
+                    for row in file_rows:
+                        pf = ProjectFile(
+                            id=row['id'],
+                            project_id=row['project_id'],
+                            file=f"project_files/{row['file']}" if row.get('file') else None
+                        )
+                        pf.save()
+
+                # Import ProjectInventory
+                if 'project_inventory.csv' in zf.namelist():
+                    proj_inv_rows = read_csv_from_zip(zf, 'project_inventory.csv')
+                    for row in proj_inv_rows:
+                        ProjectInventory.objects.create(
+                            project_id=row['project_id'],
+                            inventory_item_id=row['inventory_item_id'],
+                            quantity_used=int(row.get('quantity_used', 0))  # Always set a default value
+                        )
+
+                # Import ProjectPrinters
+                if 'project_printers.csv' in zf.namelist():
+                    proj_printer_rows = read_csv_from_zip(zf, 'project_printers.csv')
+                    for row in proj_printer_rows:
+                        ProjectPrinters.objects.create(
+                            project_id=row['project_id'],
+                            printer_id=row['printer_id']
+                        )
+
+            return Response({'success': 'Data restored successfully.'}, status=status.HTTP_200_OK)
         except Exception as e:
             return Response({'error': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 

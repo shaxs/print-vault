@@ -14,6 +14,7 @@ import ProjectCreateView from '../views/ProjectCreateView.vue'
 import ProjectDetailView from '../views/ProjectDetailView.vue'
 import ProjectEditView from '../views/ProjectEditView.vue'
 import SettingsView from '../views/SettingsView.vue'
+import DashboardView from '../views/DashboardView.vue'
 
 const router = createRouter({
   history: createWebHistory(import.meta.env.BASE_URL),
@@ -39,6 +40,9 @@ const router = createRouter({
 
     // Settings Route
     { path: '/settings', name: 'settings', component: SettingsView },
+
+    // Dashboard Route
+    { path: '/dashboard', name: 'dashboard', component: DashboardView },
   ],
 })
 

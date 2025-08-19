@@ -1,8 +1,7 @@
 <script setup>
 import { RouterLink } from 'vue-router'
-import { ref, onMounted } from 'vue'
 
-const props = defineProps({
+defineProps({
   title: { type: String, required: true },
   createUrl: { type: String, default: '' },
   showSearch: { type: Boolean, default: true },
@@ -17,19 +16,6 @@ const emit = defineEmits(['update:modelValue', 'open-filter', 'open-columns'])
 const clearSearch = () => {
   emit('update:modelValue', '')
 }
-
-// Theme toggle logic
-const currentTheme = ref(localStorage.getItem('theme') || 'dark')
-
-const toggleTheme = () => {
-  currentTheme.value = currentTheme.value === 'dark' ? 'light' : 'dark'
-  document.documentElement.setAttribute('data-theme', currentTheme.value)
-  localStorage.setItem('theme', currentTheme.value)
-}
-
-onMounted(() => {
-  document.documentElement.setAttribute('data-theme', currentTheme.value)
-})
 </script>
 
 <template>
@@ -53,11 +39,6 @@ onMounted(() => {
         <button v-if="modelValue" @click="clearSearch" class="search-clear-button">&times;</button>
       </div>
       <RouterLink v-if="showAddButton" :to="createUrl" class="add-button">+ Add</RouterLink>
-      <!-- Theme Toggle Button -->
-      <button @click="toggleTheme" class="theme-toggle">
-        <span v-if="currentTheme === 'dark'">🌙 Dark Mode</span>
-        <span v-else>☀️ Light Mode</span>
-      </button>
     </div>
   </div>
 </template>

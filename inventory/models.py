@@ -55,6 +55,7 @@ class Printer(models.Model):
     last_carbon_replacement_date = models.DateField(null=True, blank=True)
     carbon_reminder_date = models.DateField(null=True, blank=True)
     maintenance_notes = models.TextField(null=True, blank=True)
+    moonraker_url = models.URLField(blank=True, null=True)
     class Meta:
         verbose_name = "Printer"
         verbose_name_plural = "Printers"
