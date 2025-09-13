@@ -13,6 +13,7 @@ node_modules/
 
 # Local Media Files
 data/media/
+media/
 
 # Local Postgres
 data/postgres/
