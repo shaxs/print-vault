@@ -328,7 +328,7 @@ class ImportDataView(APIView):
                         ProjectInventory.objects.create(
                             project_id=row['project_id'],
                             inventory_item_id=row['inventory_item_id'],
-                            quantity_used=int(row.get('quantity_used', 0))  # Always set a default value
+                            quantity_used=int(row.get('quantity_used', 0)) or 0 # <-- FIX HERE
                         )
 
                 # Import ProjectPrinters
@@ -339,9 +339,14 @@ class ImportDataView(APIView):
                             project_id=row['project_id'],
                             printer_id=row['printer_id']
                         )
+            
+            # Add a print statement for debugging
+            print("--- Import process completed successfully ---")
 
             return Response({'success': 'Data restored successfully.'}, status=status.HTTP_200_OK)
         except Exception as e:
+            # Also print the error to the console for debugging
+            print(f"--- AN ERROR OCCURRED DURING IMPORT: {e} ---")
             return Response({'error': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 class DeleteAllData(APIView):

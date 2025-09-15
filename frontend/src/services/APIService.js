@@ -59,6 +59,16 @@ export default {
     return apiClient.delete(`mods/${id}/`)
   },
 
+  // ModFiles
+  createModFile(data) {
+    return apiClient.post('modfiles/', data, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    })
+  },
+  deleteModFile(id) {
+    return apiClient.delete(`modfiles/${id}/`)
+  },
+
   // Projects
   getProjects(params) {
     return apiClient.get('projects/', { params })
@@ -78,6 +88,22 @@ export default {
   },
   deleteProject(id) {
     return apiClient.delete(`projects/${id}/`)
+  },
+
+  // Project Files & Links
+  createProjectLink(data) {
+    return apiClient.post('projectlinks/', data)
+  },
+  deleteProjectLink(id) {
+    return apiClient.delete(`projectlinks/${id}/`)
+  },
+  createProjectFile(data) {
+    return apiClient.post('projectfiles/', data, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    })
+  },
+  deleteProjectFile(id) {
+    return apiClient.delete(`projectfiles/${id}/`)
   },
 
   // Data Management

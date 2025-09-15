@@ -1,627 +1,783 @@
 <script setup>
-import { ref, onMounted, watch, computed } from 'vue'
-import { useRoute, useRouter, RouterLink } from 'vue-router'
-import APIService from '@/services/APIService.js'
-import MainHeader from '@/components/MainHeader.vue'
-import DataTable from '@/components/DataTable.vue'
-import BaseModal from '@/components/BaseModal.vue'
+import { ref, onMounted, computed, watch } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
+import APIService from '../services/APIService'
+import BaseModal from '../components/BaseModal.vue'
+import ErrorModal from '../components/ErrorModal.vue'
+import InfoModal from '../components/InfoModal.vue'
 
 const route = useRoute()
 const router = useRouter()
 const printer = ref(null)
-const printerId = route.params.id
-const isPhotoModalVisible = ref(false)
-const isAddModalVisible = ref(false)
-const isEditModalVisible = ref(false)
-const isDeleteModalVisible = ref(false)
-const itemToDelete = ref(null)
+const isLoading = ref(true)
+const errorMessage = ref('')
+const isErrorModalVisible = ref(false)
 
+const isAddModModalVisible = ref(false)
 const newMod = ref({ name: '', link: '', status: 'Planned' })
-const newModFiles = ref(null)
-const newModFileRef = ref(null)
-const editingMod = ref(null)
-const editModFileRef = ref(null)
+const newModFiles = ref([])
 
-const modHeaders = [
-  { text: 'Name', value: 'name' },
-  { text: 'Link', value: 'link' },
-  { text: 'Files', value: 'files' },
-  { text: 'Actions', value: 'actions' },
-]
-const plannedMods = computed(() => printer.value?.mods.filter((m) => m.status === 'Planned') || [])
-const inProgressMods = computed(
-  () => printer.value?.mods.filter((m) => m.status === 'In Progress') || [],
-)
-const completedMods = computed(
-  () => printer.value?.mods.filter((m) => m.status === 'Completed') || [],
-)
-const closeAllModals = () => {
-  isAddModalVisible.value = false
-  isEditModalVisible.value = false
-}
-const loadPrinterDetails = async () => {
+const isEditModModalVisible = ref(false)
+const editingMod = ref(null)
+const newFiles = ref([]) // For adding new files in edit mode
+const filesToDelete = ref(new Set()) // For marking files for deletion
+
+const isInfoModalVisible = ref(false)
+const infoModalMessage = ref('')
+
+// New state for the photo lightbox
+const isPhotoModalVisible = ref(false)
+
+const fetchPrinter = async () => {
   try {
-    const response = await APIService.getPrinter(printerId)
+    isLoading.value = true
+    const response = await APIService.getPrinter(route.params.id)
     printer.value = response.data
   } catch (error) {
-    console.error('Error loading printer details:', error)
-  }
-}
-const openDeleteModal = (type, id, name) => {
-  itemToDelete.value = { type, id, name }
-  isDeleteModalVisible.value = true
-}
-const handleDeleteConfirm = async () => {
-  if (!itemToDelete.value) return
-  try {
-    if (itemToDelete.value.type === 'printer') {
-      await APIService.deletePrinter(itemToDelete.value.id)
-      router.push('/printers')
-    } else if (itemToDelete.value.type === 'mod') {
-      await APIService.deleteMod(itemToDelete.value.id)
-      loadPrinterDetails()
-    }
-  } catch (error) {
-    console.error(`Error deleting ${itemToDelete.value.type}:`, error)
+    console.error('Failed to fetch printer details:', error)
+    errorMessage.value = 'Failed to load printer details. Please try again.'
+    isErrorModalVisible.value = true
   } finally {
-    isDeleteModalVisible.value = false
-    itemToDelete.value = null
+    isLoading.value = false
   }
 }
+
+const triggerFileInput = (inputId) => {
+  document.getElementById(inputId).click()
+}
+
 const handleNewModFileUpload = (event) => {
-  newModFiles.value = event.target.files
+  newModFiles.value = Array.from(event.target.files)
 }
+
+const handleEditModFileUpload = (event) => {
+  newFiles.value = Array.from(event.target.files)
+}
+
 const addMod = async () => {
-  const modFormData = new FormData()
-  modFormData.append('printer', printerId)
-  modFormData.append('name', newMod.value.name)
-  modFormData.append('status', newMod.value.status)
-  if (newMod.value.link) modFormData.append('link', newMod.value.link)
+  if (!newMod.value.name) {
+    alert('Mod name is required.')
+    return
+  }
+
+  const formData = new FormData()
+  formData.append('printer', printer.value.id)
+  formData.append('name', newMod.value.name)
+  formData.append('link', newMod.value.link)
+  formData.append('status', newMod.value.status)
+
   try {
-    const modResponse = await APIService.createMod(modFormData)
-    const newModId = modResponse.data.id
-    if (newModFiles.value && newModFiles.value.length > 0) {
-      const fileFormData = new FormData()
-      fileFormData.append('mod', newModId)
+    const response = await APIService.createMod(formData)
+    const modId = response.data.id
+
+    if (newModFiles.value.length > 0) {
       for (const file of newModFiles.value) {
+        const fileFormData = new FormData()
+        fileFormData.append('mod', modId)
         fileFormData.append('file', file)
+        await APIService.createModFile(fileFormData)
       }
-      await APIService.createModFile(fileFormData)
     }
-    closeAllModals()
-    newMod.value = { name: '', link: '', status: 'Planned' }
-    if (newModFileRef.value) newModFileRef.value.value = null
-    loadPrinterDetails()
+
+    closeAddModModal()
+    await fetchPrinter()
   } catch (error) {
-    console.error('Error adding mod:', error)
+    console.error('Failed to add mod:', error)
+    errorMessage.value = 'Failed to add mod. Please try again.'
+    isErrorModalVisible.value = true
   }
 }
+
 const openEditModModal = (mod) => {
-  editingMod.value = { ...mod }
-  isEditModalVisible.value = true
+  editingMod.value = { ...mod, files: [...mod.files] }
+  isEditModModalVisible.value = true
 }
-const updateMod = async () => {
-  if (!editingMod.value) return
-  try {
-    await APIService.updateMod(editingMod.value.id, {
-      name: editingMod.value.name,
-      link: editingMod.value.link,
-      status: editingMod.value.status,
-    })
-    const files = editModFileRef.value?.files
-    if (files && files.length > 0) {
-      const fileFormData = new FormData()
-      fileFormData.append('mod', editingMod.value.id)
-      for (const file of files) {
-        fileFormData.append('file', file)
-      }
-      await APIService.createModFile(fileFormData)
-    }
-    closeAllModals()
-    editingMod.value = null
-    loadPrinterDetails()
-  } catch (error) {
-    console.error('Error updating mod:', error)
-  }
-}
-const deleteModFile = async (fileId) => {
-  if (window.confirm('Are you sure you want to delete this file?')) {
-    try {
-      await APIService.deleteModFile(fileId)
-      const modIndex = printer.value.mods.findIndex((m) => m.id === editingMod.value.id)
-      if (modIndex !== -1) {
-        const updatedModFiles = editingMod.value.files.filter((f) => f.id !== fileId)
-        editingMod.value.files = updatedModFiles
-        printer.value.mods[modIndex].files = updatedModFiles
-      }
-    } catch (error) {
-      console.error('Error deleting mod file:', error)
-    }
-  }
-}
-watch(isPhotoModalVisible, (newValue) => {
-  const handleKeydown = (event) => {
-    if (event.key === 'Escape') {
-      isPhotoModalVisible.value = false
-    }
-  }
-  if (newValue) {
-    window.addEventListener('keydown', handleKeydown)
+
+const markFileForDeletion = (fileId) => {
+  if (filesToDelete.value.has(fileId)) {
+    filesToDelete.value.delete(fileId)
   } else {
-    window.removeEventListener('keydown', handleKeydown)
+    filesToDelete.value.add(fileId)
   }
+}
+
+const updateMod = async () => {
+  if (!editingMod.value || !editingMod.value.id) return
+
+  const modId = editingMod.value.id
+  const modData = {
+    name: editingMod.value.name,
+    link: editingMod.value.link,
+    status: editingMod.value.status,
+  }
+
+  try {
+    // 1. Update mod details
+    await APIService.updateMod(modId, modData)
+
+    // 2. Delete marked files
+    for (const fileId of filesToDelete.value) {
+      await APIService.deleteModFile(fileId)
+    }
+
+    // 3. Upload new files
+    if (newFiles.value.length > 0) {
+      for (const file of newFiles.value) {
+        const formData = new FormData()
+        formData.append('mod', modId)
+        formData.append('file', file)
+        await APIService.createModFile(formData)
+      }
+    }
+
+    closeEditModModal()
+    await fetchPrinter()
+  } catch (error) {
+    console.error('Failed to update mod:', error)
+    errorMessage.value = 'Failed to update mod. Please try again.'
+    isErrorModalVisible.value = true
+  }
+}
+
+const deleteMod = async (modId) => {
+  if (confirm('Are you sure you want to delete this mod and all its files?')) {
+    try {
+      await APIService.deleteMod(modId)
+      infoModalMessage.value = 'Mod deleted successfully.'
+      isInfoModalVisible.value = true
+      await fetchPrinter()
+    } catch (error) {
+      console.error('Failed to delete mod:', error)
+      errorMessage.value = 'Failed to delete mod. Please try again.'
+      isErrorModalVisible.value = true
+    }
+  }
+}
+
+const closeAddModModal = () => {
+  isAddModModalVisible.value = false
+  newMod.value = { name: '', link: '', status: 'Planned' }
+  newModFiles.value = []
+}
+
+const closeEditModModal = () => {
+  isEditModModalVisible.value = false
+  editingMod.value = null
+  newFiles.value = []
+  filesToDelete.value.clear()
+}
+
+const formatPurchasePrice = (price) => {
+  if (price === null || price === undefined) {
+    return 'N/A'
+  }
+  return `$${Number(price).toFixed(2)}`
+}
+
+const buildVolume = computed(() => {
+  if (
+    !printer.value ||
+    printer.value.build_size_x == null ||
+    printer.value.build_size_y == null ||
+    printer.value.build_size_z == null
+  ) {
+    return 'N/A'
+  }
+  return `${printer.value.build_size_x}mm x ${printer.value.build_size_y}mm x ${printer.value.build_size_z}mm`
 })
-onMounted(() => {
-  loadPrinterDetails()
-})
+
+const formatDate = (dateString) => {
+  if (!dateString) return 'N/A'
+  const options = { year: 'numeric', month: 'long', day: 'numeric' }
+  return new Date(dateString).toLocaleDateString(undefined, options)
+}
+
+const deletePrinter = async () => {
+  if (confirm('Are you sure you want to delete this printer? This action cannot be undone.')) {
+    try {
+      await APIService.deletePrinter(printer.value.id)
+      router.push({ name: 'printer-list' })
+    } catch (error) {
+      console.error('Failed to delete printer:', error)
+      errorMessage.value = 'Failed to delete printer. Please try again.'
+      isErrorModalVisible.value = true
+    }
+  }
+}
+
+const getFileName = (filePath) => {
+  if (!filePath) return ''
+  return filePath.split('/').pop()
+}
+
+onMounted(fetchPrinter)
 </script>
 
 <template>
-  <div class="detail-view">
-    <MainHeader
-      v-if="printer"
-      :title="printer.title"
-      :showSearch="false"
-      :showAddButton="false"
-      :showFilterButton="false"
-      :showColumnButton="false"
-    />
-    <div class="details-grid" v-if="printer">
-      <div class="details-container">
-        <div class="section-header">
-          <h3>Details</h3>
-          <div>
-            <RouterLink
-              :to="{ name: 'printer-edit', params: { id: printer.id } }"
-              class="action-button edit-button"
-              >Edit</RouterLink
-            ><button
-              @click="openDeleteModal('printer', printer.id, printer.title)"
-              class="action-button delete-button"
-            >
-              Delete
-            </button>
+  <div class="page-container">
+    <div v-if="isLoading" class="loading-state">
+      <p>Loading printer details...</p>
+    </div>
+
+    <div v-if="!isLoading && printer" class="content-container">
+      <div class="detail-header">
+        <div class="header-content">
+          <img
+            :src="printer.photo"
+            v-if="printer.photo"
+            alt="Printer Photo"
+            class="detail-photo clickable"
+            @click="isPhotoModalVisible = true"
+          />
+          <div class="header-info">
+            <h1>{{ printer.title }}</h1>
+            <p class="manufacturer-serial">
+              {{ printer.manufacturer.name }} | Serial:
+              {{ printer.serial_number || 'N/A' }}
+            </p>
           </div>
         </div>
-        <div class="detail-item">
-          <span class="label">Manufacturer</span
-          ><span class="value">{{ printer.manufacturer ? printer.manufacturer.name : 'N/A' }}</span>
-        </div>
-        <div class="detail-item">
-          <span class="label">Status</span><span class="value">{{ printer.status }}</span>
-        </div>
-        <div class="detail-item">
-          <span class="label">Serial Number</span
-          ><span class="value">{{ printer.serial_number || 'N/A' }}</span>
-        </div>
-        <div class="detail-item">
-          <span class="label">Purchase Date</span
-          ><span class="value">{{ printer.purchase_date || 'N/A' }}</span>
-        </div>
-        <div class="detail-item">
-          <span class="label">Purchase Price</span
-          ><span class="value">${{ printer.purchase_price || '0.00' }}</span>
-        </div>
-        <div class="detail-item">
-          <span class="label">Build Volume (mm)</span
-          ><span class="value"
-            >{{ printer.build_size_x || 'N/A' }} x {{ printer.build_size_y || 'N/A' }} x
-            {{ printer.build_size_z || 'N/A' }}</span
+        <div class="header-actions">
+          <router-link
+            :to="{ name: 'printer-edit', params: { id: printer.id } }"
+            class="btn btn-primary"
+            >Edit Printer</router-link
           >
+          <button @click="deletePrinter" class="btn btn-danger">Delete</button>
         </div>
-        <div class="detail-item full-width">
-          <span class="label">Notes</span>
-          <p class="value-notes">{{ printer.notes || 'No notes.' }}</p>
+      </div>
+
+      <div class="detail-grid">
+        <div class="card">
+          <div class="card-header">
+            <h3>Printer Details</h3>
+          </div>
+          <div class="card-body">
+            <p>
+              <strong>Status:</strong>
+              <span
+                :class="[
+                  'status-badge',
+                  `status-${printer.status.toLowerCase().replace(/ /g, '-').replace(/\//g, '-')}`,
+                ]"
+                >{{ printer.status }}</span
+              >
+            </p>
+            <p>
+              <strong>Build Volume:</strong>
+              <span>{{ buildVolume }}</span>
+            </p>
+            <p><strong>Purchase Date:</strong> {{ formatDate(printer.purchase_date) }}</p>
+            <p>
+              <strong>Purchase Price:</strong>
+              {{ formatPurchasePrice(printer.purchase_price) }}
+            </p>
+          </div>
         </div>
-        <div class="detail-item full-width">
-          <span class="label">Photo</span
-          ><img
-            v-if="printer.photo"
-            :src="printer.photo"
-            @click="isPhotoModalVisible = true"
-            alt="Printer photo"
-            class="detail-photo clickable"
+
+        <div class="card">
+          <div class="card-header">
+            <h3>Notes</h3>
+          </div>
+          <div class="card-body">
+            <p>{{ printer.notes || 'No notes available.' }}</p>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-header">
+            <h3>Maintenance</h3>
+            <router-link
+              :to="{ name: 'maintenance-edit', params: { id: printer.id } }"
+              class="btn btn-sm btn-primary"
+              >Edit</router-link
+            >
+          </div>
+          <div class="card-body">
+            <p>
+              <strong>Last Maintained:</strong>
+              {{ formatDate(printer.last_maintained_date) }}
+            </p>
+            <p>
+              <strong>Maintenance Reminder:</strong>
+              {{ formatDate(printer.maintenance_reminder_date) }}
+            </p>
+            <p>
+              <strong>Last Carbon Filter Replacement:</strong>
+              {{ formatDate(printer.last_carbon_replacement_date) }}
+            </p>
+            <p>
+              <strong>Carbon Filter Reminder:</strong>
+              {{ formatDate(printer.carbon_reminder_date) }}
+            </p>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-header">
+            <h3>Maintenance Notes</h3>
+            <router-link
+              :to="{ name: 'maintenance-edit', params: { id: printer.id } }"
+              class="btn btn-sm btn-primary"
+              >Edit</router-link
+            >
+          </div>
+          <div class="card-body">
+            <p>{{ printer.maintenance_notes || 'No maintenance notes available.' }}</p>
+          </div>
+        </div>
+
+        <div class="card card-full-width">
+          <div class="card-header">
+            <h3>Mods</h3>
+            <button @click="isAddModModalVisible = true" class="btn btn-secondary">Add Mod</button>
+          </div>
+          <div class="card-body">
+            <ul v-if="printer.mods && printer.mods.length > 0" class="mods-list">
+              <li v-for="mod in printer.mods" :key="mod.id" class="mod-item">
+                <div class="mod-info">
+                  <a v-if="mod.link" :href="mod.link" target="_blank" class="mod-name-link">
+                    <strong>{{ mod.name }}</strong>
+                  </a>
+                  <strong v-else>{{ mod.name }}</strong>
+                  -
+                  <span :class="['status-badge', `status-${mod.status.toLowerCase()}`]">{{
+                    mod.status
+                  }}</span>
+                  <div v-if="mod.files && mod.files.length > 0" class="mod-files">
+                    <ul>
+                      <li v-for="file in mod.files" :key="file.id">
+                        <a :href="file.file" target="_blank">{{ getFileName(file.file) }}</a>
+                      </li>
+                    </ul>
+                  </div>
+                </div>
+                <div class="mod-actions">
+                  <button @click="openEditModModal(mod)" class="btn btn-sm btn-primary">
+                    Edit
+                  </button>
+                  <button @click="deleteMod(mod.id)" class="btn btn-sm btn-danger">Delete</button>
+                </div>
+              </li>
+            </ul>
+            <p v-else>No mods added yet.</p>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <BaseModal :show="isAddModModalVisible" title="Add New Mod" @close="closeAddModModal">
+      <form @submit.prevent="addMod">
+        <div class="form-group">
+          <label for="modName">Mod Name</label>
+          <input type="text" id="modName" v-model="newMod.name" class="form-control" required />
+        </div>
+        <div class="form-group">
+          <label for="modLink">Link</label>
+          <input
+            type="url"
+            id="modLink"
+            v-model="newMod.link"
+            class="form-control"
+            placeholder="https://..."
           />
         </div>
-      </div>
-      <div class="details-container">
-        <div class="section-header">
-          <h3>Maintenance</h3>
-          <RouterLink
-            :to="{ name: 'maintenance-edit', params: { id: printer.id } }"
-            class="action-button edit-button"
-            >Edit</RouterLink
-          >
-        </div>
-        <div class="detail-item">
-          <span class="label">Last Maintenance</span
-          ><span class="value">{{ printer.last_maintained_date || 'N/A' }}</span>
-        </div>
-        <div class="detail-item">
-          <span class="label">Maintenance Reminder</span
-          ><span class="value">{{ printer.maintenance_reminder_date || 'None set' }}</span>
-        </div>
-        <div class="detail-item">
-          <span class="label">Last Carbon Filter Change</span
-          ><span class="value">{{ printer.last_carbon_replacement_date || 'N/A' }}</span>
-        </div>
-        <div class="detail-item">
-          <span class="label">Carbon Filter Reminder</span
-          ><span class="value">{{ printer.carbon_reminder_date || 'None set' }}</span>
-        </div>
-        <div class="detail-item full-width">
-          <span class="label">Maintenance Notes</span>
-          <p class="value-notes">{{ printer.maintenance_notes || 'No notes.' }}</p>
-        </div>
-      </div>
-      <div class="details-container mods-section">
-        <div class="section-header">
-          <h3>Mods</h3>
-          <button @click="isAddModalVisible = true" class="action-button add-button">
-            Add Mod
-          </button>
-        </div>
-        <div v-if="completedMods.length > 0" class="mod-group">
-          <h4>Completed</h4>
-          <DataTable
-            :headers="modHeaders"
-            :items="completedMods"
-            :visible-columns="modHeaders.map((h) => h.value)"
-            @row-click.stop
-            ><template #cell-name="{ item }">{{ item.name }}</template
-            ><template #cell-link="{ item }"
-              ><a :href="item.link" target="_blank" v-if="item.link" class="table-link"
-                >View Link</a
-              ></template
-            ><template #cell-files="{ item }"
-              ><div v-if="item.files.length > 0">
-                <div v-for="file in item.files" :key="file.id" class="file-link">
-                  <a :href="file.file" target="_blank" class="table-link">{{
-                    file.file.split('/').pop()
-                  }}</a>
-                </div>
-              </div>
-              <span v-else>N/A</span></template
-            ><template #cell-actions="{ item }"
-              ><div class="actions-cell">
-                <button @click="openEditModModal(item)" class="action-button edit-button">
-                  Edit</button
-                ><button
-                  @click="openDeleteModal('mod', item.id, item.name)"
-                  class="action-button delete-button"
-                >
-                  Delete
-                </button>
-              </div></template
-            ></DataTable
-          >
-        </div>
-        <div v-if="inProgressMods.length > 0" class="mod-group">
-          <h4>In Progress</h4>
-          <DataTable
-            :headers="modHeaders"
-            :items="inProgressMods"
-            :visible-columns="modHeaders.map((h) => h.value)"
-            @row-click.stop
-            ><template #cell-name="{ item }">{{ item.name }}</template
-            ><template #cell-link="{ item }"
-              ><a :href="item.link" target="_blank" v-if="item.link" class="table-link"
-                >View Link</a
-              ></template
-            ><template #cell-files="{ item }"
-              ><div v-if="item.files.length > 0">
-                <div v-for="file in item.files" :key="file.id" class="file-link">
-                  <a :href="file.file" target="_blank" class="table-link">{{
-                    file.file.split('/').pop()
-                  }}</a>
-                </div>
-              </div>
-              <span v-else>N/A</span></template
-            ><template #cell-actions="{ item }"
-              ><div class="actions-cell">
-                <button @click="openEditModModal(item)" class="action-button edit-button">
-                  Edit</button
-                ><button
-                  @click="openDeleteModal('mod', item.id, item.name)"
-                  class="action-button delete-button"
-                >
-                  Delete
-                </button>
-              </div></template
-            ></DataTable
-          >
-        </div>
-        <div v-if="plannedMods.length > 0" class="mod-group">
-          <h4>Planned</h4>
-          <DataTable
-            :headers="modHeaders"
-            :items="plannedMods"
-            :visible-columns="modHeaders.map((h) => h.value)"
-            @row-click.stop
-            ><template #cell-name="{ item }">{{ item.name }}</template
-            ><template #cell-link="{ item }"
-              ><a :href="item.link" target="_blank" v-if="item.link" class="table-link"
-                >View Link</a
-              ></template
-            ><template #cell-files="{ item }"
-              ><div v-if="item.files.length > 0">
-                <div v-for="file in item.files" :key="file.id" class="file-link">
-                  <a :href="file.file" target="_blank" class="table-link">{{
-                    file.file.split('/').pop()
-                  }}</a>
-                </div>
-              </div>
-              <span v-else>N/A</span></template
-            ><template #cell-actions="{ item }"
-              ><div class="actions-cell">
-                <button @click="openEditModModal(item)" class="action-button edit-button">
-                  Edit</button
-                ><button
-                  @click="openDeleteModal('mod', item.id, item.name)"
-                  class="action-button delete-button"
-                >
-                  Delete
-                </button>
-              </div></template
-            ></DataTable
-          >
-        </div>
-        <p v-if="!printer.mods.length">No mods added yet.</p>
-      </div>
-      <div class="details-container projects-section">
-        <div class="section-header"><h3>Associated Projects</h3></div>
-        <p v-if="!printer.associated_projects.length">
-          This printer is not yet associated with any projects.
-        </p>
-      </div>
-    </div>
-    <p v-else>Loading printer details...</p>
-
-    <BaseModal
-      :show="isDeleteModalVisible"
-      title="Confirm Deletion"
-      @close="isDeleteModalVisible = false"
-      ><p>
-        Are you sure you want to delete the {{ itemToDelete?.type }} '{{ itemToDelete?.name }}'?
-      </p>
-      <template #footer
-        ><button @click="handleDeleteConfirm" class="action-button delete-button">
-          Yes, Delete</button
-        ><button
-          @click="isDeleteModalVisible = false"
-          type="button"
-          class="action-button cancel-button"
-        >
-          Cancel
-        </button></template
-      ></BaseModal
-    >
-    <div v-if="isPhotoModalVisible" class="modal-overlay" @click="isPhotoModalVisible = false">
-      <div class="modal-content" @click.stop>
-        <button @click="isPhotoModalVisible = false" class="close-button">&times;</button
-        ><img :src="printer.photo" alt="Full size printer photo" class="modal-image" />
-      </div>
-    </div>
-    <div
-      v-if="isAddModalVisible || isEditModalVisible"
-      class="modal-overlay"
-      @click="closeAllModals"
-    >
-      <form
-        @submit.prevent="isEditModalVisible ? updateMod() : addMod()"
-        class="modal-form"
-        @click.stop
-      >
-        <h3>{{ isEditModalVisible ? 'Edit Mod' : 'Add New Mod' }}</h3>
         <div class="form-group">
-          <label>Name</label
-          ><input v-if="isEditModalVisible" type="text" v-model="editingMod.name" required /><input
-            v-else
+          <label for="modStatus">Status</label>
+          <select id="modStatus" v-model="newMod.status" class="form-control">
+            <option>Planned</option>
+            <option>In Progress</option>
+            <option>Completed</option>
+            <option>On Hold</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label>Attach Files</label>
+          <button
+            type="button"
+            @click="triggerFileInput('newModFileInput')"
+            class="btn btn-outline"
+          >
+            Choose Files
+          </button>
+          <input
+            type="file"
+            id="newModFileInput"
+            multiple
+            @change="handleNewModFileUpload"
+            class="file-input"
+          />
+          <ul v-if="newModFiles.length > 0" class="file-list">
+            <li v-for="(file, index) in newModFiles" :key="index">
+              {{ file.name }}
+            </li>
+          </ul>
+        </div>
+      </form>
+      <template #footer>
+        <button @click="addMod" class="btn btn-primary">Save</button>
+        <button type="button" @click="closeAddModModal" class="btn btn-secondary">Cancel</button>
+      </template>
+    </BaseModal>
+
+    <BaseModal :show="isEditModModalVisible" title="Edit Mod" @close="closeEditModModal">
+      <form v-if="editingMod" @submit.prevent="updateMod">
+        <div class="form-group">
+          <label for="editModName">Mod Name</label>
+          <input
             type="text"
-            v-model="newMod.name"
+            id="editModName"
+            v-model="editingMod.name"
+            class="form-control"
             required
           />
         </div>
         <div class="form-group">
-          <label>Link</label
-          ><input v-if="isEditModalVisible" type="url" v-model="editingMod.link" /><input
-            v-else
+          <label for="editModLink">Link</label>
+          <input
             type="url"
-            v-model="newMod.link"
+            id="editModLink"
+            v-model="editingMod.link"
+            class="form-control"
+            placeholder="https://..."
           />
         </div>
         <div class="form-group">
-          <label>Status</label
-          ><select v-if="isEditModalVisible" v-model="editingMod.status">
-            <option>Planned</option>
-            <option>In Progress</option>
-            <option>Completed</option></select
-          ><select v-else v-model="newMod.status">
+          <label for="editModStatus">Status</label>
+          <select id="editModStatus" v-model="editingMod.status" class="form-control">
             <option>Planned</option>
             <option>In Progress</option>
             <option>Completed</option>
+            <option>On Hold</option>
           </select>
         </div>
-        <div class="form-group" v-if="isEditModalVisible">
+
+        <div class="form-group" v-if="editingMod.files && editingMod.files.length > 0">
           <label>Existing Files</label>
-          <div v-if="!editingMod.files.length">No files uploaded.</div>
-          <div v-for="file in editingMod.files" :key="file.id" class="file-list-item">
-            <span>{{ file.file.split('/').pop() }}</span
-            ><button @click.prevent="deleteModFile(file.id)" class="delete-mod-button">X</button>
-          </div>
+          <ul class="file-list existing-files">
+            <li
+              v-for="file in editingMod.files"
+              :key="file.id"
+              :class="{ 'marked-for-deletion': filesToDelete.has(file.id) }"
+            >
+              <a :href="file.file" target="_blank">{{ getFileName(file.file) }}</a>
+              <button type="button" @click="markFileForDeletion(file.id)" class="btn-delete-file">
+                &times;
+              </button>
+            </li>
+          </ul>
         </div>
+
         <div class="form-group">
-          <label>Add Files</label
-          ><input
+          <label>Attach New Files</label>
+          <button
+            type="button"
+            @click="triggerFileInput('editModFileInput')"
+            class="btn btn-outline"
+          >
+            Choose Files
+          </button>
+          <input
             type="file"
-            :ref="isEditModalVisible ? 'editModFileRef' : 'newModFileRef'"
-            @change="!isEditModalVisible && handleNewModFileUpload($event)"
+            id="editModFileInput"
             multiple
+            @change="handleEditModFileUpload"
+            class="file-input"
           />
-        </div>
-        <div class="form-actions">
-          <button type="submit" class="save-button">Save</button
-          ><button @click="closeAllModals" type="button" class="cancel-button">Cancel</button>
+          <ul v-if="newFiles.length > 0" class="file-list">
+            <li v-for="(file, index) in newFiles" :key="index">{{ file.name }}</li>
+          </ul>
         </div>
       </form>
+      <template #footer>
+        <button @click="updateMod" class="btn btn-primary">Save Changes</button>
+        <button type="button" @click="closeEditModModal" class="btn btn-secondary">Cancel</button>
+      </template>
+    </BaseModal>
+
+    <div v-if="isPhotoModalVisible" class="modal-overlay" @click="isPhotoModalVisible = false">
+      <div class="modal-content" @click.stop>
+        <button @click="isPhotoModalVisible = false" class="close-button">&times;</button>
+        <img :src="printer.photo" alt="Full size printer photo" class="modal-image" />
+      </div>
     </div>
+
+    <ErrorModal
+      :show="isErrorModalVisible"
+      :message="errorMessage"
+      @close="isErrorModalVisible = false"
+    />
+    <InfoModal
+      :show="isInfoModalVisible"
+      :message="infoModalMessage"
+      @close="isInfoModalVisible = false"
+    />
   </div>
 </template>
 
 <style scoped>
-.detail-view {
-  user-select: none;
+.page-container {
+  padding: 2rem;
 }
-.details-grid {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 20px;
+
+.content-container {
+  max-width: 1200px;
+  margin: 0 auto;
 }
-.details-container {
+
+.detail-header {
   display: flex;
-  flex-wrap: wrap;
-  gap: 20px;
-  padding: 20px;
-  background-color: var(--color-background-soft);
+  justify-content: space-between;
+  align-items: flex-start;
+  margin-bottom: 2rem;
+  padding-bottom: 1.5rem;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.header-content {
+  display: flex;
+  align-items: center;
+}
+
+.detail-photo {
+  width: 100px;
+  height: 100px;
+  object-fit: cover;
+  border-radius: 8px;
+  margin-right: 1.5rem;
+  border: 1px solid var(--color-border);
+}
+
+.detail-photo.clickable {
+  cursor: pointer;
+}
+
+.header-info h1 {
+  font-size: 2.5rem;
+  font-weight: 600;
+  margin: 0;
+  color: var(--color-heading);
+}
+
+.manufacturer-serial {
+  font-size: 1.1rem;
+  color: var(--color-text-soft);
+  margin: 0.25rem 0 0.5rem;
+}
+
+.status-badge {
+  display: inline-block;
+  padding: 0.2rem 0.6rem;
+  border-radius: 10px;
+  font-size: 0.7rem;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: white; /* Default text color */
+}
+
+/* Status Colors */
+.status-active,
+.status-operational,
+.status-completed {
+  background-color: #28a745; /* Green */
+}
+
+.status-under-repair,
+.status-under-maintenance {
+  background-color: #dc3545; /* Red */
+}
+
+.status-inprogress,
+.status-onhold {
+  background-color: #ffc107; /* Yellow */
+  color: #333;
+}
+
+.status-decommissioned,
+.status-planned,
+.status-sold,
+.status-archived {
+  background-color: #6c757d; /* Grey */
+}
+
+.header-actions {
+  display: flex;
+  gap: 1rem;
+}
+
+.detail-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 1.5rem;
+}
+
+.card {
+  background: var(--color-background-soft);
   border: 1px solid var(--color-border);
   border-radius: 8px;
-  align-content: flex-start;
-  margin-bottom: 20px;
+  overflow: hidden;
 }
-.section-header {
-  width: 100%;
+
+.card.card-full-width {
+  grid-column: 1 / -1;
+}
+
+.card-header {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  margin-bottom: 10px;
+  padding: 1rem 1.5rem;
+  background: var(--color-background-mute);
   border-bottom: 1px solid var(--color-border);
-  padding-bottom: 10px;
 }
-.section-header div {
-  display: flex;
-  gap: 10px;
-}
-.details-container h3 {
+
+.card-header h3 {
   margin: 0;
+  font-size: 1.2rem;
   color: var(--color-heading);
 }
-.detail-item {
+
+.card-body {
+  padding: 1.5rem;
+}
+
+.card-body p {
+  margin: 0 0 0.75rem 0;
+  line-height: 1.6;
   display: flex;
-  flex-direction: column;
-  flex-basis: calc(50% - 10px);
+  align-items: center;
+  gap: 0.5rem;
 }
-.detail-item.full-width {
-  flex-basis: 100%;
+
+.card-body p:last-child {
+  margin-bottom: 0;
 }
-.label {
-  font-weight: bold;
-  color: var(--color-text);
-  font-size: 0.9rem;
-  margin-bottom: 5px;
-}
-.value,
-.file-link a {
-  font-size: 1.1rem;
-  color: var(--color-heading);
-  text-decoration: none;
-}
-.value-notes {
-  font-size: 1rem;
-  white-space: pre-wrap;
+
+/* Mods List Styles */
+.mods-list {
+  list-style: none;
+  padding: 0;
   margin: 0;
-  color: var(--color-heading);
 }
-.detail-photo {
-  max-width: 300px;
-  max-height: 300px;
-  border-radius: 8px;
-  margin-top: 5px;
-  cursor: pointer;
-}
-.mods-section,
-.projects-section {
-  grid-column: 1 / -1;
-}
-.mods-section :deep(.table-container) {
-  width: 100%;
-}
-.actions-cell {
+
+.mod-item {
   display: flex;
-  gap: 10px;
+  justify-content: space-between;
+  align-items: flex-start;
+  padding: 1rem 0;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.mod-item:last-child {
+  border-bottom: none;
+}
+
+.mod-info {
+  display: flex;
+  flex-wrap: wrap;
   align-items: center;
+  gap: 0.5rem;
 }
-.action-button {
-  padding: 8px 15px;
-  text-decoration: none;
-  border-radius: 5px;
-  font-weight: bold;
-  border: none;
-  cursor: pointer;
-  white-space: nowrap;
-  font-size: 0.9rem;
-  height: 36px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  user-select: none;
-}
-.edit-button,
-.add-button,
-.save-button {
-  background-color: var(--color-blue);
-  color: white;
-}
-.delete-button {
-  background-color: var(--color-red);
-  color: white;
-}
-.cancel-button {
-  background-color: var(--color-background-mute);
-  color: var(--color-heading);
-  border: 1px solid var(--color-border);
-}
-:deep(.table-link) {
-  color: var(--color-text);
+
+.mod-name-link {
+  color: var(--color-text-soft);
   text-decoration: none;
 }
-:deep(.table-link:hover) {
+
+.mod-name-link:hover {
   text-decoration: underline;
 }
-:deep(.table-link:visited) {
+
+.mod-name-link:visited {
+  color: var(--color-text-soft);
+}
+
+.mod-files {
+  margin-top: 0.75rem;
+  font-size: 0.9rem;
+  width: 100%;
+}
+
+.mod-files ul {
+  list-style: none;
+  padding-left: 1rem;
+  margin: 0;
+}
+
+.mod-files li a {
   color: var(--color-text);
+  text-decoration: none;
 }
-.mod-group {
-  width: 100%;
+.mod-files li a:hover {
+  text-decoration: underline;
 }
-.mod-group h4 {
-  color: var(--color-heading);
-  margin-top: 20px;
-  margin-bottom: 10px;
-}
-.mod-group:first-of-type h4 {
-  margin-top: 0;
-}
-.modal-overlay {
-  position: fixed;
-  top: 0;
-  left: 0;
-  width: 100%;
-  height: 100%;
-  background-color: rgba(0, 0, 0, 0.8);
+
+.mod-actions {
   display: flex;
-  justify-content: center;
+  gap: 0.5rem;
+  flex-shrink: 0;
+  margin-left: 1rem;
+}
+
+.file-input {
+  display: none;
+}
+
+.file-list {
+  list-style: none;
+  padding: 0;
+  margin-top: 1rem;
+}
+
+.file-list li {
+  background: var(--color-background);
+  padding: 0.5rem 1rem;
+  border-radius: 4px;
+  margin-bottom: 0.5rem;
+  border: 1px solid var(--color-border);
+  font-size: 0.9rem;
+}
+
+.existing-files li {
+  display: flex;
+  justify-content: space-between;
   align-items: center;
-  z-index: 1000;
 }
-.modal-form {
-  background-color: var(--color-background-soft);
-  padding: 20px;
-  border-radius: 8px;
-  width: 90%;
-  max-width: 500px;
+
+.existing-files li.marked-for-deletion a {
+  text-decoration: line-through;
+  opacity: 0.6;
 }
-.modal-form .form-group input,
-.modal-form .form-group select {
+
+.btn-delete-file {
+  background: none;
+  border: none;
+  color: #dc3545;
+  font-size: 1.5rem;
+  font-weight: bold;
+  cursor: pointer;
+  padding: 0 0.5rem;
+}
+
+.modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 1rem;
+  margin-top: 1.5rem;
+}
+
+/* From inventory form for modals */
+.form-group {
+  margin-bottom: 1rem;
+}
+.form-group label {
+  display: block;
+  margin-bottom: 0.5rem;
+  font-weight: bold;
+  color: var(--color-heading);
+}
+.form-control {
   width: 100%;
   padding: 8px 12px;
   border: 1px solid var(--color-border);
@@ -630,6 +786,25 @@ onMounted(() => {
   background-color: var(--color-background);
   color: var(--color-text);
   font-size: 1rem;
+}
+
+/* Modal styles for photo lightbox */
+.modal-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100vw;
+  height: 100vh;
+  background-color: rgba(0, 0, 0, 0.8);
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  z-index: 1000;
+}
+.modal-content {
+  position: relative;
+  max-width: 90vw;
+  max-height: 90vh;
 }
 .modal-image {
   max-width: 100%;
@@ -651,40 +826,5 @@ onMounted(() => {
   text-align: center;
   cursor: pointer;
   font-weight: bold;
-}
-.file-list-item {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding: 4px 0;
-}
-.delete-mod-button {
-  background-color: var(--color-red);
-  color: white;
-  border: none;
-  border-radius: 5px;
-  cursor: pointer;
-  font-weight: bold;
-  padding: 4px 8px;
-  font-size: 0.8rem;
-}
-.form-group {
-  margin-bottom: 1rem;
-}
-.form-actions {
-  display: flex;
-  justify-content: flex-end;
-  gap: 10px;
-  margin-top: 20px;
-}
-@media (max-width: 992px) {
-  .details-grid {
-    grid-template-columns: 1fr;
-  }
-}
-@media (max-width: 768px) {
-  .detail-item {
-    flex-basis: 100%;
-  }
 }
 </style>
