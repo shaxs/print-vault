@@ -21,7 +21,13 @@ onMounted(async () => {
 
 <template>
   <div>
-    <MainHeader title="Edit Printer" :showSearch="false" :showAddButton="false" />
+    <MainHeader
+      title="Edit Printer"
+      :showSearch="false"
+      :showAddButton="false"
+      :showFilterButton="false"
+      :showColumnButton="false"
+    />
     <PrinterForm v-if="printerToEdit" :initial-data="printerToEdit" />
     <p v-else>Loading printer...</p>
   </div>

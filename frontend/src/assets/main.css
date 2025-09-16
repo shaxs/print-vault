@@ -63,6 +63,18 @@ body {
   -moz-osx-font-smoothing: grayscale;
 }
 
+/* Form Control Styles */
+.form-control {
+  width: 100%;
+  padding: 8px 12px;
+  border: 1px solid var(--color-border);
+  border-radius: 4px;
+  box-sizing: border-box;
+  background-color: var(--color-background);
+  color: var(--color-text);
+  font-size: 1rem;
+}
+
 /* --- NEW GLOBAL BUTTON STYLES --- */
 .btn {
   display: inline-block;
@@ -122,4 +134,13 @@ body {
   padding: 0.25rem 0.5rem;
   font-size: 0.875rem;
   border-radius: 0.2rem;
+}
+.btn-delete-file {
+  background: none;
+  border: none;
+  color: var(--color-red);
+  font-size: 1.5rem;
+  font-weight: bold;
+  cursor: pointer;
+  padding: 0 0.5rem;
 }

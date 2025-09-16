@@ -1,4 +1,3 @@
-// src/services/APIService.js
 import axios from 'axios'
 
 const apiClient = axios.create({
@@ -47,6 +46,9 @@ export default {
   },
 
   // Mods
+  getMod(id) {
+    return apiClient.get(`mods/${id}/`)
+  },
   createMod(data) {
     return apiClient.post('mods/', data, {
       headers: { 'Content-Type': 'multipart/form-data' },
@@ -57,6 +59,9 @@ export default {
   },
   deleteMod(id) {
     return apiClient.delete(`mods/${id}/`)
+  },
+  downloadModFiles(modId) {
+    return apiClient.get(`mods/${modId}/download-files/`, { responseType: 'blob' })
   },
 
   // ModFiles

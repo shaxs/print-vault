@@ -74,12 +74,10 @@ const savePrinter = async () => {
 
   const brandValue = printer.value.manufacturer
   if (brandValue) {
-    // This handles both new string tags and existing objects
     const brandName =
       typeof brandValue === 'object' && brandValue !== null ? brandValue.name : brandValue
     formData.append('manufacturer', JSON.stringify({ name: brandName }))
   } else if (isEditMode.value && brandValue === null) {
-    // This handles unsetting the manufacturer in edit mode
     formData.append('manufacturer', JSON.stringify(null))
   }
 
@@ -187,12 +185,14 @@ onMounted(async () => {
 
     <div class="form-group">
       <label for="notes">Notes</label>
-      <textarea id="notes" v-model="printer.notes"></textarea>
+      <textarea id="notes" v-model="printer.notes" rows="6"></textarea>
     </div>
 
     <div class="form-actions">
-      <button type="submit" class="save-button">Save Printer Details</button>
-      <RouterLink :to="isEditMode ? `/printers/${printer.id}` : '/printers'" class="cancel-button"
+      <button type="submit" class="save-button btn-sm">Save Printer Details</button>
+      <RouterLink
+        :to="isEditMode ? `/printers/${printer.id}` : '/printers'"
+        class="cancel-button btn-sm"
         >Cancel</RouterLink
       >
     </div>

@@ -14,6 +14,7 @@ from rest_framework.views import APIView
 from django.conf import settings
 from django_filters.rest_framework import DjangoFilterBackend
 from django.db.models import F
+from rest_framework.decorators import action
 from .models import (
     Brand, PartType, Location, Printer, Mod, ModFile,
     InventoryItem, Project, ProjectLink, ProjectFile, ProjectInventory, ProjectPrinters
@@ -401,6 +402,26 @@ class ModViewSet(viewsets.ModelViewSet):
     queryset = Mod.objects.all()
     serializer_class = ModSerializer
     permission_classes = [AllowAny]
+
+    @action(detail=True, methods=['get'], url_path='download-files')
+    def download_files(self, request, pk=None):
+        mod = self.get_object()
+        mod_files = mod.files.all()
+
+        if not mod_files:
+            return Response(status=status.HTTP_404_NOT_FOUND)
+
+        buffer = BytesIO()
+        with zipfile.ZipFile(buffer, 'w', zipfile.ZIP_DEFLATED) as zf:
+            for mod_file in mod_files:
+                file_path = mod_file.file.path
+                if os.path.exists(file_path):
+                    zf.write(file_path, os.path.basename(file_path))
+
+        buffer.seek(0)
+        response = HttpResponse(buffer, content_type='application/zip')
+        response['Content-Disposition'] = f'attachment; filename={mod.name}_files.zip'
+        return response
 
 class ModFileViewSet(viewsets.ModelViewSet):
     queryset = ModFile.objects.all()

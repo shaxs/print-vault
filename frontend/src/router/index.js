@@ -15,6 +15,8 @@ import ProjectDetailView from '../views/ProjectDetailView.vue'
 import ProjectEditView from '../views/ProjectEditView.vue'
 import SettingsView from '../views/SettingsView.vue'
 import DashboardView from '../views/DashboardView.vue'
+import ModCreateView from '../views/ModCreateView.vue'
+import ModEditView from '../views/ModEditView.vue' // Import the new view
 
 const router = createRouter({
   history: createWebHistory(import.meta.env.BASE_URL),
@@ -31,6 +33,19 @@ const router = createRouter({
     { path: '/printers/:id', name: 'printer-detail', component: PrinterDetailView },
     { path: '/printers/:id/edit', name: 'printer-edit', component: PrinterEditView },
     { path: '/printers/:id/maintenance', name: 'maintenance-edit', component: MaintenanceEditView },
+    {
+      path: '/printers/:printerId/mods/add',
+      name: 'mod-create',
+      component: ModCreateView,
+      props: true,
+    },
+    // New route for editing a mod
+    {
+      path: '/printers/:printerId/mods/:modId/edit',
+      name: 'mod-edit',
+      component: ModEditView,
+      props: true,
+    },
 
     // Project Routes
     { path: '/projects', name: 'project-list', component: ProjectListView },

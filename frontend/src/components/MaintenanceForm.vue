@@ -67,7 +67,11 @@ const saveMaintenance = async () => {
     </div>
     <div class="form-group">
       <label for="maintenance_notes">Maintenance Notes</label>
-      <textarea id="maintenance_notes" v-model="maintenanceData.maintenance_notes"></textarea>
+      <textarea
+        id="maintenance_notes"
+        v-model="maintenanceData.maintenance_notes"
+        rows="6"
+      ></textarea>
     </div>
 
     <div class="form-actions">
