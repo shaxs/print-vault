@@ -5,6 +5,14 @@ from django.db.models.signals import post_delete
 from django.dispatch import receiver
 from django.core.validators import MinValueValidator
 
+def get_project_upload_path(instance, filename):
+    """Generates the upload path for a project file."""
+    return os.path.join('project_files', str(instance.project.id), filename)
+
+def get_mod_upload_path(instance, filename):
+    """Generates the upload path for a mod file."""
+    return os.path.join('mod_files', str(instance.mod.id), filename)
+
 class Brand(models.Model):
     name = models.CharField(max_length=255, unique=True, null=False)
     class Meta:
@@ -77,7 +85,7 @@ class Mod(models.Model):
 
 class ModFile(models.Model):
     mod = models.ForeignKey(Mod, related_name='files', on_delete=models.CASCADE)
-    file = models.FileField(upload_to='mod_files/')
+    file = models.FileField(upload_to=get_mod_upload_path)
     def __str__(self):
         return os.path.basename(self.file.name)
 
@@ -132,7 +140,7 @@ class ProjectLink(models.Model):
 
 class ProjectFile(models.Model):
     project = models.ForeignKey(Project, related_name='files', on_delete=models.CASCADE)
-    file = models.FileField(upload_to='project_files/')
+    file = models.FileField(upload_to=get_project_upload_path)
     def __str__(self):
         return os.path.basename(self.file.name)
 

@@ -17,9 +17,6 @@ const infoModalMessage = ref('')
 const isPhotoModalVisible = ref(false)
 const isDownloading = ref(false)
 
-const newLink = ref({ name: '', url: '' })
-const newFile = ref(null)
-
 const fetchProject = async () => {
   try {
     isLoading.value = true
@@ -39,50 +36,6 @@ const getFileName = (filePath) => {
   return filePath.split('/').pop()
 }
 
-const handleFileUpload = (event) => {
-  if (event.target.files.length > 0) {
-    newFile.value = event.target.files[0]
-  }
-}
-
-const addLink = async () => {
-  if (!newLink.value.name || !newLink.value.url) {
-    alert('Both link name and URL are required.')
-    return
-  }
-  try {
-    const payload = { ...newLink.value, project: project.value.id }
-    await APIService.createProjectLink(payload)
-    newLink.value = { name: '', url: '' }
-    await fetchProject()
-  } catch (error) {
-    console.error('Failed to add link:', error)
-    errorMessage.value = 'Failed to add link. Please try again.'
-    isErrorModalVisible.value = true
-  }
-}
-
-const addFile = async () => {
-  if (!newFile.value) {
-    alert('Please select a file to upload.')
-    return
-  }
-  const formData = new FormData()
-  formData.append('project', project.value.id)
-  formData.append('file', newFile.value)
-
-  try {
-    await APIService.createProjectFile(formData)
-    newFile.value = null
-    document.getElementById('newFileInput').value = ''
-    await fetchProject()
-  } catch (error) {
-    console.error('Failed to add file:', error)
-    errorMessage.value = 'Failed to add file. Please try again.'
-    isErrorModalVisible.value = true
-  }
-}
-
 const deleteProject = async () => {
   if (confirm('Are you sure you want to delete this project? This action cannot be undone.')) {
     try {
@@ -91,6 +44,19 @@ const deleteProject = async () => {
     } catch (error) {
       console.error('Failed to delete project:', error)
       errorMessage.value = 'Failed to delete project. Please try again.'
+      isErrorModalVisible.value = true
+    }
+  }
+}
+
+const removeInventoryItem = async (item) => {
+  if (confirm(`Are you sure you want to remove "${item.title}" from this project?`)) {
+    try {
+      await APIService.removeInventoryFromProject(project.value.id, item.id)
+      await fetchProject() // Refresh the data
+    } catch (error) {
+      console.error('Failed to remove inventory item:', error)
+      errorMessage.value = 'Failed to remove inventory item. Please try again.'
       isErrorModalVisible.value = true
     }
   }
@@ -220,12 +186,18 @@ onMounted(fetchProject)
               <h4>Links</h4>
               <ul v-if="project.links && project.links.length > 0" class="resource-list">
                 <li v-for="link in project.links" :key="link.id">
-                  <a :href="link.link" target="_blank">{{ link.name }}</a>
+                  <a :href="link.url" target="_blank">{{ link.name }}</a>
                 </li>
               </ul>
               <p v-else>No links added yet.</p>
               <div class="manage-links-button">
-                <button type="button" class="btn btn-sm btn-primary">Manage Links</button>
+                <button
+                  @click="router.push({ name: 'project-manage-links', params: { id: project.id } })"
+                  type="button"
+                  class="btn btn-sm btn-primary"
+                >
+                  Manage Links
+                </button>
               </div>
             </div>
             <hr />
@@ -237,12 +209,7 @@ onMounted(fetchProject)
                 </li>
               </ul>
               <p v-else>No files added yet.</p>
-              <form
-                @submit.prevent="
-                  router.push({ name: 'project-add-files', params: { id: project.id } })
-                "
-                class="block-add-form"
-              >
+              <div class="block-add-form">
                 <div style="display: flex; gap: 0.5rem; justify-content: flex-end">
                   <button
                     type="button"
@@ -253,9 +220,16 @@ onMounted(fetchProject)
                     <span v-if="isDownloading">Downloading...</span>
                     <span v-else>Download All</span>
                   </button>
-                  <button type="submit" class="btn btn-sm btn-primary">Manage Files</button>
+                  <button
+                    @click="
+                      router.push({ name: 'project-manage-files', params: { id: project.id } })
+                    "
+                    class="btn btn-sm btn-primary"
+                  >
+                    Manage Files
+                  </button>
                 </div>
-              </form>
+              </div>
             </div>
           </div>
         </div>
@@ -282,7 +256,11 @@ onMounted(fetchProject)
               {{ item.quantity }}
             </template>
             <template #cell-cost="{ item }"> ${{ item.cost || '0.00' }} </template>
-            <template #cell-actions="{ item }"></template>
+            <template #cell-actions="{ item }">
+              <button @click.stop="removeInventoryItem(item)" class="btn-remove-inventory">
+                Remove
+              </button>
+            </template>
           </DataTable>
           <div
             v-if="!project.associated_inventory_items || !project.associated_inventory_items.length"
@@ -466,7 +444,8 @@ onMounted(fetchProject)
   margin-left: 0.5rem;
 }
 .status-planning,
-.status-planned {
+.status-planned,
+.status-on-hold {
   background-color: #6c757d;
 }
 .status-in-progress {
@@ -544,6 +523,15 @@ onMounted(fetchProject)
 .table-link.grey-link:visited {
   color: var(--color-heading);
   text-decoration: underline;
+}
+.btn-remove-inventory {
+  background-color: var(--color-red);
+  color: white;
+  padding: 5px 10px;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 0.8rem;
 }
 /* DataTable borderless style for inventory section */
 .borderless-table :deep(table) {

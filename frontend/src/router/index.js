@@ -16,7 +16,9 @@ import ProjectEditView from '../views/ProjectEditView.vue'
 import SettingsView from '../views/SettingsView.vue'
 import DashboardView from '../views/DashboardView.vue'
 import ModCreateView from '../views/ModCreateView.vue'
-import ModEditView from '../views/ModEditView.vue' // Import the new view
+import ModEditView from '../views/ModEditView.vue'
+import ProjectManageFilesView from '../views/ProjectManageFilesView.vue'
+import ProjectManageLinksView from '../views/ProjectManageLinksView.vue' // Added this line
 
 const router = createRouter({
   history: createWebHistory(import.meta.env.BASE_URL),
@@ -52,6 +54,17 @@ const router = createRouter({
     { path: '/projects/create', name: 'project-create', component: ProjectCreateView },
     { path: '/projects/:id', name: 'project-detail', component: ProjectDetailView },
     { path: '/projects/:id/edit', name: 'project-edit', component: ProjectEditView },
+    {
+      path: '/projects/:id/manage-files',
+      name: 'project-manage-files',
+      component: ProjectManageFilesView,
+    },
+    {
+      path: '/projects/:id/manage-links', // Added this route
+      name: 'project-manage-links',
+      component: ProjectManageLinksView,
+      props: true,
+    },
 
     // Settings Route
     { path: '/settings', name: 'settings', component: SettingsView },

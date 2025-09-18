@@ -35,7 +35,7 @@ class ModSerializer(serializers.ModelSerializer):
 class ProjectLinkSerializer(serializers.ModelSerializer):
     class Meta:
         model = ProjectLink
-        fields = '__all__'
+        fields = ['id', 'name', 'url', 'project']
 
 class ProjectFileSerializer(serializers.ModelSerializer):
     class Meta:

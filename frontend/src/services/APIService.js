@@ -97,6 +97,11 @@ export default {
   downloadProjectFiles(projectId) {
     return apiClient.get(`projects/${projectId}/download-files/`, { responseType: 'blob' })
   },
+  removeInventoryFromProject(projectId, inventoryItemId) {
+    return apiClient.post(`projects/${projectId}/remove-inventory/`, {
+      inventory_item_id: inventoryItemId,
+    })
+  },
   getProjectFiles(projectId) {
     return apiClient.get(`projects/${projectId}/files/`)
   },
@@ -111,8 +116,16 @@ export default {
   createProjectLink(data) {
     return apiClient.post('projectlinks/', data)
   },
+  updateProjectLink(id, data) {
+    return apiClient.put(`projectlinks/${id}/`, data)
+  },
   deleteProjectLink(id) {
     return apiClient.delete(`projectlinks/${id}/`)
+  },
+  removeProjectFromInventory(inventoryItemId, projectId) {
+    return apiClient.post(`inventoryitems/${inventoryItemId}/remove-project/`, {
+      project_id: projectId,
+    })
   },
 
   // Data Management
