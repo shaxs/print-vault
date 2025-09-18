@@ -94,6 +94,18 @@ export default {
   deleteProject(id) {
     return apiClient.delete(`projects/${id}/`)
   },
+  downloadProjectFiles(projectId) {
+    return apiClient.get(`projects/${projectId}/download-files/`, { responseType: 'blob' })
+  },
+  getProjectFiles(projectId) {
+    return apiClient.get(`projects/${projectId}/files/`)
+  },
+  deleteProjectFile(fileId) {
+    return apiClient.delete(`projectfiles/${fileId}/`)
+  },
+  createProjectFile(formData) {
+    return apiClient.post('projectfiles/', formData)
+  },
 
   // Project Files & Links
   createProjectLink(data) {
@@ -101,14 +113,6 @@ export default {
   },
   deleteProjectLink(id) {
     return apiClient.delete(`projectlinks/${id}/`)
-  },
-  createProjectFile(data) {
-    return apiClient.post('projectfiles/', data, {
-      headers: { 'Content-Type': 'multipart/form-data' },
-    })
-  },
-  deleteProjectFile(id) {
-    return apiClient.delete(`projectfiles/${id}/`)
   },
 
   // Data Management
