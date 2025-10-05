@@ -1,8 +1,47 @@
 # Print Vault
 
-Print Vault is a self-hosted application for managing your 3D printer inventory, parts, and projects.
+[![Project Status: WIP – Initial development is in progress, but there has not yet been a stable, usable release suitable for the public.](https://www.repostatus.org/badges/latest/wip.svg)](https://www.repostatus.org/#wip)
 
-DISCLAIMER: This is a "vibe coded" project meant for my own personal use. While I am technical, I am no longer a developer so I relied on techncial program management experience to work with Gemini and Github Copilot to build this. It is functional and does what I need. I have done my best to containerize it and make it available to others to use. It may not be the most efficient, most definitely has undiscovered bugs, and may not be the most secure.
+> The Self-Hosted Vault for Your 3D Printing Ecosystem.
+
+Print Vault is a modern, open-source, and self-hostable application designed for 3D printing enthusiasts. Finally, you can manage your printers, track your parts inventory, and organize all of your projects in one clean, powerful, and private application that you control.
+
+***
+
+## About The Project
+
+Print Vault started as a simple solution to a personal problem: managing a growing collection of 3D printing parts. After an initial version built with AppSheet proved difficult to share, it became clear that the 3D printing community deserved a better tool—one that wasn't tied to a third-party service and could be truly owned by the user.
+
+This project was redesigned from the ground up to be a modern, completely self-hostable application. It’s built to solve a real-world need, offering the power and privacy that comes from running your own service, on your own hardware.
+
+### Screenshots
+
+| Inventory Management | Printer Details | Project Tracking |
+| :---: | :---: | :---: |
+| ![A clean, sortable list of all inventory items.](screenshots/inventory%20list.jpg) | ![A detailed view of a printer, showing its mods and maintenance schedule.](screenshots/printer%20detail.jpg) | ![A project view, linking associated printers and inventory parts.](screenshots/project%20details.jpg) |
+
+
+##  Key Features
+
+* **Comprehensive Inventory Tracking:** Stop guessing how many screws you have left. Track electronic components, hardware, and every part in your collection. Get low-stock alerts and always know what you have on hand.
+* **Detailed Printer Management:** Keep a detailed record of every mod and upgrade, track maintenance schedules with reminders, and store important files and links for each of your unique printers.
+* **Organized Project Tracking:** Move beyond folders of STLs. Organize your prints into projects, linking the exact inventory parts and printers used. Track project status and keep all related files and notes in one cohesive view.
+
+##  Tech Stack
+
+Print Vault is powered by a modern, open-source stack:
+
+* **Backend:** Django & Django REST Framework
+* **Frontend:** Vue.js
+* **Database:** PostgreSQL
+* **Deployment:** Docker
+
+##  A Note from the Author
+
+As a technical program manager and a passionate maker, I architected the entire system, defined the features, and guided the development process. However, I am not an engineer. The core challenge was translating the technical blueprint into production-ready code, which was accomplished using AI coding engines (Gemini Pro and GPT-4).
+
+While I directed every aspect of the logic and design, the AI was used as an advanced tool to generate the code. This project is a tool built by a maker, for makers, and is intended for personal use. It may not be the most efficient, most definitely has undiscovered bugs, and may not be the most secure.
+
 
 ## Installation
 
@@ -13,9 +52,7 @@ This guide will walk you through setting up Print Vault on a server using Docker
 Before you begin, you will need a server (such as a Proxmox LXC container, a VPS, or a Raspberry Pi) with the following software installed:
 
 - **Git**
-  
-- **Docker**
-  
+- **Docker** 
 - **Docker Compose**
   
 
