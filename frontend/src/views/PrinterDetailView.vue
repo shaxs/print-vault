@@ -135,8 +135,9 @@ onMounted(fetchPrinter)
           <div class="header-info">
             <h1>{{ printer.title }}</h1>
             <p class="manufacturer-serial">
-              {{ printer.manufacturer.name }} | Serial:
-              {{ printer.serial_number || 'N/A' }}
+              <span v-if="printer.manufacturer">{{ printer.manufacturer.name }}</span>
+              <span v-else>N/A</span>
+              | Serial: {{ printer.serial_number || 'N/A' }}
             </p>
           </div>
         </div>
