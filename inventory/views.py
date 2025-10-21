@@ -471,7 +471,7 @@ class ImportDataView(APIView):
                             download_error=row.get('download_error', ''),
                             downloaded_at=row.get('downloaded_at') or None,
                             file_checksum=row.get('file_checksum', ''),
-                            actual_file_size=int(row.get('actual_file_size', 0)) or None if row.get('actual_file_size') else None
+                            actual_file_size=int(row.get('actual_file_size', 0)) if row.get('actual_file_size') else None
                         )
                         tfile.save()
 
