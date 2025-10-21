@@ -32,6 +32,7 @@ onMounted(fetchNotifications)
       <RouterLink to="/">Inventory</RouterLink>
       <RouterLink to="/printers">Printers</RouterLink>
       <RouterLink to="/projects">Projects</RouterLink>
+      <RouterLink to="/trackers">Print Trackers</RouterLink>
     </nav>
 
     <div class="main-container">

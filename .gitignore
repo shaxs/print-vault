@@ -23,4 +23,15 @@ frontend/dev-dist/
 frontend/.vscode/
 frontend/dev-dist/
 frontend/dev-dist/sw.js
-.gitignore
+
+# Documentation and test scripts (not for public repo)
+chat_docs/
+test_scripts/
+DESIGN_SYSTEM.md
+
+#Local Dev Database
+db.sqlite3
+
+AGENTS.md
+
+

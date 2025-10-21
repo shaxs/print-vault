@@ -98,6 +98,25 @@ const inventoryHeaders = computed(() => [
   { text: 'Actions', value: 'actions', sortable: false },
 ])
 
+// Get progress bar color based on percentage
+const getProgressColor = (percentage) => {
+  if (percentage === 0) return '#64748b' // gray
+  if (percentage < 50) return '#ef4444' // red
+  if (percentage < 100) return '#f59e0b' // orange
+  return '#10b981' // green
+}
+
+// Get tracker progress style
+const getTrackerProgressStyle = (tracker) => {
+  const percentage = tracker?.progress_percentage || 0
+  return {
+    width: `${percentage}%`,
+    height: '100%',
+    backgroundColor: getProgressColor(percentage),
+    transition: 'width 0.3s ease',
+  }
+}
+
 onMounted(fetchProject)
 </script>
 
@@ -229,6 +248,45 @@ onMounted(fetchProject)
                     Manage Files
                   </button>
                 </div>
+              </div>
+            </div>
+            <hr />
+            <div class="card-section">
+              <h4>Print Trackers</h4>
+              <div v-if="project.trackers && project.trackers.length > 0" class="tracker-list">
+                <div v-for="tracker in project.trackers" :key="tracker.id" class="tracker-item">
+                  <div class="tracker-header-row">
+                    <router-link
+                      :to="{ name: 'tracker-detail', params: { id: tracker.id } }"
+                      class="tracker-name"
+                    >
+                      {{ tracker.name }}
+                    </router-link>
+                    <span class="tracker-stats">
+                      {{ tracker.printed_quantity_total || 0 }} /
+                      {{ tracker.total_quantity || 0 }} parts printed
+                    </span>
+                  </div>
+                  <div class="tracker-progress">
+                    <div class="tracker-progress-bar">
+                      <div
+                        class="tracker-progress-fill"
+                        :style="getTrackerProgressStyle(tracker)"
+                      ></div>
+                    </div>
+                    <span class="tracker-percentage">{{ tracker.progress_percentage || 0 }}%</span>
+                  </div>
+                </div>
+              </div>
+              <p v-else>No print trackers associated with this project.</p>
+              <div class="manage-trackers-button">
+                <button
+                  @click="router.push({ name: 'tracker-create', query: { project: project.id } })"
+                  type="button"
+                  class="btn btn-sm btn-primary"
+                >
+                  + New Tracker
+                </button>
               </div>
             </div>
           </div>
@@ -507,6 +565,78 @@ onMounted(fetchProject)
   padding: 0;
   padding-bottom: 30px;
 }
+
+/* Tracker Cards Styling */
+.tracker-list {
+  margin-bottom: 1rem;
+}
+
+.tracker-item {
+  margin-bottom: 1rem;
+}
+
+.tracker-item:last-child {
+  margin-bottom: 0;
+}
+
+.tracker-header-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 0.5rem;
+}
+
+.tracker-name {
+  color: var(--color-heading);
+  text-decoration: none;
+  font-weight: 500;
+}
+
+.tracker-name:hover {
+  color: var(--color-heading);
+  text-decoration: underline;
+}
+
+.tracker-stats {
+  font-size: 0.875rem;
+  color: var(--color-text);
+}
+
+.tracker-progress {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.tracker-progress-bar {
+  flex: 1;
+  height: 0.5rem;
+  background-color: var(--color-background-mute);
+  border-radius: 9999px;
+  overflow: hidden;
+}
+
+.tracker-progress-fill {
+  height: 100%;
+  background-color: var(--color-brand);
+  transition: width 0.3s ease;
+  border-radius: 9999px;
+}
+
+.tracker-percentage {
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: var(--color-brand);
+  min-width: 45px;
+  text-align: right;
+}
+
+.manage-trackers-button {
+  margin-top: 0.75rem;
+  display: flex;
+  justify-content: flex-end;
+}
+
 @media (max-width: 900px) {
   .inventory-full-width {
     grid-column: 1 / span 1;

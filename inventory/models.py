@@ -1,7 +1,7 @@
 # printvault/inventory/models.py
 import os
 from django.db import models
-from django.db.models.signals import post_delete
+from django.db.models.signals import post_delete, post_save
 from django.dispatch import receiver
 from django.core.validators import MinValueValidator
 
@@ -36,6 +36,15 @@ class Location(models.Model):
     class Meta:
         verbose_name = "Location"
         verbose_name_plural = "Locations"
+        ordering = ['name']
+    def __str__(self):
+        return self.name
+
+class Material(models.Model):
+    name = models.CharField(max_length=255, unique=True, null=False)
+    class Meta:
+        verbose_name = "Material"
+        verbose_name_plural = "Materials"
         ordering = ['name']
     def __str__(self):
         return self.name
@@ -168,3 +177,318 @@ class ProjectPrinters(models.Model):
         verbose_name_plural = "Project Printer Links"
     def __str__(self):
         return f"{self.project.project_name} - {self.printer.title}"
+
+
+# ============================================================================
+# PRINT TRACKER MODELS
+# ============================================================================
+
+def get_tracker_upload_path(instance, filename):
+    """Generates the upload path for tracker files stored locally."""
+    return os.path.join('tracker_files', str(instance.tracker.id), instance.directory_path, filename)
+
+
+class Tracker(models.Model):
+    """Print Tracker for managing multi-part 3D printing projects."""
+    name = models.CharField(max_length=255, null=False)
+    project = models.ForeignKey(
+        Project, 
+        on_delete=models.CASCADE, 
+        null=True, 
+        blank=True, 
+        related_name='trackers',
+        help_text='Optional: Associate this tracker with a project'
+    )
+    # Using TextField instead of URLField to avoid automatic URL encoding
+    github_url = models.TextField(
+        blank=True,
+        default='',
+        help_text='GitHub repository URL where files are located'
+    )
+    storage_type = models.CharField(
+        max_length=10,
+        choices=[
+            ('link', 'Store GitHub Links'),
+            ('local', 'Download and Store Locally')
+        ],
+        help_text='How to store the STL files'
+    )
+    creation_mode = models.CharField(
+        max_length=10,
+        choices=[
+            ('github', 'GitHub Wizard'),
+            ('manual', 'Manual Creation')
+        ],
+        default='github',
+        help_text='How this tracker was created'
+    )
+    
+    # Color configuration
+    primary_color = models.CharField(
+        max_length=7, 
+        default='#1E40AF',
+        help_text='Hex color code for primary color (e.g., #1E40AF)'
+    )
+    accent_color = models.CharField(
+        max_length=7, 
+        default='#DC2626',
+        help_text='Hex color code for accent color (e.g., #DC2626)'
+    )
+    
+    # Timestamps
+    created_date = models.DateTimeField(auto_now_add=True)
+    updated_date = models.DateTimeField(auto_now=True)
+    
+    # Cached progress statistics (updated via signals)
+    total_quantity = models.IntegerField(default=0, help_text='Total quantity of all parts')
+    printed_quantity_total = models.IntegerField(default=0, help_text='Total quantity of printed parts')
+    progress_percentage = models.IntegerField(default=0, help_text='Completion percentage (0-100)')
+    
+    # File storage tracking
+    storage_path = models.CharField(
+        max_length=500,
+        blank=True,
+        help_text='Base storage path for this tracker\'s files'
+    )
+    total_storage_used = models.BigIntegerField(
+        default=0,
+        help_text='Total bytes used by all downloaded files'
+    )
+    files_downloaded = models.BooleanField(
+        default=False,
+        help_text='Whether all files have been successfully downloaded'
+    )
+    
+    class Meta:
+        verbose_name = "Print Tracker"
+        verbose_name_plural = "Print Trackers"
+        ordering = ['-created_date']
+    
+    def __str__(self):
+        return self.name
+    
+    def recalculate_stats(self):
+        """Recalculate and update cached statistics from files."""
+        from django.db.models import Sum
+        
+        # Calculate totals
+        quantity_result = self.files.aggregate(total=Sum('quantity'))
+        printed_result = self.files.aggregate(total=Sum('printed_quantity'))
+        
+        self.total_quantity = quantity_result['total'] or 0
+        self.printed_quantity_total = printed_result['total'] or 0
+        
+        # Calculate percentage
+        if self.total_quantity == 0:
+            self.progress_percentage = 0
+        else:
+            self.progress_percentage = round((self.printed_quantity_total / self.total_quantity) * 100)
+    
+    @property
+    def total_count(self):
+        """Total number of files in this tracker."""
+        return self.files.count()
+    
+    @property
+    def completed_count(self):
+        """Number of files marked as completed."""
+        return self.files.filter(status='completed').count()
+    
+    @property
+    def in_progress_count(self):
+        """Number of files currently in progress."""
+        return self.files.filter(status='in_progress').count()
+    
+    @property
+    def not_started_count(self):
+        """Number of files not yet started."""
+        return self.files.filter(status='not_started').count()
+    
+    @property
+    def pending_quantity(self):
+        """Quantity of parts not yet printed (total - printed)."""
+        return self.total_quantity - self.printed_quantity_total
+
+
+class TrackerFile(models.Model):
+    """Individual file tracked within a Print Tracker."""
+    
+    STATUS_CHOICES = [
+        ('not_started', 'Not Started'),
+        ('in_progress', 'In Progress'),
+        ('completed', 'Completed'),
+    ]
+    
+    tracker = models.ForeignKey(
+        Tracker, 
+        on_delete=models.CASCADE, 
+        related_name='files'
+    )
+    
+    # Storage type - how this file is stored
+    storage_type = models.CharField(
+        max_length=10,
+        choices=[
+            ('link', 'Link Only'),
+            ('local', 'Downloaded/Uploaded')
+        ],
+        default='link',
+        help_text='Storage method: link (GitHub URL only) or local (file on server)'
+    )
+    
+    # File identification
+    filename = models.CharField(max_length=255, null=False)
+    directory_path = models.CharField(
+        max_length=500, 
+        blank=True,
+        help_text='Relative directory path (e.g., "Frame/extrusions")'
+    )
+    
+    # GitHub reference (always stored)
+    # Using TextField instead of URLField to avoid automatic URL encoding
+    github_url = models.TextField(
+        blank=True,
+        default='',
+        help_text='Direct URL to the file on GitHub'
+    )
+    
+    # Local storage (only if tracker.storage_type == 'local')
+    local_file = models.FileField(
+        upload_to=get_tracker_upload_path, 
+        null=True, 
+        blank=True,
+        help_text='Local copy of the file (if downloaded)'
+    )
+    
+    # File metadata
+    file_size = models.BigIntegerField(
+        default=0,
+        help_text='File size in bytes'
+    )
+    sha = models.CharField(
+        max_length=40, 
+        blank=True,
+        help_text='GitHub file SHA hash for verification'
+    )
+    
+    # Print configuration
+    color = models.CharField(
+        max_length=50, 
+        blank=True,
+        help_text='Color name (e.g., Primary, Accent, Multicolor)'
+    )
+    material = models.CharField(
+        max_length=50, 
+        blank=True,
+        help_text='Material type (e.g., ABS, PLA, PETG)'
+    )
+    quantity = models.IntegerField(
+        default=1,
+        validators=[MinValueValidator(1)],
+        help_text='Number of copies needed'
+    )
+    
+    # Selection state (from wizard)
+    is_selected = models.BooleanField(
+        default=True,
+        help_text='Whether this file is included in the tracker'
+    )
+    
+    # Progress tracking
+    status = models.CharField(
+        max_length=20,
+        choices=STATUS_CHOICES,
+        default='not_started'
+    )
+    printed_quantity = models.IntegerField(
+        default=0,
+        validators=[MinValueValidator(0)],
+        help_text='Number of copies already printed'
+    )
+    
+    # Timestamps
+    created_date = models.DateTimeField(auto_now_add=True)
+    updated_date = models.DateTimeField(auto_now=True)
+    download_date = models.DateTimeField(
+        null=True, 
+        blank=True,
+        help_text='When the file was downloaded (if local storage)'
+    )
+    
+    # Download tracking
+    download_status = models.CharField(
+        max_length=20,
+        choices=[
+            ('pending', 'Pending'),
+            ('downloading', 'Downloading'),
+            ('completed', 'Completed'),
+            ('failed', 'Failed'),
+        ],
+        default='pending',
+        help_text='Current download status of this file'
+    )
+    download_error = models.TextField(
+        blank=True,
+        help_text='Error message if download failed'
+    )
+    downloaded_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text='When file was successfully downloaded'
+    )
+    file_checksum = models.CharField(
+        max_length=64,
+        blank=True,
+        help_text='SHA256 checksum of downloaded file for integrity verification'
+    )
+    actual_file_size = models.BigIntegerField(
+        null=True,
+        blank=True,
+        help_text='Actual size of downloaded file (may differ from estimate)'
+    )
+    
+    class Meta:
+        verbose_name = "Tracker File"
+        verbose_name_plural = "Tracker Files"
+        ordering = ['directory_path', 'filename']
+        unique_together = ('tracker', 'directory_path', 'filename')
+    
+    def __str__(self):
+        if self.directory_path:
+            return f"{self.directory_path}/{self.filename}"
+        return self.filename
+    
+    @property
+    def remaining_quantity(self):
+        """Calculate how many more copies need to be printed."""
+        return max(0, self.quantity - self.printed_quantity)
+    
+    @property
+    def is_complete(self):
+        """Check if all required copies have been printed."""
+        return self.printed_quantity >= self.quantity
+
+
+# Clean up local file when TrackerFile is deleted
+@receiver(post_delete, sender=TrackerFile)
+def delete_tracker_file_on_disk(sender, instance, **kwargs):
+    """Delete the local file from disk when TrackerFile is deleted."""
+    if instance.local_file:
+        instance.local_file.delete(False)
+
+
+# Update tracker statistics when TrackerFile is saved or deleted
+@receiver(post_save, sender=TrackerFile)
+def update_tracker_stats_on_save(sender, instance, **kwargs):
+    """Automatically update tracker cached statistics when a file is saved."""
+    tracker = instance.tracker
+    tracker.recalculate_stats()
+    tracker.save(update_fields=['total_quantity', 'printed_quantity_total', 'progress_percentage', 'updated_date'])
+
+
+@receiver(post_delete, sender=TrackerFile)
+def update_tracker_stats_on_delete(sender, instance, **kwargs):
+    """Automatically update tracker cached statistics when a file is deleted."""
+    tracker = instance.tracker
+    tracker.recalculate_stats()
+    tracker.save(update_fields=['total_quantity', 'printed_quantity_total', 'progress_percentage', 'updated_date'])

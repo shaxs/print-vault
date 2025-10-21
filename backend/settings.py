@@ -117,6 +117,39 @@ STATIC_ROOT = os.path.join(BASE_DIR, "staticfiles")
 MEDIA_URL = "/media/"
 MEDIA_ROOT = os.path.join(BASE_DIR, "media")
 
+# Tracker file storage configuration
+TRACKER_STORAGE = {
+    # Storage paths
+    'BASE_PATH': os.path.join(MEDIA_ROOT, 'trackers'),
+    
+    # Size limits
+    'MAX_FILE_SIZE': 5 * 1024 * 1024 * 1024,    # 5 GB per file
+    'MAX_TOTAL_SIZE': 100 * 1024 * 1024 * 1024, # 100 GB per tracker
+    'WARN_THRESHOLD': 1 * 1024 * 1024 * 1024,   # Warn if > 1 GB
+    'MIN_FREE_SPACE': 5 * 1024 * 1024 * 1024,   # Require 5 GB free
+    
+    # Download settings
+    'DOWNLOAD_TIMEOUT': 600,      # 10 minutes
+    'MAX_RETRIES': 3,
+    'RETRY_DELAY': 2,             # Exponential backoff base
+    'CHUNK_SIZE': 8192,           # 8 KB chunks
+    
+    # Features
+    'ORGANIZE_BY_CATEGORY': True,  # Create category subfolders
+    'VERIFY_CHECKSUMS': False,     # SHA256 verification (slower)
+    'CLEANUP_ON_DELETE': True,     # Delete files when tracker deleted
+}
+
+# Allowed domains for file downloads (security)
+ALLOWED_DOWNLOAD_DOMAINS = [
+    'github.com',
+    'raw.githubusercontent.com',
+    'thingiverse.com',
+    'thingiverse-production-new.s3.amazonaws.com',
+    'printables.com',
+    'media.printables.com',
+]
+
 
 # Default primary key field type
 # https://docs.djangoproject.com/en/5.0/ref/settings/#default-auto-field

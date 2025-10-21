@@ -98,6 +98,11 @@ const clearFilters = () => {
   router.push({ query: { search: searchText.value || undefined } })
 }
 
+const clearFiltersAndClose = () => {
+  clearFilters()
+  isFilterModalVisible.value = false
+}
+
 onMounted(() => {
   loadColumns()
 })
@@ -141,10 +146,24 @@ onMounted(() => {
               </select>
             </div>
             <div class="form-actions">
-              <button type="submit" class="save-button">Apply Filters</button>
-              <button @click="isFilterModalVisible = false" type="button" class="cancel-button">
-                Cancel
+              <button
+                v-if="isFilterActive"
+                @click="clearFiltersAndClose"
+                type="button"
+                class="btn btn-danger"
+              >
+                Remove Filters
               </button>
+              <div class="form-actions-right">
+                <button type="submit" class="btn btn-primary">Apply Filters</button>
+                <button
+                  @click="isFilterModalVisible = false"
+                  type="button"
+                  class="btn btn-secondary"
+                >
+                  Cancel
+                </button>
+              </div>
             </div>
           </form>
         </div>
@@ -219,27 +238,14 @@ onMounted(() => {
 }
 .form-actions {
   display: flex;
-  justify-content: flex-end;
+  justify-content: space-between;
+  align-items: center;
   gap: 10px;
   margin-top: 20px;
 }
-.save-button,
-.cancel-button {
-  padding: 10px 20px;
-  border: none;
-  border-radius: 5px;
-  text-decoration: none;
-  cursor: pointer;
-  font-size: 1rem;
-  font-weight: bold;
-}
-.save-button {
-  background-color: var(--color-blue);
-  color: white;
-}
-.cancel-button {
-  background-color: var(--color-background-mute);
-  color: var(--color-heading);
-  border: 1px solid var(--color-border);
+.form-actions-right {
+  display: flex;
+  gap: 10px;
+  justify-content: flex-end;
 }
 </style>

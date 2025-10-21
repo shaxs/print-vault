@@ -8,6 +8,15 @@ const props = defineProps({
 
 const emit = defineEmits(['close'])
 
+// Handle overlay click to close modal
+// Use mousedown instead of click to detect when drag starts outside modal
+function handleOverlayClick(event) {
+  // Only close if the click started and ended on the overlay (not dragging from inside modal)
+  if (event.target.classList.contains('modal-overlay')) {
+    emit('close')
+  }
+}
+
 watch(
   () => props.show,
   (newValue) => {
@@ -27,8 +36,8 @@ watch(
 </script>
 
 <template>
-  <div v-if="show" class="modal-overlay" @click="emit('close')">
-    <div class="modal-container" @click.stop>
+  <div v-if="show" class="modal-overlay" @mousedown="handleOverlayClick">
+    <div class="modal-container" @click.stop @mousedown.stop>
       <div class="modal-header">
         <h3>{{ title }}</h3>
         <button @click="emit('close')" class="close-button">&times;</button>

@@ -3,9 +3,11 @@ import csv
 import zipfile
 import os
 import shutil
+import tempfile
 from io import BytesIO, StringIO
 from datetime import date, timedelta
 from django.http import HttpResponse
+from django.utils import timezone
 from rest_framework import viewsets, filters, mixins
 from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
@@ -16,15 +18,28 @@ from django_filters.rest_framework import DjangoFilterBackend
 from django.db.models import F
 from rest_framework.decorators import action
 from .models import (
-    Brand, PartType, Location, Printer, Mod, ModFile,
-    InventoryItem, Project, ProjectLink, ProjectFile, ProjectInventory, ProjectPrinters
+    Brand, PartType, Location, Material, Printer, Mod, ModFile,
+    InventoryItem, Project, ProjectLink, ProjectFile, ProjectInventory, ProjectPrinters,
+    Tracker, TrackerFile
 )
 from .serializers import (
-    BrandSerializer, PartTypeSerializer, LocationSerializer, PrinterSerializer, ModSerializer, ModFileSerializer,
+    BrandSerializer, PartTypeSerializer, LocationSerializer, MaterialSerializer, PrinterSerializer, ModSerializer, ModFileSerializer,
     InventoryItemSerializer, ProjectSerializer, ProjectLinkSerializer, ProjectFileSerializer,
-    ProjectInventorySerializer, ProjectPrintersSerializer
+    ProjectInventorySerializer, ProjectPrintersSerializer,
+    TrackerSerializer, TrackerFileSerializer, TrackerCreateSerializer, TrackerListSerializer
 )
 from .filters import InventoryItemFilter, PrinterFilter, ProjectFilter
+from .services.github_service import (
+    crawl_github_repository,
+    GitHubCrawlerError,
+    InvalidURLError,
+    RepositoryNotFoundError,
+    RateLimitError,
+    NetworkError,
+    EmptyResultError
+)
+from .services.storage_manager import StorageManager, InsufficientStorageError, StoragePermissionError
+from .services.file_download_service import FileDownloadService, DownloadError, FileTooLargeError, DownloadTimeoutError
 
 # A viewset that only allows listing and retrieving (read-only)
 class ReadOnlyViewSet(mixins.RetrieveModelMixin,
@@ -340,14 +355,9 @@ class ImportDataView(APIView):
                             project_id=row['project_id'],
                             printer_id=row['printer_id']
                         )
-            
-            # Add a print statement for debugging
-            print("--- Import process completed successfully ---")
 
             return Response({'success': 'Data restored successfully.'}, status=status.HTTP_200_OK)
         except Exception as e:
-            # Also print the error to the console for debugging
-            print(f"--- AN ERROR OCCURRED DURING IMPORT: {e} ---")
             return Response({'error': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 class DeleteAllData(APIView):
@@ -396,6 +406,11 @@ class PartTypeViewSet(viewsets.ModelViewSet):
 class LocationViewSet(viewsets.ModelViewSet):
     queryset = Location.objects.all().order_by('name')
     serializer_class = LocationSerializer
+    permission_classes = [AllowAny]
+
+class MaterialViewSet(viewsets.ModelViewSet):
+    queryset = Material.objects.all().order_by('name')
+    serializer_class = MaterialSerializer
     permission_classes = [AllowAny]
 
 class ModViewSet(viewsets.ModelViewSet):
@@ -491,3 +506,1321 @@ class LowStockItemsViewSet(ReadOnlyViewSet):
             low_stock_threshold__isnull=False,
             quantity__lte=F('low_stock_threshold')
         )
+
+
+# ============================================================================
+# PRINT TRACKER VIEWSETS
+# ============================================================================
+
+class TrackerViewSet(viewsets.ModelViewSet):
+    """
+    ViewSet for managing Print Trackers.
+    
+    Endpoints:
+    - GET /api/trackers/ - List all trackers
+    - POST /api/trackers/ - Create new tracker
+    - GET /api/trackers/{id}/ - Get tracker detail
+    - PUT/PATCH /api/trackers/{id}/ - Update tracker
+    - DELETE /api/trackers/{id}/ - Delete tracker
+    """
+    queryset = Tracker.objects.all()
+    permission_classes = [AllowAny]
+    filter_backends = [DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter]
+    search_fields = ['name', 'github_url']
+    ordering_fields = ['name', 'created_date', 'updated_date']
+    ordering = ['-created_date']
+    
+    def get_serializer_class(self):
+        """Use different serializers for different actions."""
+        if self.action == 'create':
+            return TrackerCreateSerializer
+        elif self.action == 'list':
+            return TrackerListSerializer
+        return TrackerSerializer
+    
+    def get_queryset(self):
+        """Allow filtering by project."""
+        queryset = Tracker.objects.all()
+        project_id = self.request.query_params.get('project', None)
+        if project_id is not None:
+            queryset = queryset.filter(project_id=project_id)
+        return queryset
+    
+    def create(self, request, *args, **kwargs):
+        """
+        Create a new tracker and optionally download files if storage_type is 'download'.
+        
+        Returns tracker data plus download_results if files were downloaded.
+        """
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        tracker = serializer.save()
+        
+        # Get tracker data for response
+        response_serializer = TrackerSerializer(tracker)
+        response_data = {
+            'tracker': response_serializer.data
+        }
+        
+        # Add download results if available (set by serializer during file downloads)
+        if hasattr(tracker, '_download_results'):
+            response_data['download_results'] = tracker._download_results
+            
+            # Add summary information
+            successful_count = len(tracker._download_results.get('successful', []))
+            failed_count = len(tracker._download_results.get('failed', []))
+            total_count = successful_count + failed_count
+            
+            response_data['download_summary'] = {
+                'total_files': total_count,
+                'successful': successful_count,
+                'failed': failed_count,
+                'all_successful': failed_count == 0,
+                'total_bytes': tracker._download_results.get('total_bytes', 0),
+                'duration': tracker._download_results.get('duration', 0)
+            }
+        
+        headers = self.get_success_headers(response_serializer.data)
+        return Response(response_data, status=status.HTTP_201_CREATED, headers=headers)
+    
+    @action(detail=False, methods=['post'], url_path='crawl-github')
+    def crawl_github(self, request):
+        """
+        Crawl a GitHub repository and return printable files.
+        
+        POST /api/trackers/crawl-github/
+        Body: {
+            "github_url": "https://github.com/VoronDesign/Voron-0/tree/main/STLs",
+            "force_refresh": false  // Optional
+        }
+        
+        Returns file tree with all printable files, categorized by size.
+        Results are cached for 1 hour unless force_refresh=true.
+        """
+        github_url = request.data.get('github_url')
+        force_refresh = request.data.get('force_refresh', False)
+        
+        if not github_url:
+            return Response(
+                {
+                    'success': False,
+                    'error': 'github_url is required'
+                },
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        try:
+            result = crawl_github_repository(github_url, force_refresh)
+            return Response(result, status=status.HTTP_200_OK)
+            
+        except InvalidURLError as e:
+            return Response(
+                {
+                    'success': False,
+                    'error': str(e),
+                    'error_type': 'invalid_url'
+                },
+                status=status.HTTP_400_BAD_REQUEST
+            )
+            
+        except RepositoryNotFoundError as e:
+            return Response(
+                {
+                    'success': False,
+                    'error': str(e),
+                    'error_type': 'repo_not_found'
+                },
+                status=status.HTTP_404_NOT_FOUND
+            )
+            
+        except RateLimitError as e:
+            return Response(
+                {
+                    'success': False,
+                    'error': str(e),
+                    'error_type': 'rate_limit'
+                },
+                status=status.HTTP_429_TOO_MANY_REQUESTS
+            )
+            
+        except EmptyResultError as e:
+            return Response(
+                {
+                    'success': False,
+                    'error': str(e),
+                    'error_type': 'empty_result'
+                },
+                status=status.HTTP_404_NOT_FOUND
+            )
+            
+        except NetworkError as e:
+            return Response(
+                {
+                    'success': False,
+                    'error': str(e),
+                    'error_type': 'network_error'
+                },
+                status=status.HTTP_503_SERVICE_UNAVAILABLE
+            )
+        
+        except GitHubCrawlerError as e:
+            return Response(
+                {
+                    'success': False,
+                    'error': str(e),
+                    'error_type': 'unknown'
+                },
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+    
+    @action(detail=False, methods=['post'], url_path='fetch-url-metadata')
+    def fetch_url_metadata(self, request):
+        """
+        Fetch metadata for a single URL (filename, size, source).
+        
+        POST /api/trackers/fetch-url-metadata/
+        Body: {
+            "url": "https://github.com/user/repo/file.stl"
+        }
+        
+        Returns: {
+            "filename": "file.stl",
+            "size": 12345,
+            "source": "GitHub"
+        }
+        """
+        from urllib.parse import urlparse, unquote
+        import requests
+        
+        url = request.data.get('url')
+        if not url:
+            return Response(
+                {'error': 'url is required'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        try:
+            parsed = urlparse(url)
+            domain = parsed.netloc.lower()
+            
+            # Detect source
+            if 'github.com' in domain:
+                source = 'GitHub'
+            elif 'printables.com' in domain:
+                source = 'Printables'
+            elif 'thingiverse.com' in domain:
+                source = 'Thingiverse'
+            else:
+                source = 'URL'
+            
+            # Extract filename from URL and decode URL encoding
+            filename = url.split('/')[-1].split('?')[0]
+            filename = unquote(filename)  # Decode %5B to [, %5D to ], etc.
+            if not filename:
+                filename = 'unknown_file'
+            
+            # Try to get file size with HEAD request
+            try:
+                head_response = requests.head(url, timeout=5, allow_redirects=True)
+                size = int(head_response.headers.get('Content-Length', 0))
+            except:
+                size = 0
+            
+            return Response({
+                'filename': filename,
+                'size': size,
+                'source': source
+            })
+            
+        except Exception as e:
+            return Response(
+                {'error': f'Failed to fetch metadata: {str(e)}'},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+    
+    @action(detail=False, methods=['post'], url_path='create-manual')
+    def create_manual(self, request):
+        """
+        Create a manual tracker with pre-defined files.
+        Now supports automatic file downloads when storage_type='download'.
+        
+        POST /api/trackers/create-manual/
+        Body: {
+            "name": "Custom Build",
+            "project": 1,  // Optional
+            "storage_type": "download",  // 'download' or 'link'
+            "files": [
+                {
+                    "name": "part.stl",
+                    "url": "https://...",
+                    "source": "GitHub",
+                    "category": "Body",
+                    "size": 12345
+                }
+            ]
+        }
+        """
+        name = request.data.get('name')
+        project_id = request.data.get('project')
+        storage_type = request.data.get('storage_type', 'link')
+        
+        files = request.data.get('files', [])
+        
+        if not name:
+            return Response(
+                {'error': 'name is required'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        if not files:
+            return Response(
+                {'error': 'at least one file is required'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        try:
+            # Create tracker
+            tracker = Tracker.objects.create(
+                name=name,
+                project_id=project_id if project_id else None,
+                storage_type=storage_type,
+                github_url='',  # No GitHub URL for manual trackers
+                creation_mode='manual'
+            )
+            
+            # Create tracker files
+            created_files = []
+            for file_data in files:
+                tracker_file = TrackerFile.objects.create(
+                    tracker=tracker,
+                    filename=file_data.get('name', 'unknown'),
+                    directory_path=file_data.get('category', ''),
+                    github_url=file_data.get('url', ''),
+                    file_size=file_data.get('size', 0),
+                    is_selected=True,
+                    status='pending',
+                    color=file_data.get('color', 'Primary'),
+                    material=file_data.get('material', 'PLA'),
+                    quantity=file_data.get('quantity', 1),
+                    printed_quantity=0
+                )
+                created_files.append(tracker_file)
+            
+            # If storage_type is 'local', download the files
+            download_results = None
+            if storage_type == 'local' and created_files:
+                download_results = self._download_tracker_files_for_manual(tracker, created_files)
+            
+            # Get updated tracker data
+            serializer = TrackerSerializer(tracker)
+            response_data = {
+                'success': True,
+                'tracker': serializer.data
+            }
+            
+            # Add download results if available
+            if download_results:
+                response_data['download_results'] = download_results
+                
+                successful_count = len(download_results.get('successful', []))
+                failed_count = len(download_results.get('failed', []))
+                
+                response_data['download_summary'] = {
+                    'total_files': len(created_files),
+                    'successful': successful_count,
+                    'failed': failed_count,
+                    'all_successful': failed_count == 0,
+                    'total_bytes': download_results.get('total_bytes', 0),
+                    'duration': download_results.get('duration', 0)
+                }
+            
+            return Response(response_data)
+            
+        except Exception as e:
+            return Response(
+                {'error': f'Failed to create tracker: {str(e)}'},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+    
+    def _download_tracker_files_for_manual(self, tracker, tracker_files):
+        """
+        Download files for a manually created tracker.
+        Same logic as serializer's _download_tracker_files but for manual endpoint.
+        """
+        storage_manager = StorageManager()
+        download_service = FileDownloadService()
+        
+        # Calculate total size needed
+        total_size = sum(f.file_size for f in tracker_files if f.file_size)
+        
+        # Check available disk space
+        try:
+            space_check = storage_manager.check_available_space(total_size)
+            if not space_check['sufficient']:
+                for tf in tracker_files:
+                    tf.download_status = 'failed'
+                    tf.download_error = f"Insufficient disk space. Need {storage_manager._format_bytes(total_size)}, only {space_check['available_formatted']} available."
+                    tf.save()
+                
+                return {
+                    'successful': [],
+                    'failed': [{'file_id': tf.id, 'filename': tf.filename, 'error': tf.download_error} for tf in tracker_files],
+                    'total_bytes': 0,
+                    'error': 'Insufficient disk space'
+                }
+        except (InsufficientStorageError, StoragePermissionError) as e:
+            for tf in tracker_files:
+                tf.download_status = 'failed'
+                tf.download_error = str(e)
+                tf.save()
+            
+            return {
+                'successful': [],
+                'failed': [{'file_id': tf.id, 'filename': tf.filename, 'error': str(e)} for tf in tracker_files],
+                'total_bytes': 0,
+                'error': str(e)
+            }
+        
+        # Get storage path for this tracker
+        try:
+            storage_path = storage_manager.get_tracker_storage_path(tracker.id, create=True)
+            tracker.storage_path = storage_path
+            tracker.save()
+        except Exception as e:
+            for tf in tracker_files:
+                tf.download_status = 'failed'
+                tf.download_error = f"Failed to create storage path: {str(e)}"
+                tf.save()
+            
+            return {
+                'successful': [],
+                'failed': [{'file_id': tf.id, 'filename': tf.filename, 'error': f"Failed to create storage path: {str(e)}"} for tf in tracker_files],
+                'total_bytes': 0,
+                'error': f"Failed to create storage path: {str(e)}"
+            }
+        
+        # Prepare file list for batch download
+        # Also build a mapping of tracker_file_id to relative path for local_file field
+        file_list = []
+        file_path_mapping = {}  # Maps tracker_file_id to relative path from MEDIA_ROOT
+        
+        for tracker_file in tracker_files:
+            category_path = storage_manager.get_category_path(
+                tracker.id,
+                tracker_file.directory_path or 'uncategorized',
+                create=True
+            )
+            
+            safe_filename = storage_manager.sanitize_filename(tracker_file.filename)
+            destination = f"{category_path}/{safe_filename}"
+            
+            # Build relative path for FileField (relative to MEDIA_ROOT)
+            # destination is absolute, e.g., C:\...\media\trackers\8\files\test\file.stl
+            # We need: trackers/8/files/test/file.stl
+            category = tracker_file.directory_path or 'uncategorized'
+            safe_category = storage_manager.sanitize_filename(category)
+            relative_path = f"trackers/{tracker.id}/files/{safe_category}/{safe_filename}"
+            file_path_mapping[tracker_file.id] = relative_path
+            
+            file_list.append({
+                'url': tracker_file.github_url,
+                'destination': destination,
+                'name': tracker_file.filename,
+                'tracker_file_id': tracker_file.id
+            })
+            
+            tracker_file.download_status = 'downloading'
+            tracker_file.save()
+        
+        # Download files in batch
+        results = download_service.download_files_batch(file_list)
+        
+        # Process results and update tracker files
+        successful_downloads = []
+        failed_downloads = []
+        total_bytes_downloaded = 0
+        
+        for success_info in results['successful']:
+            tracker_file = next((tf for tf in tracker_files if tf.id == success_info.get('tracker_file_id')), None)
+            
+            if tracker_file:
+                tracker_file.download_status = 'completed'
+                tracker_file.downloaded_at = timezone.now()
+                tracker_file.file_checksum = success_info.get('checksum', '')
+                tracker_file.actual_file_size = success_info.get('bytes_downloaded', 0)
+                tracker_file.download_error = ''
+                # Set the local_file path (relative to MEDIA_ROOT)
+                tracker_file.local_file = file_path_mapping.get(tracker_file.id, '')
+                tracker_file.save()
+                
+                total_bytes_downloaded += success_info.get('bytes_downloaded', 0)
+                successful_downloads.append({
+                    'file_id': tracker_file.id,
+                    'filename': tracker_file.filename,
+                    'bytes_downloaded': success_info.get('bytes_downloaded', 0),
+                    'duration': success_info.get('duration', 0)
+                })
+        
+        for fail_info in results['failed']:
+            tracker_file = next((tf for tf in tracker_files if tf.id == fail_info.get('tracker_file_id')), None)
+            
+            if tracker_file:
+                tracker_file.download_status = 'failed'
+                tracker_file.download_error = fail_info.get('error', 'Unknown error')
+                tracker_file.save()
+                
+                failed_downloads.append({
+                    'file_id': tracker_file.id,
+                    'filename': tracker_file.filename,
+                    'error': fail_info.get('error', 'Unknown error')
+                })
+        
+        # Update tracker totals
+        tracker.total_storage_used = total_bytes_downloaded
+        tracker.files_downloaded = len(failed_downloads) == 0
+        tracker.save()
+        
+        return {
+            'successful': successful_downloads,
+            'failed': failed_downloads,
+            'total_bytes': total_bytes_downloaded,
+            'duration': results.get('duration', 0)
+        }
+    
+    @action(detail=True, methods=['post'], url_path='download-all-files')
+    def download_all_files(self, request, pk=None):
+        """
+        Download all files for a tracker that have URLs but no local files.
+        Useful when converting from 'link' storage to 'local' storage.
+        
+        POST /api/trackers/{id}/download-all-files/
+        """
+        tracker = self.get_object()
+        
+        # Get all files that have github_url but no local_file
+        files_to_download = TrackerFile.objects.filter(
+            tracker=tracker,
+            github_url__isnull=False
+        ).exclude(
+            github_url=''
+        ).filter(
+            local_file=''
+        )
+        
+        if not files_to_download.exists():
+            return Response({
+                'success': True,
+                'message': 'No files need to be downloaded',
+                'count': 0
+            })
+        
+        # Download the files
+        try:
+            download_results = self._download_new_files(tracker, list(files_to_download))
+            
+            # Update tracker storage_type to 'local' if it isn't already
+            if tracker.storage_type != 'local':
+                tracker.storage_type = 'local'
+                tracker.save()
+            
+            return Response({
+                'success': True,
+                'download_results': download_results,
+                'downloaded_count': len(download_results.get('successful', [])),
+                'failed_count': len(download_results.get('failed', [])),
+                'total_files': len(files_to_download)
+            })
+        except Exception as e:
+            return Response(
+                {'error': f'Failed to download files: {str(e)}'},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+    
+    @action(detail=True, methods=['get'], url_path='download-zip')
+    def download_zip(self, request, pk=None):
+        """
+        Download all tracker files as a ZIP archive.
+        - For local files: include them from storage
+        - For link files: download from URL and include
+        
+        GET /api/trackers/{id}/download-zip/
+        """
+        import traceback
+        import logging
+        logger = logging.getLogger(__name__)
+        
+        try:
+            tracker = self.get_object()
+            
+            # Create in-memory ZIP file
+            zip_buffer = BytesIO()
+            
+            with zipfile.ZipFile(zip_buffer, 'w', zipfile.ZIP_DEFLATED) as zip_file:
+                # Get all files for this tracker
+                files = TrackerFile.objects.filter(tracker=tracker).order_by('directory_path', 'filename')
+                
+                if not files.exists():
+                    return Response(
+                        {'error': 'No files found for this tracker'},
+                        status=status.HTTP_404_NOT_FOUND
+                    )
+                
+                # Track files added to avoid duplicates
+                added_files = set()
+                
+                for file in files:
+                    # Generate a unique filename with category prefix (using directory_path)
+                    category_prefix = file.directory_path.replace('/', '_').replace('\\', '_') if file.directory_path else 'Uncategorized'
+                    safe_filename = f"{category_prefix}/{file.filename}"
+                    
+                    # Avoid duplicate filenames
+                    counter = 1
+                    original_safe_filename = safe_filename
+                    while safe_filename in added_files:
+                        name, ext = os.path.splitext(original_safe_filename)
+                        safe_filename = f"{name}_{counter}{ext}"
+                        counter += 1
+                    
+                    try:
+                        # Check if file exists locally
+                        if file.local_file and os.path.exists(file.local_file.path):
+                            # Add local file to ZIP
+                            zip_file.write(file.local_file.path, safe_filename)
+                            added_files.add(safe_filename)
+                        elif file.github_url:
+                            # Download from URL and add to ZIP
+                            download_service = FileDownloadService()
+                            
+                            # Create temporary file
+                            with tempfile.NamedTemporaryFile(delete=False, suffix='.stl') as temp_file:
+                                temp_path = temp_file.name
+                            
+                            try:
+                                # Download to temp file
+                                result = download_service.download_with_retry(
+                                    file.github_url,
+                                    temp_path,
+                                    max_retries=2
+                                )
+                                
+                                # Add to ZIP
+                                zip_file.write(temp_path, safe_filename)
+                                added_files.add(safe_filename)
+                            except (DownloadError, DownloadTimeoutError, FileTooLargeError) as download_err:
+                                # Add error note instead of failing completely
+                                error_filename = f"{safe_filename}.error.txt"
+                                error_msg = f"Failed to download: {file.github_url}\nError: {str(download_err)}\n"
+                                zip_file.writestr(error_filename, error_msg)
+                            finally:
+                                # Clean up temp file
+                                if os.path.exists(temp_path):
+                                    try:
+                                        os.remove(temp_path)
+                                    except:
+                                        pass  # Ignore cleanup errors
+                    except Exception as e:
+                        # Log error but continue with other files
+                        logger.error(f"Error processing file {file.filename}: {str(e)}")
+                        logger.error(traceback.format_exc())
+                        error_filename = f"{safe_filename}.error.txt"
+                        error_msg = f"Error processing file: {str(e)}\nURL: {file.github_url or 'N/A'}\n"
+                        zip_file.writestr(error_filename, error_msg)
+                        continue
+            
+            # Prepare response
+            zip_buffer.seek(0)
+            response = HttpResponse(zip_buffer.getvalue(), content_type='application/zip')
+            safe_tracker_name = tracker.name.replace(' ', '_').replace('/', '_').replace('\\', '_')
+            response['Content-Disposition'] = f'attachment; filename="{safe_tracker_name}_files.zip"'
+            
+            return response
+            
+        except Exception as e:
+            logger.error(f"Failed to create ZIP file: {str(e)}")
+            logger.error(traceback.format_exc())
+            return Response(
+                {'error': f'Failed to create ZIP file: {str(e)}'},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+    
+    @action(detail=True, methods=['post'], url_path='add-files')
+    def add_files(self, request, pk=None):
+        """
+        Add new files to an existing tracker and optionally download them.
+        
+        POST /api/trackers/{id}/add-files/
+        Body: {
+            "files": [
+                {
+                    "name": "new_part.stl",
+                    "url": "https://...",
+                    "source": "GitHub",
+                    "category": "Body",
+                    "size": 12345,
+                    "quantity": 1,
+                    "color": "Primary",
+                    "material": "ABS"
+                }
+            ]
+        }
+        """
+        tracker = self.get_object()
+        files = request.data.get('files', [])
+        
+        if not files:
+            return Response(
+                {'error': 'at least one file is required'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        try:
+            added_files = []
+            updated_files = []
+            
+            for file_data in files:
+                # Check if file already exists
+                existing_file = TrackerFile.objects.filter(
+                    tracker=tracker,
+                    directory_path=file_data.get('category', ''),
+                    filename=file_data.get('name', 'unknown')
+                ).first()
+                
+                if existing_file:
+                    # Update existing file
+                    existing_file.github_url = file_data.get('url', existing_file.github_url)
+                    existing_file.file_size = file_data.get('size', existing_file.file_size)
+                    existing_file.quantity = file_data.get('quantity', existing_file.quantity)
+                    existing_file.color = file_data.get('color', existing_file.color)
+                    existing_file.material = file_data.get('material', existing_file.material)
+                    existing_file.status = 'not_started'
+                    existing_file.is_selected = True
+                    existing_file.save()
+                    updated_files.append(existing_file)
+                    added_files.append(existing_file)  # Include in added_files for download
+                else:
+                    # Create new TrackerFile
+                    tracker_file = TrackerFile.objects.create(
+                        tracker=tracker,
+                        filename=file_data.get('name', 'unknown'),
+                        directory_path=file_data.get('category', ''),
+                        github_url=file_data.get('url', ''),
+                        file_size=file_data.get('size', 0),
+                        quantity=file_data.get('quantity', 1),
+                        color=file_data.get('color', 'Primary'),
+                        material=file_data.get('material', 'ABS'),
+                        status='not_started',
+                        is_selected=True
+                    )
+                    added_files.append(tracker_file)
+            
+            # If tracker storage_type is 'local', download the new files
+            download_results = None
+            if tracker.storage_type == 'local' and added_files:
+                download_results = self._download_new_files(tracker, added_files)
+            
+            # Serialize response
+            file_serializer = TrackerFileSerializer(added_files, many=True)
+            
+            response_data = {
+                'success': True,
+                'added_files': file_serializer.data,
+                'count': len(added_files),
+                'created_count': len(added_files) - len(updated_files),
+                'updated_count': len(updated_files)
+            }
+            
+            # Add download results if available
+            if download_results:
+                response_data['download_results'] = download_results
+                
+                successful_count = len(download_results.get('successful', []))
+                failed_count = len(download_results.get('failed', []))
+                
+                response_data['download_summary'] = {
+                    'total_files': len(added_files),
+                    'successful': successful_count,
+                    'failed': failed_count,
+                    'all_successful': failed_count == 0,
+                    'total_bytes': download_results.get('total_bytes', 0),
+                    'duration': download_results.get('duration', 0)
+                }
+            
+            return Response(response_data)
+            
+        except Exception as e:
+            return Response(
+                {'error': f'Failed to add files: {str(e)}'},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+    
+    def _download_new_files(self, tracker, tracker_files):
+        """
+        Download new files being added to an existing tracker.
+        Similar to the serializer's _download_tracker_files but for add-files action.
+        
+        Returns:
+            dict: Download results with successful/failed files
+        """
+        storage_manager = StorageManager()
+        download_service = FileDownloadService()
+        
+        # Calculate total size needed for new files
+        total_size = sum(f.file_size for f in tracker_files if f.file_size)
+        
+        # Check available disk space
+        try:
+            space_check = storage_manager.check_available_space(total_size)
+            if not space_check['sufficient']:
+                # Mark all files as failed due to insufficient space
+                for tf in tracker_files:
+                    tf.download_status = 'failed'
+                    tf.download_error = f"Insufficient disk space. Need {storage_manager._format_bytes(total_size)}, only {space_check['available_formatted']} available."
+                    tf.save()
+                
+                return {
+                    'successful': [],
+                    'failed': [
+                        {
+                            'file_id': tf.id,
+                            'filename': tf.filename,
+                            'error': tf.download_error
+                        } for tf in tracker_files
+                    ],
+                    'total_bytes': 0,
+                    'error': 'Insufficient disk space'
+                }
+        except (InsufficientStorageError, StoragePermissionError) as e:
+            for tf in tracker_files:
+                tf.download_status = 'failed'
+                tf.download_error = str(e)
+                tf.save()
+            
+            return {
+                'successful': [],
+                'failed': [
+                    {
+                        'file_id': tf.id,
+                        'filename': tf.filename,
+                        'error': str(e)
+                    } for tf in tracker_files
+                ],
+                'total_bytes': 0,
+                'error': str(e)
+            }
+        
+        # Get storage path for this tracker (should already exist)
+        try:
+            if not tracker.storage_path:
+                storage_path = storage_manager.get_tracker_storage_path(tracker.id, create=True)
+                tracker.storage_path = storage_path
+                tracker.save()
+        except Exception as e:
+            for tf in tracker_files:
+                tf.download_status = 'failed'
+                tf.download_error = f"Failed to access storage path: {str(e)}"
+                tf.save()
+            
+            return {
+                'successful': [],
+                'failed': [
+                    {
+                        'file_id': tf.id,
+                        'filename': tf.filename,
+                        'error': f"Failed to access storage path: {str(e)}"
+                    } for tf in tracker_files
+                ],
+                'total_bytes': 0,
+                'error': f"Failed to access storage path: {str(e)}"
+            }
+        
+        # Prepare file list for batch download
+        # Also build a mapping of tracker_file_id to relative path for local_file field
+        file_list = []
+        file_path_mapping = {}  # Maps tracker_file_id to relative path from MEDIA_ROOT
+        
+        for tracker_file in tracker_files:
+            # Get category path
+            category_path = storage_manager.get_category_path(
+                tracker.id,
+                tracker_file.directory_path or 'uncategorized',
+                create=True
+            )
+            
+            # Sanitize filename
+            safe_filename = storage_manager.sanitize_filename(tracker_file.filename)
+            destination = f"{category_path}/{safe_filename}"
+            
+            # Build relative path for FileField (relative to MEDIA_ROOT)
+            category = tracker_file.directory_path or 'uncategorized'
+            safe_category = storage_manager.sanitize_filename(category)
+            relative_path = f"trackers/{tracker.id}/files/{safe_category}/{safe_filename}"
+            file_path_mapping[tracker_file.id] = relative_path
+            
+            file_list.append({
+                'url': tracker_file.github_url,
+                'destination': destination,
+                'name': tracker_file.filename,
+                'tracker_file_id': tracker_file.id
+            })
+            
+            # Mark as downloading
+            tracker_file.download_status = 'downloading'
+            tracker_file.save()
+        
+        # Download files in batch
+        results = download_service.download_files_batch(file_list)
+        
+        # Process results and update tracker files
+        successful_downloads = []
+        failed_downloads = []
+        total_bytes_downloaded = 0
+        
+        for success_info in results['successful']:
+            tracker_file = next(
+                (tf for tf in tracker_files if tf.id == success_info.get('tracker_file_id')),
+                None
+            )
+            
+            if tracker_file:
+                tracker_file.download_status = 'completed'
+                tracker_file.downloaded_at = timezone.now()
+                tracker_file.file_checksum = success_info.get('checksum', '')
+                tracker_file.actual_file_size = success_info.get('bytes_downloaded', 0)
+                tracker_file.download_error = ''
+                # Set the local_file path (relative to MEDIA_ROOT)
+                tracker_file.local_file = file_path_mapping.get(tracker_file.id, '')
+                tracker_file.save()
+                
+                total_bytes_downloaded += success_info.get('bytes_downloaded', 0)
+                successful_downloads.append({
+                    'file_id': tracker_file.id,
+                    'filename': tracker_file.filename,
+                    'bytes_downloaded': success_info.get('bytes_downloaded', 0),
+                    'duration': success_info.get('duration', 0)
+                })
+        
+        for fail_info in results['failed']:
+            tracker_file = next(
+                (tf for tf in tracker_files if tf.id == fail_info.get('tracker_file_id')),
+                None
+            )
+            
+            if tracker_file:
+                tracker_file.download_status = 'failed'
+                tracker_file.download_error = fail_info.get('error', 'Unknown error')
+                tracker_file.save()
+                
+                failed_downloads.append({
+                    'file_id': tracker_file.id,
+                    'filename': tracker_file.filename,
+                    'error': fail_info.get('error', 'Unknown error')
+                })
+        
+        # Update tracker totals (add to existing storage used)
+        tracker.total_storage_used = (tracker.total_storage_used or 0) + total_bytes_downloaded
+        
+        # Update files_downloaded flag: True only if ALL files (old + new) are downloaded
+        all_files = TrackerFile.objects.filter(tracker=tracker)
+        tracker.files_downloaded = all(
+            f.download_status == 'completed' 
+            for f in all_files 
+            if tracker.storage_type == 'local'
+        )
+        tracker.save()
+        
+        return {
+            'successful': successful_downloads,
+            'failed': failed_downloads,
+            'total_bytes': total_bytes_downloaded,
+            'duration': results.get('duration', 0)
+        }
+    
+    @action(detail=True, methods=['get'], url_path='download-files')
+    def download_files(self, request, pk=None):
+        """
+        Download all tracker files as a ZIP archive.
+        Only works for trackers with storage_type='local' that have downloaded files.
+        
+        GET /api/trackers/{id}/download-files/
+        
+        Returns:
+            ZIP file with all tracker files
+        """
+        tracker = self.get_object()
+        
+        # Only allow download for trackers with local storage
+        if tracker.storage_type != 'local':
+            return Response(
+                {'error': 'This tracker uses GitHub links only. No local files to download.'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        # Check if tracker has any downloaded files
+        if not tracker.files_downloaded:
+            return Response(
+                {'error': 'No files have been downloaded for this tracker yet.'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        # Get all tracker files
+        tracker_files = TrackerFile.objects.filter(tracker=tracker, download_status='completed')
+        
+        if not tracker_files.exists():
+            return Response(
+                {'error': 'No completed file downloads found.'},
+                status=status.HTTP_404_NOT_FOUND
+            )
+        
+        try:
+            # Create ZIP file in memory
+            zip_buffer = BytesIO()
+            
+            with zipfile.ZipFile(zip_buffer, 'w', zipfile.ZIP_DEFLATED) as zip_file:
+                for tracker_file in tracker_files:
+                    if tracker_file.local_file:
+                        # Get the full file path from FileField
+                        file_path = tracker_file.local_file.path
+                        
+                        if os.path.exists(file_path):
+                            # Preserve directory structure in ZIP
+                            # Use directory_path + filename for the archive path
+                            if tracker_file.directory_path:
+                                archive_name = f"{tracker_file.directory_path}/{tracker_file.filename}"
+                            else:
+                                archive_name = tracker_file.filename
+                            
+                            zip_file.write(file_path, archive_name)
+            
+            # Prepare response
+            zip_buffer.seek(0)
+            
+            # Create a safe filename
+            safe_tracker_name = "".join(c for c in tracker.name if c.isalnum() or c in (' ', '-', '_')).strip()
+            filename = f"{safe_tracker_name}_files.zip"
+            
+            response = HttpResponse(zip_buffer.getvalue(), content_type='application/zip')
+            response['Content-Disposition'] = f'attachment; filename="{filename}"'
+            
+            return response
+            
+        except Exception as e:
+            return Response(
+                {'error': f'Failed to create ZIP file: {str(e)}'},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+    
+    @action(detail=True, methods=['get'], url_path='download-progress')
+    def download_progress(self, request, pk=None):
+        """
+        Get real-time download progress for a tracker.
+        Used for polling during file downloads.
+        
+        GET /api/trackers/{id}/download-progress/
+        
+        Returns:
+        {
+            "status": "downloading" | "completed" | "failed",
+            "total_files": 46,
+            "downloaded_files": 12,
+            "failed_files": 1,
+            "current_file": "bracket.stl",
+            "progress_percent": 26,
+            "files": [
+                {
+                    "id": 1,
+                    "filename": "base.stl",
+                    "status": "completed",
+                    "size": 12345
+                },
+                ...
+            ]
+        }
+        """
+        tracker = self.get_object()
+        
+        # Get all tracker files
+        tracker_files = tracker.files.all()
+        total_files = tracker_files.count()
+        
+        if total_files == 0:
+            return Response({
+                'status': 'completed',
+                'total_files': 0,
+                'downloaded_files': 0,
+                'failed_files': 0,
+                'current_file': None,
+                'progress_percent': 100,
+                'files': []
+            })
+        
+        # Count by status
+        completed = tracker_files.filter(download_status='completed').count()
+        failed = tracker_files.filter(download_status='failed').count()
+        downloading = tracker_files.filter(download_status='downloading').count()
+        pending = tracker_files.filter(download_status='pending').count()
+        
+        # Determine overall status
+        if completed + failed == total_files:
+            # All files processed
+            if failed > 0:
+                status_value = 'completed_with_errors'
+            else:
+                status_value = 'completed'
+        elif downloading > 0 or pending > 0:
+            status_value = 'downloading'
+        else:
+            status_value = 'pending'
+        
+        # Get current file being downloaded
+        current_file = tracker_files.filter(download_status='downloading').first()
+        current_filename = current_file.filename if current_file else None
+        
+        # Calculate progress percentage
+        progress_percent = int((completed / total_files) * 100) if total_files > 0 else 0
+        
+        # Build file list with statuses
+        files_data = []
+        for tf in tracker_files.order_by('id'):
+            files_data.append({
+                'id': tf.id,
+                'filename': tf.filename,
+                'status': tf.download_status,
+                'size': tf.actual_file_size or tf.file_size,
+                'error': tf.download_error if tf.download_status == 'failed' else None
+            })
+        
+        return Response({
+            'status': status_value,
+            'total_files': total_files,
+            'downloaded_files': completed,
+            'failed_files': failed,
+            'current_file': current_filename,
+            'progress_percent': progress_percent,
+            'files': files_data
+        })
+    
+    @action(detail=True, methods=['post'], url_path='upload-files')
+    def upload_files(self, request, pk=None):
+        """
+        Upload files directly to a tracker from local computer.
+        
+        POST /api/trackers/{id}/upload-files/
+        
+        Request (multipart/form-data):
+        - files: Multiple file uploads (required)
+        - category: Optional category/directory (default: 'Uploads')
+        - color: Optional color configuration
+        - material: Optional material configuration
+        - quantity: Optional quantity (default: 1)
+        
+        Returns:
+        {
+            "success": true,
+            "uploaded_files": [
+                {"id": 1, "filename": "bracket.stl", ...},
+                ...
+            ],
+            "total_files": 3,
+            "total_bytes": 12345
+        }
+        """
+        tracker = self.get_object()
+        uploaded_files = request.FILES.getlist('files')
+        
+        if not uploaded_files:
+            return Response(
+                {
+                    'success': False,
+                    'error': 'No files provided'
+                },
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        # Get optional metadata
+        category = request.data.get('category', 'Uploads')
+        color = request.data.get('color', '')
+        material = request.data.get('material', '')
+        quantity = int(request.data.get('quantity', 1))
+        
+        # Use StorageManager to save files
+        storage_manager = StorageManager()
+        created_files = []
+        updated_files = []
+        skipped_files = []
+        total_bytes = 0
+        
+        for uploaded_file in uploaded_files:
+            try:
+                # Build file path: trackers/{tracker_id}/files/{category}/{filename}
+                if category:
+                    file_path = f"trackers/{tracker.id}/files/{category}/{uploaded_file.name}"
+                else:
+                    file_path = f"trackers/{tracker.id}/files/{uploaded_file.name}"
+                
+                # Check if file already exists
+                existing_file = TrackerFile.objects.filter(
+                    tracker=tracker,
+                    directory_path=category,
+                    filename=uploaded_file.name
+                ).first()
+                
+                # Save file using StorageManager
+                saved_path = storage_manager.save_uploaded_file(uploaded_file, file_path)
+                
+                if existing_file:
+                    # Update existing file
+                    existing_file.local_file = saved_path
+                    existing_file.file_size = uploaded_file.size
+                    existing_file.actual_file_size = uploaded_file.size
+                    existing_file.storage_type = 'local'
+                    existing_file.download_status = 'completed'
+                    existing_file.download_date = timezone.now()
+                    
+                    # Update metadata if provided
+                    if color:
+                        existing_file.color = color
+                    if material:
+                        existing_file.material = material
+                    if quantity:
+                        existing_file.quantity = quantity
+                    
+                    existing_file.save()
+                    updated_files.append(existing_file)
+                    total_bytes += uploaded_file.size
+                else:
+                    # Create new TrackerFile record
+                    tracker_file = TrackerFile.objects.create(
+                        tracker=tracker,
+                        storage_type='local',  # Mark as locally uploaded/stored
+                        filename=uploaded_file.name,
+                        directory_path=category,
+                        local_file=saved_path,
+                        file_size=uploaded_file.size,
+                        actual_file_size=uploaded_file.size,
+                        color=color,
+                        material=material,
+                        quantity=quantity,
+                        status='not_started',
+                        is_selected=True,
+                        download_status='completed',  # Already "downloaded" since uploaded
+                        download_date=timezone.now()
+                    )
+                    
+                    created_files.append(tracker_file)
+                    total_bytes += uploaded_file.size
+                
+            except Exception as e:
+                # If any file fails, continue with others but log the error
+                import logging
+                logger = logging.getLogger(__name__)
+                logger.error(f"Failed to upload {uploaded_file.name}: {str(e)}")
+                skipped_files.append({
+                    'filename': uploaded_file.name,
+                    'error': str(e)
+                })
+                continue
+        
+        if not created_files and not updated_files:
+            return Response(
+                {
+                    'success': False,
+                    'error': 'All file uploads failed',
+                    'skipped_files': skipped_files
+                },
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        # Update tracker stats
+        tracker.recalculate_stats()
+        tracker.save()
+        
+        # Serialize created and updated files
+        all_files = created_files + updated_files
+        serializer = TrackerFileSerializer(all_files, many=True)
+        
+        return Response({
+            'success': True,
+            'uploaded_files': serializer.data,
+            'created_count': len(created_files),
+            'updated_count': len(updated_files),
+            'skipped_count': len(skipped_files),
+            'skipped_files': skipped_files,
+            'total_bytes': total_bytes
+        }, status=status.HTTP_201_CREATED)
+    
+    def destroy(self, request, *args, **kwargs):
+        """
+        Override destroy to cleanup local files when deleting a tracker.
+        Only deletes files if storage_type='local' (downloaded files).
+        """
+        tracker = self.get_object()
+        tracker_id = tracker.id
+        storage_type = tracker.storage_type
+        
+        # Delete the tracker (CASCADE will delete TrackerFile records)
+        response = super().destroy(request, *args, **kwargs)
+        
+        # Cleanup local files if tracker had downloaded files
+        if storage_type == 'local':
+            from .services.storage_manager import StorageManager
+            import logging
+            logger = logging.getLogger(__name__)
+            
+            storage_manager = StorageManager()
+            cleanup_result = storage_manager.cleanup_tracker_files(tracker_id)
+            
+            # Log cleanup result
+            if cleanup_result['success']:
+                logger.info(f"Successfully cleaned up {cleanup_result['deleted_files']} files ({cleanup_result['deleted_bytes']} bytes) for tracker {tracker_id}")
+            else:
+                logger.error(f"Failed to cleanup files for tracker {tracker_id}: {cleanup_result.get('error')}")
+        
+        return response
+
+
+class TrackerFileViewSet(viewsets.ModelViewSet):
+    """
+    ViewSet for managing Tracker Files.
+    
+    Endpoints:
+    - GET /api/tracker-files/ - List all tracker files
+    - POST /api/tracker-files/ - Create new tracker file
+    - GET /api/tracker-files/{id}/ - Get file detail
+    - PUT/PATCH /api/tracker-files/{id}/ - Update file (config, status)
+    - DELETE /api/tracker-files/{id}/ - Delete file
+    """
+    queryset = TrackerFile.objects.all()
+    serializer_class = TrackerFileSerializer
+    permission_classes = [AllowAny]
+    filter_backends = [DjangoFilterBackend, filters.SearchFilter]
+    search_fields = ['filename', 'directory_path']
+    filterset_fields = ['tracker', 'status', 'color', 'material', 'is_selected']
+    
+    def get_queryset(self):
+        """Allow filtering by tracker."""
+        queryset = TrackerFile.objects.all()
+        tracker_id = self.request.query_params.get('tracker', None)
+        if tracker_id is not None:
+            queryset = queryset.filter(tracker_id=tracker_id)
+        return queryset
+    
+    @action(detail=True, methods=['patch'])
+    def update_status(self, request, pk=None):
+        """Custom endpoint to update file status and printed quantity."""
+        file = self.get_object()
+        file.status = request.data.get('status', file.status)
+        file.printed_quantity = request.data.get('printed_quantity', file.printed_quantity)
+        file.save()
+        serializer = self.get_serializer(file)
+        return Response(serializer.data)
+    
+    @action(detail=True, methods=['patch'])
+    def update_configuration(self, request, pk=None):
+        """Custom endpoint to update file configuration (color, material, quantity)."""
+        file = self.get_object()
+        file.color = request.data.get('color', file.color)
+        file.material = request.data.get('material', file.material)
+        file.quantity = request.data.get('quantity', file.quantity)
+        file.save()
+        serializer = self.get_serializer(file)
+        return Response(serializer.data)

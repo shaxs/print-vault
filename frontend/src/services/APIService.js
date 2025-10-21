@@ -197,4 +197,93 @@ export default {
   deleteLocation(id) {
     return apiClient.delete(`locations/${id}/`)
   },
+
+  getMaterials() {
+    return apiClient.get('materials/')
+  },
+  createMaterial(data) {
+    return apiClient.post('materials/', data)
+  },
+  updateMaterial(id, data) {
+    return apiClient.patch(`materials/${id}/`, data)
+  },
+  deleteMaterial(id) {
+    return apiClient.delete(`materials/${id}/`)
+  },
+
+  // Trackers
+  getTrackers(params) {
+    return apiClient.get('trackers/', { params })
+  },
+  getTracker(id) {
+    return apiClient.get(`trackers/${id}/`)
+  },
+  createTracker(data) {
+    return apiClient.post('trackers/', data)
+  },
+  updateTracker(id, data) {
+    return apiClient.patch(`trackers/${id}/`, data)
+  },
+  deleteTracker(id) {
+    return apiClient.delete(`trackers/${id}/`)
+  },
+  downloadTrackerFiles(id) {
+    return apiClient.get(`trackers/${id}/download-files/`, {
+      responseType: 'blob', // Important for file downloads
+    })
+  },
+  getTrackerDownloadProgress(id) {
+    return apiClient.get(`trackers/${id}/download-progress/`)
+  },
+  uploadTrackerFiles(trackerId, formData) {
+    return apiClient.post(`trackers/${trackerId}/upload-files/`, formData, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    })
+  },
+  addFilesToTracker(trackerId, files) {
+    return apiClient.post(`trackers/${trackerId}/add-files/`, { files })
+  },
+  downloadAllTrackerFiles(trackerId) {
+    return apiClient.post(`trackers/${trackerId}/download-all-files/`)
+  },
+  downloadTrackerZip(trackerId) {
+    return apiClient.get(`trackers/${trackerId}/download-zip/`, {
+      responseType: 'blob', // Important for binary file downloads
+    })
+  },
+  crawlGitHub(githubUrl, forceRefresh = false) {
+    return apiClient.post('trackers/crawl-github/', {
+      github_url: githubUrl,
+      force_refresh: forceRefresh,
+    })
+  },
+
+  // Tracker Files
+  getTrackerFiles(params) {
+    return apiClient.get('tracker-files/', { params })
+  },
+  updateTrackerFileStatus(id, status, printedQuantity) {
+    return apiClient.patch(`tracker-files/${id}/update_status/`, {
+      status,
+      printed_quantity: printedQuantity,
+    })
+  },
+  updateTrackerFileConfiguration(id, color, material, quantity) {
+    return apiClient.patch(`tracker-files/${id}/update_configuration/`, {
+      color,
+      material,
+      quantity,
+    })
+  },
+  deleteTrackerFile(id) {
+    return apiClient.delete(`tracker-files/${id}/`)
+  },
+
+  // Manual tracker creation
+  createManualTracker(data) {
+    return apiClient.post('trackers/create-manual/', data)
+  },
+  fetchURLMetadata(url) {
+    return apiClient.post('trackers/fetch-url-metadata/', { url })
+  },
 }
