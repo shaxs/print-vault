@@ -190,6 +190,10 @@ class ExportDataView(APIView):
             media_root = settings.MEDIA_ROOT
             for root, dirs, files in os.walk(media_root):
                 for file in files:
+                    # Skip CSV files - they're already added via writestr() above
+                    if file.endswith('.csv'):
+                        continue
+                    
                     file_path = os.path.join(root, file)
                     arcname = os.path.relpath(file_path, media_root)
                     zf.write(file_path, arcname)
@@ -238,15 +242,14 @@ class ImportDataView(APIView):
                     if member.endswith('/'):
                         continue
                     
+                    # Skip CSV files - we'll read them directly from ZIP, not extract to disk
+                    if member.endswith('.csv'):
+                        continue
+                    
                     # Extract media files from recognized folders
                     if member.startswith(('inventory_photos/', 'printer_photos/', 'project_photos/', 'mod_files/', 'project_files/', 'trackers/')):
                         target_path = os.path.join(media_root, member)
                         os.makedirs(os.path.dirname(target_path), exist_ok=True)
-                        with open(target_path, 'wb') as f:
-                            f.write(zf.read(member))
-                    # Extract CSVs to media_root for easier reading
-                    elif member.endswith('.csv'):
-                        target_path = os.path.join(media_root, member)
                         with open(target_path, 'wb') as f:
                             f.write(zf.read(member))
 
@@ -436,9 +439,14 @@ class ImportDataView(APIView):
                         # Build the local file path if it exists
                         local_file_path = None
                         if row.get('local_file'):
-                            # Files are stored in trackers/{tracker_id}/files/
+                            # Files are stored in trackers/{tracker_id}/files/{directory_path}/{filename}
                             tracker_id = row['tracker_id']
-                            local_file_path = f"trackers/{tracker_id}/files/{row['local_file']}"
+                            directory_path = row.get('directory_path', '')
+                            
+                            if directory_path:
+                                local_file_path = f"trackers/{tracker_id}/files/{directory_path}/{row['local_file']}"
+                            else:
+                                local_file_path = f"trackers/{tracker_id}/files/{row['local_file']}"
                         
                         tfile = TrackerFile(
                             id=row['id'],

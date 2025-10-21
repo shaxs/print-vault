@@ -20,4 +20,4 @@ python manage.py collectstatic --settings=backend.production --noinput
 
 # Start the Gunicorn web server.
 echo "Starting Gunicorn server..."
-python -m gunicorn backend.wsgi:application --bind 0.0.0.0:8000
+python -m gunicorn backend.wsgi:application --bind 0.0.0.0:8000 --timeout 300
