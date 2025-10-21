@@ -234,13 +234,17 @@ class ImportDataView(APIView):
             # Extract all files from ZIP to media directory
             with zipfile.ZipFile(backup_file, 'r') as zf:
                 for member in zf.namelist():
-                    # Only extract media files (folders) and CSVs
-                    if member.startswith(('inventory_photos/', 'printer_photos/', 'project_photos/', 'mod_files/', 'project_files/', 'trackers/')) and not member.endswith('/'):
+                    # Skip directory entries (paths ending with /)
+                    if member.endswith('/'):
+                        continue
+                    
+                    # Extract media files from recognized folders
+                    if member.startswith(('inventory_photos/', 'printer_photos/', 'project_photos/', 'mod_files/', 'project_files/', 'trackers/')):
                         target_path = os.path.join(media_root, member)
                         os.makedirs(os.path.dirname(target_path), exist_ok=True)
                         with open(target_path, 'wb') as f:
                             f.write(zf.read(member))
-                    # Optionally, extract CSVs to media_root for easier reading (not strictly necessary)
+                    # Extract CSVs to media_root for easier reading
                     elif member.endswith('.csv'):
                         target_path = os.path.join(media_root, member)
                         with open(target_path, 'wb') as f:
