@@ -142,6 +142,50 @@ class ExportDataView(APIView):
                 projectprinters_writer.writerow([pp.project.id, pp.printer.id])
             zf.writestr('project_printers.csv', projectprinters_buffer.getvalue())
 
+            # Export Print Trackers
+            tracker_buffer = StringIO()
+            tracker_writer = csv.writer(tracker_buffer)
+            tracker_writer.writerow([
+                'id', 'name', 'project_id', 'github_url', 'storage_type',
+                'primary_color', 'accent_color', 'total_quantity', 'printed_quantity_total',
+                'progress_percentage', 'created_date', 'updated_date', 'storage_path',
+                'total_storage_used', 'files_downloaded'
+            ])
+            for tracker in Tracker.objects.all():
+                tracker_writer.writerow([
+                    tracker.id, tracker.name,
+                    tracker.project.id if tracker.project else '',
+                    tracker.github_url, tracker.storage_type,
+                    tracker.primary_color, tracker.accent_color,
+                    tracker.total_quantity, tracker.printed_quantity_total,
+                    tracker.progress_percentage, tracker.created_date, tracker.updated_date,
+                    tracker.storage_path, tracker.total_storage_used, tracker.files_downloaded
+                ])
+            zf.writestr('trackers.csv', tracker_buffer.getvalue())
+
+            # Export Tracker Files
+            trackerfile_buffer = StringIO()
+            trackerfile_writer = csv.writer(trackerfile_buffer)
+            trackerfile_writer.writerow([
+                'id', 'tracker_id', 'storage_type', 'filename', 'directory_path',
+                'github_url', 'local_file', 'file_size', 'sha', 'color', 'material',
+                'quantity', 'is_selected', 'status', 'printed_quantity',
+                'created_date', 'updated_date', 'download_date', 'download_status',
+                'download_error', 'downloaded_at', 'file_checksum', 'actual_file_size'
+            ])
+            for tfile in TrackerFile.objects.all():
+                trackerfile_writer.writerow([
+                    tfile.id, tfile.tracker.id, tfile.storage_type,
+                    tfile.filename, tfile.directory_path, tfile.github_url,
+                    os.path.basename(tfile.local_file.name) if tfile.local_file else '',
+                    tfile.file_size, tfile.sha, tfile.color, tfile.material,
+                    tfile.quantity, tfile.is_selected, tfile.status, tfile.printed_quantity,
+                    tfile.created_date, tfile.updated_date, tfile.download_date,
+                    tfile.download_status, tfile.download_error, tfile.downloaded_at,
+                    tfile.file_checksum, tfile.actual_file_size
+                ])
+            zf.writestr('tracker_files.csv', trackerfile_buffer.getvalue())
+
             # Add media files to zip
             media_root = settings.MEDIA_ROOT
             for root, dirs, files in os.walk(media_root):
@@ -164,6 +208,8 @@ class ImportDataView(APIView):
 
         try:
             # Clear all data in the correct order
+            TrackerFile.objects.all().delete()
+            Tracker.objects.all().delete()
             ProjectPrinters.objects.all().delete()
             ProjectInventory.objects.all().delete()
             ProjectFile.objects.all().delete()
@@ -189,7 +235,7 @@ class ImportDataView(APIView):
             with zipfile.ZipFile(backup_file, 'r') as zf:
                 for member in zf.namelist():
                     # Only extract media files (folders) and CSVs
-                    if member.startswith(('inventory_photos/', 'printer_photos/', 'project_photos/', 'mod_files/', 'project_files/')) and not member.endswith('/'):
+                    if member.startswith(('inventory_photos/', 'printer_photos/', 'project_photos/', 'mod_files/', 'project_files/', 'trackers/')) and not member.endswith('/'):
                         target_path = os.path.join(media_root, member)
                         os.makedirs(os.path.dirname(target_path), exist_ok=True)
                         with open(target_path, 'wb') as f:
@@ -356,6 +402,67 @@ class ImportDataView(APIView):
                             printer_id=row['printer_id']
                         )
 
+                # Import Print Trackers
+                if 'trackers.csv' in zf.namelist():
+                    tracker_rows = read_csv_from_zip(zf, 'trackers.csv')
+                    for row in tracker_rows:
+                        tracker = Tracker(
+                            id=row['id'],
+                            name=row['name'],
+                            project_id=row.get('project_id') or None,
+                            github_url=row.get('github_url', ''),
+                            storage_type=row.get('storage_type', 'links'),
+                            primary_color=row.get('primary_color', '#3B82F6'),
+                            accent_color=row.get('accent_color', '#EF4444'),
+                            total_quantity=int(row.get('total_quantity', 0)) or 0,
+                            printed_quantity_total=int(row.get('printed_quantity_total', 0)) or 0,
+                            progress_percentage=int(row.get('progress_percentage', 0)) or 0,
+                            created_date=row.get('created_date'),
+                            updated_date=row.get('updated_date'),
+                            storage_path=row.get('storage_path', ''),
+                            total_storage_used=int(row.get('total_storage_used', 0)) or 0,
+                            files_downloaded=row.get('files_downloaded', 'false').lower() == 'true'
+                        )
+                        tracker.save()
+
+                # Import Tracker Files
+                if 'tracker_files.csv' in zf.namelist():
+                    trackerfile_rows = read_csv_from_zip(zf, 'tracker_files.csv')
+                    for row in trackerfile_rows:
+                        # Build the local file path if it exists
+                        local_file_path = None
+                        if row.get('local_file'):
+                            # Files are stored in trackers/{tracker_id}/files/
+                            tracker_id = row['tracker_id']
+                            local_file_path = f"trackers/{tracker_id}/files/{row['local_file']}"
+                        
+                        tfile = TrackerFile(
+                            id=row['id'],
+                            tracker_id=row['tracker_id'],
+                            storage_type=row.get('storage_type', 'link'),
+                            filename=row['filename'],
+                            directory_path=row.get('directory_path', ''),
+                            github_url=row.get('github_url', ''),
+                            local_file=local_file_path,
+                            file_size=int(row.get('file_size', 0)) or 0,
+                            sha=row.get('sha', ''),
+                            color=row.get('color', ''),
+                            material=row.get('material', ''),
+                            quantity=int(row.get('quantity', 1)) or 1,
+                            is_selected=row.get('is_selected', 'true').lower() == 'true',
+                            status=row.get('status', 'not_started'),
+                            printed_quantity=int(row.get('printed_quantity', 0)) or 0,
+                            created_date=row.get('created_date'),
+                            updated_date=row.get('updated_date'),
+                            download_date=row.get('download_date') or None,
+                            download_status=row.get('download_status', 'pending'),
+                            download_error=row.get('download_error', ''),
+                            downloaded_at=row.get('downloaded_at') or None,
+                            file_checksum=row.get('file_checksum', ''),
+                            actual_file_size=int(row.get('actual_file_size', 0)) or None if row.get('actual_file_size') else None
+                        )
+                        tfile.save()
+
             return Response({'success': 'Data restored successfully.'}, status=status.HTTP_200_OK)
         except Exception as e:
             return Response({'error': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
@@ -364,6 +471,8 @@ class DeleteAllData(APIView):
     permission_classes = [AllowAny]
     def post(self, request, *args, **kwargs):
         try:
+            TrackerFile.objects.all().delete()
+            Tracker.objects.all().delete()
             ProjectPrinters.objects.all().delete()
             ProjectInventory.objects.all().delete()
             ProjectFile.objects.all().delete()
