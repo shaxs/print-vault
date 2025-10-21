@@ -980,7 +980,7 @@ class TrackerViewSet(viewsets.ModelViewSet):
             if not space_check['sufficient']:
                 for tf in tracker_files:
                     tf.download_status = 'failed'
-                    tf.download_error = f"Insufficient disk space. Need {storage_manager._format_bytes(total_size)}, only {space_check['available_formatted']} available."
+                    tf.download_error = f"Insufficient disk space. Need {storage_manager._format_bytes(total_size)}, only {storage_manager._format_bytes(space_check['available'])} available."
                     tf.save()
                 
                 return {
