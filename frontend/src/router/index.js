@@ -18,7 +18,13 @@ import DashboardView from '../views/DashboardView.vue'
 import ModCreateView from '../views/ModCreateView.vue'
 import ModEditView from '../views/ModEditView.vue'
 import ProjectManageFilesView from '../views/ProjectManageFilesView.vue'
-import ProjectManageLinksView from '../views/ProjectManageLinksView.vue' // Added this line
+import ProjectManageLinksView from '../views/ProjectManageLinksView.vue'
+import TrackerListView from '../views/TrackerListView.vue'
+import CreateTrackerWizard from '../views/CreateTrackerWizard.vue'
+import TrackerDetailView from '../views/TrackerDetailView.vue'
+import TrackerEditView from '../views/TrackerEditView.vue'
+import TrackerAddFilesView from '../views/TrackerAddFilesView.vue'
+import PrintTrackerView from '../views/PrintTrackerView.vue' // TEMP: Original template for comparison
 
 const router = createRouter({
   history: createWebHistory(import.meta.env.BASE_URL),
@@ -64,6 +70,24 @@ const router = createRouter({
       name: 'project-manage-links',
       component: ProjectManageLinksView,
       props: true,
+    },
+
+    // Print Tracker Routes
+    { path: '/trackers', name: 'tracker-list', component: TrackerListView },
+    { path: '/trackers/create', name: 'tracker-create', component: CreateTrackerWizard },
+    { path: '/trackers/:id', name: 'tracker-detail', component: TrackerDetailView },
+    { path: '/trackers/:id/edit', name: 'tracker-edit', component: TrackerEditView },
+    { path: '/trackers/:id/files/add', name: 'tracker-add-files', component: TrackerAddFilesView },
+
+    // TEMP: Route to view original template for comparison
+    { path: '/trackers/:id/template', name: 'tracker-template', component: PrintTrackerView }, // Legacy route - redirect to new route
+    {
+      path: '/print-tracker',
+      redirect: '/trackers',
+    },
+    {
+      path: '/create-tracker',
+      redirect: '/trackers/create',
     },
 
     // Settings Route

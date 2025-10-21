@@ -10,6 +10,7 @@ router = DefaultRouter()
 router.register(r'brands', views.BrandViewSet)
 router.register(r'parttypes', views.PartTypeViewSet)
 router.register(r'locations', views.LocationViewSet)
+router.register(r'materials', views.MaterialViewSet)
 router.register(r'inventoryitems', views.InventoryItemViewSet)
 router.register(r'printers', views.PrinterViewSet)
 router.register(r'projects', views.ProjectViewSet)
@@ -20,7 +21,9 @@ router.register(r'modfiles', views.ModFileViewSet)
 router.register(r'projectlinks', views.ProjectLinkViewSet)
 router.register(r'projectfiles', views.ProjectFileViewSet)
 router.register(r'reminders', views.ReminderViewSet, basename='reminders')
-router.register(r'low-stock', views.LowStockItemsViewSet, basename='lowstock') # New endpoint
+router.register(r'low-stock', views.LowStockItemsViewSet, basename='lowstock')
+router.register(r'trackers', views.TrackerViewSet)  # Print Tracker endpoints
+router.register(r'tracker-files', views.TrackerFileViewSet)  # Tracker File endpoints
 
 urlpatterns = [
     path('admin/', admin.site.urls),

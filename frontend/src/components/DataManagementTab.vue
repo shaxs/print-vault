@@ -11,6 +11,7 @@ const deleteCheckbox = ref(false)
 
 const restoreFile = ref(null)
 const isRestoring = ref(false)
+const isExporting = ref(false)
 const isInitialRestoreModalVisible = ref(false)
 const isFinalRestoreModalVisible = ref(false)
 const restoreConfirmationText = ref('')
@@ -43,6 +44,7 @@ const handleInfoModalClose = () => {
 }
 
 const exportData = async () => {
+  isExporting.value = true
   try {
     const response = await APIService.exportData()
     const url = window.URL.createObjectURL(new Blob([response.data]))
@@ -58,6 +60,8 @@ const exportData = async () => {
   } catch (error) {
     console.error('Failed to export data:', error)
     showInfoModal('Error', 'An error occurred while exporting data.', true)
+  } finally {
+    isExporting.value = false
   }
 }
 
@@ -139,7 +143,10 @@ const confirmRestore = async () => {
           Download a single ZIP archive containing your data as a CSV file and all your uploaded
           photos and files.
         </p>
-        <button @click="exportData" class="action-button edit-button">Export Backup</button>
+        <button @click="exportData" :disabled="isExporting" class="action-button edit-button">
+          <span v-if="isExporting">Creating Backup...</span>
+          <span v-else>Export Backup</span>
+        </button>
       </div>
       <div class="action-item">
         <h4>Restore from Backup</h4>
@@ -312,6 +319,11 @@ const confirmRestore = async () => {
 .edit-button {
   background-color: var(--color-blue);
   color: white;
+}
+.edit-button:disabled {
+  background-color: var(--color-background-mute);
+  color: var(--color-text);
+  cursor: not-allowed;
 }
 .delete-button {
   background-color: var(--color-red);

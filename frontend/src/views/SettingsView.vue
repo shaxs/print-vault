@@ -4,6 +4,7 @@ import MainHeader from '@/components/MainHeader.vue'
 import BrandsTab from '@/components/BrandsTab.vue'
 import PartTypesTab from '@/components/PartTypesTab.vue'
 import LocationsTab from '@/components/LocationsTab.vue'
+import MaterialsTab from '@/components/MaterialsTab.vue'
 import PreferencesTab from '@/components/PreferencesTab.vue'
 import DataManagementTab from '@/components/DataManagementTab.vue'
 
@@ -24,6 +25,9 @@ const activeTab = ref('brands')
         <button @click="activeTab = 'locations'" :class="{ active: activeTab === 'locations' }">
           Locations
         </button>
+        <button @click="activeTab = 'materials'" :class="{ active: activeTab === 'materials' }">
+          Materials
+        </button>
         <button @click="activeTab = 'preferences'" :class="{ active: activeTab === 'preferences' }">
           Preferences
         </button>
@@ -35,6 +39,7 @@ const activeTab = ref('brands')
         <BrandsTab v-if="activeTab === 'brands'" />
         <PartTypesTab v-if="activeTab === 'part-types'" />
         <LocationsTab v-if="activeTab === 'locations'" />
+        <MaterialsTab v-if="activeTab === 'materials'" />
         <PreferencesTab v-if="activeTab === 'preferences'" />
         <DataManagementTab v-if="activeTab === 'data'" />
       </div>

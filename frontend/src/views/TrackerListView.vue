@@ -3,28 +3,29 @@ import { ref, onMounted, watch, reactive, computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import APIService from '@/services/APIService.js'
 import MainHeader from '../components/MainHeader.vue'
-import PrinterList from '../components/PrinterList.vue'
+import TrackerList from '../components/TrackerList.vue'
 import ColumnConfigModal from '../components/ColumnConfigModal.vue'
 
 const route = useRoute()
 const router = useRouter()
-const allPrinterColumns = ref([
-  { text: 'Title', value: 'title', defaultVisible: true },
-  { text: 'Photo', value: 'photo', defaultVisible: false },
-  { text: 'Manufacturer', value: 'manufacturer', defaultVisible: true },
-  { text: 'Status', value: 'status', defaultVisible: true },
-  { text: 'Serial Number', value: 'serial_number', defaultVisible: false },
-  { text: 'Purchase Date', value: 'purchase_date', defaultVisible: false },
+const allTrackerColumns = ref([
+  { text: 'Tracker Name', value: 'trackerName', defaultVisible: true },
+  { text: 'Project', value: 'projectName', defaultVisible: true },
+  { text: 'Files', value: 'fileCount', defaultVisible: true },
+  { text: 'Progress', value: 'progress', defaultVisible: true },
+  { text: 'GitHub URL', value: 'githubUrl', defaultVisible: false },
+  { text: 'Storage Type', value: 'storageType', defaultVisible: false },
+  { text: 'Created Date', value: 'createdDate', defaultVisible: false },
 ])
 const visibleColumns = ref([])
-const storageKey = 'printer-columns'
+const storageKey = 'tracker-columns'
 
 const loadColumns = () => {
   const saved = localStorage.getItem(storageKey)
   if (saved) {
     visibleColumns.value = JSON.parse(saved)
   } else {
-    visibleColumns.value = allPrinterColumns.value
+    visibleColumns.value = allTrackerColumns.value
       .filter((c) => c.defaultVisible)
       .map((c) => c.value)
   }
@@ -34,32 +35,32 @@ const saveColumns = (newColumns) => {
   localStorage.setItem(storageKey, JSON.stringify(newColumns))
 }
 
-const printers = ref([])
+const trackers = ref([])
 const searchText = ref('')
 const isFilterModalVisible = ref(false)
 const isColumnModalVisible = ref(false)
 const activeFilters = ref({})
+const temporaryFilters = reactive({ project: '' })
+const filterStorageKey = 'tracker-filters'
+
 const filterOptions = ref({
-  brands: [],
-  statuses: ['Active', 'Under Repair', 'Sold', 'Archived', 'Planned'],
+  projects: [],
 })
-const temporaryFilters = reactive({ manufacturer__name: '', status: '' })
-const filterStorageKey = 'printer-filters'
 
 const isFilterActive = computed(() => {
   return searchText.value || Object.values(activeFilters.value).some((val) => val && val.length > 0)
 })
 
-const loadPrinters = async () => {
+const loadTrackers = async () => {
   try {
     const params = { ...activeFilters.value }
     if (searchText.value) {
       params.search = searchText.value
     }
-    const response = await APIService.getPrinters(params)
-    printers.value = response.data
+    const response = await APIService.getTrackers(params)
+    trackers.value = response.data
   } catch (error) {
-    console.error('Failed to load printers:', error)
+    console.error('Failed to load trackers:', error)
   }
 }
 
@@ -78,18 +79,17 @@ watch(
   (newQuery) => {
     activeFilters.value = { ...newQuery }
     searchText.value = newQuery.search || ''
-    loadPrinters()
+    loadTrackers()
   },
   { immediate: true },
 )
 
 const openFilterModal = async () => {
   try {
-    temporaryFilters.manufacturer__name = activeFilters.value.manufacturer__name || ''
-    temporaryFilters.status = activeFilters.value.status || ''
-    if (filterOptions.value.brands.length === 0) {
-      const brandsRes = await APIService.getBrands()
-      filterOptions.value.brands = brandsRes.data
+    temporaryFilters.project = activeFilters.value.project || ''
+    if (filterOptions.value.projects.length === 0) {
+      const projectsRes = await APIService.getProjects()
+      filterOptions.value.projects = projectsRes.data
     }
     isFilterModalVisible.value = true
   } catch (error) {
@@ -110,8 +110,7 @@ const applyFilters = () => {
 }
 
 const clearFilters = () => {
-  temporaryFilters.manufacturer__name = ''
-  temporaryFilters.status = ''
+  temporaryFilters.project = ''
   localStorage.removeItem(filterStorageKey)
   router.push({ query: { search: searchText.value || undefined } })
 }
@@ -129,8 +128,8 @@ onMounted(() => {
 <template>
   <main>
     <MainHeader
-      title="Printers"
-      createUrl="/printers/create"
+      title="Print Trackers"
+      createUrl="/trackers/create"
       v-model="searchText"
       @open-filter="openFilterModal"
       @open-columns="isColumnModalVisible = true"
@@ -139,12 +138,12 @@ onMounted(() => {
       <span>Filters are active.</span>
       <button @click="clearFilters">Clear Filters</button>
     </div>
-    <PrinterList :items="printers" :visible-columns="visibleColumns" />
+    <TrackerList :items="trackers" :visible-columns="visibleColumns" />
 
     <Teleport to="body">
       <ColumnConfigModal
         v-if="isColumnModalVisible"
-        :all-columns="allPrinterColumns"
+        :all-columns="allTrackerColumns"
         :visible-columns="visibleColumns"
         @close="isColumnModalVisible = false"
         @save="saveColumns"
@@ -152,23 +151,18 @@ onMounted(() => {
 
       <div v-if="isFilterModalVisible" class="modal-overlay" @click="isFilterModalVisible = false">
         <div class="modal-form" @click.stop>
-          <h3>Filter Printers</h3>
+          <h3>Filter Print Trackers</h3>
           <form @submit.prevent="applyFilters">
             <div class="form-group">
-              <label>Manufacturer</label>
-              <select v-model="temporaryFilters.manufacturer__name">
+              <label>Project</label>
+              <select v-model="temporaryFilters.project">
                 <option value="">-- All --</option>
-                <option v-for="brand in filterOptions.brands" :key="brand.id" :value="brand.name">
-                  {{ brand.name }}
-                </option>
-              </select>
-            </div>
-            <div class="form-group">
-              <label>Status</label>
-              <select v-model="temporaryFilters.status">
-                <option value="">-- All --</option>
-                <option v-for="status in filterOptions.statuses" :key="status" :value="status">
-                  {{ status }}
+                <option
+                  v-for="project in filterOptions.projects"
+                  :key="project.id"
+                  :value="project.id"
+                >
+                  {{ project.project_name }}
                 </option>
               </select>
             </div>
@@ -245,21 +239,20 @@ onMounted(() => {
   margin-bottom: 20px;
 }
 .form-group {
-  margin-bottom: 1rem;
+  margin-bottom: 15px;
 }
 .form-group label {
   display: block;
-  margin-bottom: 0.5rem;
+  margin-bottom: 5px;
+  color: var(--color-text);
   font-weight: bold;
-  color: var(--color-heading);
 }
 .form-group select {
   width: 100%;
-  padding: 8px 12px;
+  padding: 10px;
   border: 1px solid var(--color-border);
-  border-radius: 4px;
-  box-sizing: border-box;
-  background-color: var(--color-background);
+  border-radius: 5px;
+  background-color: var(--color-background-soft);
   color: var(--color-text);
   font-size: 1rem;
 }
