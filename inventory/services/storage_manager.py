@@ -90,12 +90,12 @@ class StorageManager:
             result['shortage'] = self.min_free_space - result['after_download']
         
         if not sufficient:
-            raise InsufficientStorageError(
+            result['sufficient'] = False
+            result['error'] = (
                 f"Insufficient disk space. "
                 f"Required: {self._format_bytes(required_with_buffer)}, "
                 f"Available: {self._format_bytes(available)}"
             )
-        
         return result
     
     def get_tracker_storage_path(self, tracker_id, create=True):
