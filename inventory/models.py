@@ -355,6 +355,7 @@ class TrackerFile(models.Model):
     # Local storage (only if tracker.storage_type == 'local')
     local_file = models.FileField(
         upload_to=get_tracker_upload_path, 
+        max_length=500,  # Increased from default 100 to handle deep directory structures
         null=True, 
         blank=True,
         help_text='Local copy of the file (if downloaded)'
