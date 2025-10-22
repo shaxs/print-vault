@@ -4,6 +4,9 @@ from .settings import *
 DEBUG = os.environ.get("DJANGO_DEBUG", "False") == "True"
 USE_X_FORWARDED_HOST = True
 
+# Trust proxy headers (for Tailscale/Nginx HTTPS termination)
+SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
+
 # Read ALLOWED_HOSTS from environment variable
 # Fallback to APP_HOST for backwards compatibility
 if os.environ.get('ALLOWED_HOSTS'):
