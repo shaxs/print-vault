@@ -1,18 +1,19 @@
 """
 File Download Service for Print Vault Trackers
 
-Handles downloading files from various sources:
-- GitHub (raw.githubusercontent.com)
-- Thingiverse
-- Printables
-- Generic URLs
+Handles downloading files from any public HTTP/HTTPS URL.
+
+Security Features:
+- Blocks localhost and private IP ranges (SSRF protection)
+- Only allows HTTP/HTTPS schemes
+- Streaming downloads (no memory overflow)
+- File size limits (5 GB per file)
+- Timeout handling (10 minutes default)
 
 Features:
-- Streaming downloads (no memory overflow)
 - Retry logic with exponential backoff
 - Progress callbacks
-- Checksum verification
-- Timeout handling
+- Checksum verification (optional)
 """
 
 import os
@@ -51,37 +52,47 @@ class FileDownloadService:
         self.chunk_size = tracker_storage.get('CHUNK_SIZE', 8192)
         self.max_file_size = tracker_storage.get('MAX_FILE_SIZE', 5 * 1024 * 1024 * 1024)  # 5 GB
         self.verify_checksums = tracker_storage.get('VERIFY_CHECKSUMS', False)
-        
-        # Allowed domains for security
-        self.allowed_domains = getattr(settings, 'ALLOWED_DOWNLOAD_DOMAINS', [
-            'github.com',
-            'raw.githubusercontent.com',
-            'thingiverse.com',
-            'thingiverse-production-new.s3.amazonaws.com',
-            'printables.com',
-            'media.printables.com',
-        ])
     
     def validate_url(self, url):
         """
-        Validate that URL is from an allowed domain.
+        Validate URL for security (prevent SSRF attacks).
+        
+        Allows any public HTTP/HTTPS URL but blocks:
+        - localhost and 127.0.0.1
+        - Private IP ranges (10.x.x.x, 172.16-31.x.x, 192.168.x.x)
+        - Link-local addresses (169.254.x.x)
+        - Non-HTTP(S) schemes (file://, ftp://, etc.)
         
         Args:
             url (str): URL to validate
             
         Raises:
-            ValueError: If URL domain is not allowed
+            ValueError: If URL is invalid or blocked for security
         """
         parsed = urlparse(url)
         
-        if not parsed.netloc:
-            raise ValueError(f"Invalid URL: {url}")
+        # Must have a scheme and netloc
+        if not parsed.scheme or not parsed.netloc:
+            raise ValueError(f"Invalid URL format: {url}")
         
-        if parsed.netloc not in self.allowed_domains:
-            raise ValueError(
-                f"Downloads from {parsed.netloc} are not allowed. "
-                f"Allowed domains: {', '.join(self.allowed_domains)}"
-            )
+        # Only allow HTTP and HTTPS
+        if parsed.scheme not in ['http', 'https']:
+            raise ValueError(f"Only HTTP and HTTPS URLs are allowed, got: {parsed.scheme}://")
+        
+        # Block localhost
+        hostname = parsed.netloc.split(':')[0].lower()  # Remove port if present
+        if hostname in ['localhost', '127.0.0.1', '::1']:
+            raise ValueError("Downloads from localhost are not allowed for security reasons")
+        
+        # Block private IP ranges (SSRF protection)
+        # This is a basic check - for production, consider using a library like 'validators'
+        if hostname.startswith('10.') or \
+           hostname.startswith('192.168.') or \
+           hostname.startswith('169.254.') or \
+           any(hostname.startswith(f'172.{i}.') for i in range(16, 32)):
+            raise ValueError(f"Downloads from private IP addresses are not allowed: {hostname}")
+        
+        return True
     
     def download_file(self, url, destination, timeout=None, progress_callback=None):
         """

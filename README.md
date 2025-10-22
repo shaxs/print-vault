@@ -6,42 +6,73 @@
 
 Print Vault is a modern, open-source, and self-hostable application designed for 3D printing enthusiasts. Finally, you can manage your printers, track your parts inventory, and organize all of your projects in one clean, powerful, and private application that you control.
 
-***
+---
 
 ## About The Project
 
 Print Vault started as a simple solution to a personal problem: managing a growing collection of 3D printing parts. After an initial version built with AppSheet proved difficult to share, it became clear that the 3D printing community deserved a better tool—one that wasn't tied to a third-party service and could be truly owned by the user.
 
-This project was redesigned from the ground up to be a modern, completely self-hostable application. It’s built to solve a real-world need, offering the power and privacy that comes from running your own service, on your own hardware.
+This project was redesigned from the ground up to be a modern, completely self-hostable application. It's built to solve a real-world need, offering the power and privacy that comes from running your own service, on your own hardware.
+
+### Mobile-First Design
+
+Print Vault was initially built with a core principle: **you should be able to add a new inventory item in 30 seconds or less, right from your phone.** Whether you're in your workshop, at the store, or organizing parts, Print Vault's PWA design ensures quick, efficient data entry from any device. No more returning to your computer to update your inventory—just pull out your phone, tap the app, and you're done.
 
 ### Screenshots
 
-| Inventory Management | Printer Details | Project Tracking |
-| :---: | :---: | :---: |
-| ![A clean, sortable list of all inventory items.](screenshots/inventory%20list.jpg) | ![A detailed view of a printer, showing its mods and maintenance schedule.](screenshots/printer%20detail.jpg) | ![A project view, linking associated printers and inventory parts.](screenshots/project%20details.jpg) |
+|                                Inventory Management                                 |                                               Print Tracker                                               |                                                Printer Details                                                |                                            Project Tracking                                            |
+| :---------------------------------------------------------------------------------: | :-------------------------------------------------------------------------------------------------------: | :-----------------------------------------------------------------------------------------------------------: | :----------------------------------------------------------------------------------------------------: |
+| ![A clean, sortable list of all inventory items.](screenshots/inventory%20list.jpg) | ![Import and track 3D prints from GitHub, direct urls, and uploaded files](screenshots/print-tracker.jpg) | ![A detailed view of a printer, showing its mods and maintenance schedule.](screenshots/printer%20detail.jpg) | ![A project view, linking associated printers and inventory parts.](screenshots/project%20details.jpg) |
 
+## Key Features
 
-##  Key Features
+- **Comprehensive Inventory Tracking:** Stop guessing how many screws you have left. Track electronic components, hardware, and every part in your collection. Get low-stock alerts and always know what you have on hand.
 
-* **Comprehensive Inventory Tracking:** Stop guessing how many screws you have left. Track electronic components, hardware, and every part in your collection. Get low-stock alerts and always know what you have on hand.
-* **Detailed Printer Management:** Keep a detailed record of every mod and upgrade, track maintenance schedules with reminders, and store important files and links for each of your unique printers.
-* **Organized Project Tracking:** Move beyond folders of STLs. Organize your prints into projects, linking the exact inventory parts and printers used. Track project status and keep all related files and notes in one cohesive view.
+- **Detailed Printer Management:** Keep a detailed record of every mod and upgrade, track maintenance schedules with reminders, and store important files and links for each of your unique printers.
 
-##  Tech Stack
+- **Organized Project Tracking:** Move beyond folders of STLs. Organize your prints into projects, linking the exact inventory parts and printers used. Track project status and keep all related files and notes in one cohesive view.
+
+* **Smart Print Tracker:** Automatically import entire **GitHub repositories** with one click, manually add files from **direct download URLs**, or **upload files from your computer**. Mix and match all three methods in a single tracker. Organize files by category, track your print queue, and mark items as printed. Keep your entire printing pipeline organized in one place.
+
+  > 💡 **Tip:** Creating trackers works best on a desktop or tablet. Use your phone to view trackers and mark items as printed.
+
+## Progressive Web App (PWA)
+
+Print Vault is designed as a **Progressive Web App**, meaning it works like a native mobile app while running in your browser:
+
+- **Add to Home Screen:** Install Print Vault on your phone or tablet for instant access with a single tap
+- **Lightning-Fast Loading:** Optimized for quick access - add new inventory items in under 30 seconds
+- **Camera Integration:** Snap photos of parts directly from your phone when adding inventory
+- **Mobile-First Design:** Built from the ground up for operation on mobile devices
+- **Access Anywhere:** Connect via local network at home or securely over the internet with Tailscale (or other proxy)
+
+**Best Experience by Device:**
+
+- **Phone**: Perfect for inventory management, viewing trackers, and marking prints as complete
+- **Tablet/Desktop**: Recommended for creating new trackers, managing mods, and complex file configuration
+
+**To Install on Mobile:**
+
+1. Access Print Vault via HTTPS (use Tailscale guide for secure access)
+2. Tap your browser's menu (Safari: Share → Add to Home Screen, Chrome: ⋮ → Add to Home Screen)
+3. Print Vault now appears as an app icon on your home screen!
+
+> **Note:** PWA features require HTTPS. Follow the Tailscale guide below for easy, secure HTTPS setup.
+
+## Tech Stack
 
 Print Vault is powered by a modern, open-source stack:
 
-* **Backend:** Django & Django REST Framework
-* **Frontend:** Vue.js
-* **Database:** PostgreSQL
-* **Deployment:** Docker
+- **Backend:** Django & Django REST Framework
+- **Frontend:** Vue.js
+- **Database:** PostgreSQL
+- **Deployment:** Docker
 
-##  A Note from the Author
+## A Note from the Author
 
-As a technical program manager and a passionate maker, I architected the entire system, defined the features, and guided the development process. However, I am not an engineer. The core challenge was translating the technical blueprint into production-ready code, which was accomplished using AI coding engines (Gemini Pro and GPT-4).
+As a technical program manager who has been leading software projects for 20 years, and a passionate maker, I architected the entire system, defined the features, and guided the development process. However, I am not an engineer. The core challenge was translating the technical blueprint into production-ready code, which was accomplished using AI coding engines (Gemini 2.5 Pro and GitHub CoPilot).
 
-While I directed every aspect of the logic and design, the AI was used as an advanced tool to generate the code. This project is a tool built by a maker, for makers, and is intended for personal use. It may not be the most efficient, most definitely has undiscovered bugs, and may not be the most secure.
-
+This project is a tool built by a maker, for makers, and is intended for personal use. It may not be the most efficient, most definitely has undiscovered bugs, and may not be the most secure.
 
 ## Installation
 
@@ -52,9 +83,8 @@ This guide will walk you through setting up Print Vault on a server using Docker
 Before you begin, you will need a server (such as a Proxmox LXC container, a VPS, or a Raspberry Pi) with the following software installed:
 
 - **Git**
-- **Docker** 
+- **Docker**
 - **Docker Compose**
-  
 
 ---
 
@@ -66,9 +96,7 @@ This method will get your Print Vault instance running and make it accessible on
 
 Connect to your server's terminal (e.g., via SSH) and clone the Print Vault source code.
 
-Bash
-
-```
+```bash
 git clone https://github.com/shaxs/print-vault.git
 cd print-vault
 ```
@@ -78,44 +106,50 @@ cd print-vault
 Print Vault is configured using a `.env` file. A template is provided to make this easy.
 
 1. **Copy the Template:** Create your personal configuration file by copying the example.
-  
-  Bash
-  
-  ```
-  cp .env.example .env
-  ```
-  
+
+```bash
+cp .env.example .env
+```
+
 2. **Edit the `.env` File:** Open the new `.env` file with a text editor (like `nano .env`) and fill in your details.
-  
-  ```
-  # Print Vault Environment Variables
-  # This file contains sensitive information and should NOT be shared.
-  
-  # 1. Django Secret Key
-  # Generate a new key here: https://djecrety.ir/
-  DJANGO_SECRET_KEY='your-super-secret-key-goes-here'
-  
-  # 2. PostgreSQL Database Password
-  # It's highly recommended to change this from the default.
-  POSTGRES_PASSWORD='a-new-secure-password'
-  
-  # 3. Application Hostname/IP
-  # This should be the IP address of your server.
-  APP_HOST='192.168.1.100'
-  
-  # 4. Application Port
-  # The external port the application will be accessible on.
-  APP_PORT=8080
-  ```
-  
+
+```env
+# Print Vault Environment Variables
+# This file contains sensitive information and should NOT be shared.
+
+# 1. Django Secret Key
+# Generate a new key here: https://djecrety.ir/
+DJANGO_SECRET_KEY='your-super-secret-key-goes-here'
+
+# 2. Debug Mode
+# Set to False in production for security
+DJANGO_DEBUG='False'
+
+# 3. PostgreSQL Database Username
+POSTGRES_USER='postgres'
+
+# 4. PostgreSQL Database Password
+# It's highly recommended to change this from the default.
+POSTGRES_PASSWORD='a-new-secure-password'
+
+# 5. Application Hostname/IP
+# This should be the IP address of your server.
+APP_HOST='192.168.1.100'
+
+# 6. Allowed Hosts
+# Comma-separated list of allowed hostnames/IPs (no spaces!)
+ALLOWED_HOSTS='192.168.1.100,localhost,127.0.0.1'
+
+# 7. Application Port
+# The external port the application will be accessible on.
+APP_PORT='5173'
+```
 
 ### Step 3: Create Data Directories
 
 These folders will persistently store your application's database and your uploaded photos and files, keeping them safe even when the containers are updated.
 
-Bash
-
-```
+```bash
 mkdir -p ./data/postgres
 mkdir -p ./data/media
 ```
@@ -124,9 +158,7 @@ mkdir -p ./data/media
 
 This single command will build the Docker images and start all the necessary services in the background.
 
-Bash
-
-```
+```bash
 docker compose up --build -d
 ```
 
@@ -136,7 +168,7 @@ The first time you run this, it may take several minutes to download the base im
 
 That's it! Your instance of Print Vault is now running. You can access it in your web browser by navigating to the IP address and port you configured in your `.env` file.
 
-**Example:** `http://192.168.1.100:8080`
+**Example:** `http://192.168.1.100:5173`
 
 ---
 
@@ -147,11 +179,8 @@ This guide builds upon the standard installation and adds secure HTTPS access, a
 ### Prerequisites
 
 - Print Vault is already installed and running using the **Standard Installation** guide above.
-  
 - A [Tailscale](https://tailscale.com/) account (a free personal account is sufficient).
-  
 - The Tailscale client is installed and running on the same server as your Print Vault application.
-  
 
 ### Configuration Steps
 
@@ -159,9 +188,7 @@ This guide builds upon the standard installation and adds secure HTTPS access, a
 
 First, ensure the Tailscale client on your server is running and authenticated to your account.
 
-Bash
-
-```
+```bash
 # Start the client and enable the SSH server
 tailscale up --ssh
 
@@ -173,20 +200,83 @@ tailscale up --ssh
 Run the following command on your server. This tells your Tailscale client to act as a secure reverse proxy for your Print Vault container.
 
 - Replace `5173` with the `APP_PORT` you set in your `.env` file.
-  
 - The `--bg` flag runs the service in the background, so it will persist even if you disconnect your SSH session.
-  
 
-Bash
-
-```
+```bash
 tailscale serve --bg http://127.0.0.1:5173
 ```
 
-**3. Access Print Vault Securely**
+**3. Update Your Configuration**
+
+Edit your `.env` file and add your Tailscale domain to `ALLOWED_HOSTS`:
+
+```bash
+nano .env
+```
+
+Add your Tailscale domain to the `ALLOWED_HOSTS` line (no spaces between items!):
+
+```env
+ALLOWED_HOSTS='192.168.1.100,localhost,127.0.0.1,your-server-name.your-tailnet.ts.net'
+```
+
+Replace `your-server-name.your-tailnet.ts.net` with your actual Tailscale hostname.
+
+Restart the backend to apply the changes:
+
+```bash
+docker compose restart backend
+```
+
+**4. Access Print Vault Securely**
 
 Tailscale will now handle all the HTTPS and SSL certificate management for you. It will make your application available at a secure, private URL based on your server's Tailscale name.
 
 The URL will look like this: `https://<your-server-name>.<your-tailnet>.ts.net`
 
 You can now use this HTTPS address to access Print Vault from any device that is also logged into your Tailscale network.
+
+---
+
+## Troubleshooting
+
+### 400 Bad Request Errors
+
+If you're getting 400 errors when accessing Print Vault via Tailscale or a custom domain:
+
+1. Make sure your domain is added to `ALLOWED_HOSTS` in `.env`
+2. Ensure there are no spaces in the `ALLOWED_HOSTS` list
+3. Restart the backend: `docker compose restart backend`
+4. Check logs: `docker compose logs backend`
+
+### PWA Not Installing
+
+- PWA features require HTTPS
+- Use the Tailscale guide for easy HTTPS setup
+- Some browsers require the site to be visited multiple times before showing the "Add to Home Screen" prompt
+- On iOS, you must use Safari to install PWAs
+
+### Application Won't Start
+
+Check the logs for errors:
+
+```bash
+docker compose logs backend
+docker compose logs frontend
+```
+
+Common issues:
+
+- Missing required environment variables in `.env`
+- Port conflicts (another service using port 5173 or 8000)
+- Docker service not running
+
+---
+
+## Contributing
+
+This project is primarily for personal use, but suggestions and bug reports are welcome! Please open an issue on GitHub.
+
+## License
+
+[Add your license information here]

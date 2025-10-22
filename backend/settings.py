@@ -149,16 +149,6 @@ TRACKER_STORAGE = {
     'CLEANUP_ON_DELETE': True,     # Delete files when tracker deleted
 }
 
-# Allowed domains for file downloads (security)
-ALLOWED_DOWNLOAD_DOMAINS = [
-    'github.com',
-    'raw.githubusercontent.com',
-    'thingiverse.com',
-    'thingiverse-production-new.s3.amazonaws.com',
-    'printables.com',
-    'media.printables.com',
-]
-
 
 # Default primary key field type
 # https://docs.djangoproject.com/en/5.0/ref/settings/#default-auto-field
