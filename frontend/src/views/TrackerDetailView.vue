@@ -309,10 +309,22 @@ const getFileUrl = (file) => {
   return file.github_url || '#'
 }
 
-// Open file in new tab
+// Open or download file
 const openFile = (file) => {
   const url = getFileUrl(file)
-  if (url && url !== '#') {
+  if (!url || url === '#') return
+
+  // For local files, trigger download
+  if (tracker.value.storage_type === 'local' && file.local_file) {
+    const link = document.createElement('a')
+    link.href = url
+    link.download = file.filename || 'download'
+    link.target = '_blank'
+    document.body.appendChild(link)
+    link.click()
+    document.body.removeChild(link)
+  } else {
+    // For external links (GitHub URLs), open in new tab
     window.open(url, '_blank')
   }
 }
