@@ -319,7 +319,7 @@ const openFile = (file) => {
     const link = document.createElement('a')
     link.href = url
     link.download = file.filename || 'download'
-    link.target = '_blank'
+    // Don't set target='_blank' - it interferes with download attribute
     document.body.appendChild(link)
     link.click()
     document.body.removeChild(link)
