@@ -46,15 +46,16 @@ STATIC_ROOT = os.path.join(BASE_DIR, 'staticfiles')
 
 # Security settings for production
 if not DEBUG:
-    # Force HTTPS redirects
-    SECURE_SSL_REDIRECT = True
+    # Don't force HTTPS redirect (allow both HTTP local access and HTTPS via Tailscale)
+    # SECURE_SSL_REDIRECT = False (default)
     
-    # Secure cookies (only sent over HTTPS)
-    SESSION_COOKIE_SECURE = True
-    CSRF_COOKIE_SECURE = True
+    # Secure cookies - only applied when connection is HTTPS
+    # These work per-request, so HTTP requests use regular cookies, HTTPS uses secure cookies
+    SESSION_COOKIE_SECURE = False  # Allow both HTTP and HTTPS
+    CSRF_COOKIE_SECURE = False     # Allow both HTTP and HTTPS
     
-    # HTTP Strict Transport Security (HSTS)
-    # Tells browsers to always use HTTPS for this domain
+    # HTTP Strict Transport Security (HSTS) - only sent on HTTPS responses
+    # Tells browsers to always use HTTPS for this domain (when accessed via HTTPS)
     SECURE_HSTS_SECONDS = 31536000  # 1 year
     SECURE_HSTS_INCLUDE_SUBDOMAINS = True
     SECURE_HSTS_PRELOAD = True
