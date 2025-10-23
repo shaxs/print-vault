@@ -316,10 +316,11 @@ const openFile = (file) => {
 
   // For local files, trigger download
   if (tracker.value.storage_type === 'local' && file.local_file) {
+    // Add ?download=1 parameter to trigger Nginx Content-Disposition header
+    const downloadUrl = url + '?download=1'
     const link = document.createElement('a')
-    link.href = url
+    link.href = downloadUrl
     link.download = file.filename || 'download'
-    // Don't set target='_blank' - it interferes with download attribute
     document.body.appendChild(link)
     link.click()
     document.body.removeChild(link)
