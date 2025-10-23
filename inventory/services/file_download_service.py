@@ -19,6 +19,8 @@ Features:
 import os
 import time
 import hashlib
+import socket
+import ipaddress
 import requests
 from urllib.parse import urlparse, quote
 from django.conf import settings
@@ -58,9 +60,10 @@ class FileDownloadService:
         Validate URL for security (prevent SSRF attacks).
         
         Allows any public HTTP/HTTPS URL but blocks:
-        - localhost and 127.0.0.1
-        - Private IP ranges (10.x.x.x, 172.16-31.x.x, 192.168.x.x)
-        - Link-local addresses (169.254.x.x)
+        - localhost and loopback addresses (127.0.0.0/8, ::1)
+        - Private IP ranges (RFC 1918: 10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16)
+        - Link-local addresses (169.254.0.0/16, fe80::/10)
+        - IPv6 private ranges (fc00::/7)
         - Non-HTTP(S) schemes (file://, ftp://, etc.)
         
         Args:
@@ -79,18 +82,49 @@ class FileDownloadService:
         if parsed.scheme not in ['http', 'https']:
             raise ValueError(f"Only HTTP and HTTPS URLs are allowed, got: {parsed.scheme}://")
         
-        # Block localhost
-        hostname = parsed.netloc.split(':')[0].lower()  # Remove port if present
-        if hostname in ['localhost', '127.0.0.1', '::1']:
-            raise ValueError("Downloads from localhost are not allowed for security reasons")
+        # Extract hostname (remove port if present)
+        hostname = parsed.netloc.split(':')[0].lower()
         
-        # Block private IP ranges (SSRF protection)
-        # This is a basic check - for production, consider using a library like 'validators'
-        if hostname.startswith('10.') or \
-           hostname.startswith('192.168.') or \
-           hostname.startswith('169.254.') or \
-           any(hostname.startswith(f'172.{i}.') for i in range(16, 32)):
-            raise ValueError(f"Downloads from private IP addresses are not allowed: {hostname}")
+        # Try to resolve hostname to IP address(es)
+        try:
+            # Get all IP addresses for this hostname
+            addr_info = socket.getaddrinfo(hostname, None)
+            ip_addresses = [addr[4][0] for addr in addr_info]
+        except (socket.gaierror, socket.error):
+            # If hostname doesn't resolve, try to parse it as an IP directly
+            try:
+                ip_addresses = [hostname]
+                ipaddress.ip_address(hostname)  # Validate it's an IP
+            except ValueError:
+                raise ValueError(f"Cannot resolve hostname: {hostname}")
+        
+        # Check each resolved IP address
+        for ip_str in ip_addresses:
+            try:
+                ip = ipaddress.ip_address(ip_str)
+                
+                # Block loopback addresses (127.0.0.0/8, ::1)
+                if ip.is_loopback:
+                    raise ValueError(f"Downloads from loopback addresses are not allowed: {ip}")
+                
+                # Block private IP ranges (RFC 1918 for IPv4, fc00::/7 for IPv6)
+                if ip.is_private:
+                    raise ValueError(f"Downloads from private IP addresses are not allowed: {ip}")
+                
+                # Block link-local addresses (169.254.0.0/16, fe80::/10)
+                if ip.is_link_local:
+                    raise ValueError(f"Downloads from link-local addresses are not allowed: {ip}")
+                
+                # Block reserved/multicast addresses
+                if ip.is_reserved or ip.is_multicast:
+                    raise ValueError(f"Downloads from reserved/multicast addresses are not allowed: {ip}")
+                    
+            except ValueError as e:
+                # If it's our custom error message, re-raise it
+                if "not allowed" in str(e):
+                    raise
+                # Otherwise, it's an invalid IP format
+                raise ValueError(f"Invalid IP address format: {ip_str}")
         
         return True
     

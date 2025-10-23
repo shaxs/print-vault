@@ -23,8 +23,18 @@ if not SECRET_KEY:
             "Generate one at https://djecrety.ir/"
         )
 
-# Read ALLOWED_HOSTS from environment variable, fallback to wildcard for development
-ALLOWED_HOSTS = os.environ.get("ALLOWED_HOSTS", "*").split(",")
+# Require ALLOWED_HOSTS in production, allow wildcard in development
+allowed_hosts_env = os.environ.get("ALLOWED_HOSTS")
+if allowed_hosts_env:
+    ALLOWED_HOSTS = allowed_hosts_env.split(",")
+else:
+    if DEBUG:
+        ALLOWED_HOSTS = ["*"]
+    else:
+        raise ValueError(
+            "ALLOWED_HOSTS environment variable is required in production! "
+            "Set it to a comma-separated list of allowed hostnames."
+        )
 
 
 # Application definition

@@ -49,10 +49,14 @@ if not DEBUG:
     # Don't force HTTPS redirect (allow both HTTP local access and HTTPS via Tailscale)
     # SECURE_SSL_REDIRECT = False (default)
     
-    # Secure cookies - only applied when connection is HTTPS
-    # These work per-request, so HTTP requests use regular cookies, HTTPS uses secure cookies
-    SESSION_COOKIE_SECURE = False  # Allow both HTTP and HTTPS
-    CSRF_COOKIE_SECURE = False     # Allow both HTTP and HTTPS
+    # Cookie security: Set to False to support both HTTP (local network) and HTTPS (Tailscale)
+    # Trade-off: Local network is assumed trusted. For HTTPS-only deployments, set these to True.
+    # Note: With SECURE_PROXY_SSL_HEADER, Django knows when requests are HTTPS, but these
+    # settings are global and apply to all cookies regardless of request scheme.
+    SESSION_COOKIE_SECURE = False  # Allow cookies over HTTP for local network access
+    CSRF_COOKIE_SECURE = False     # Allow cookies over HTTP for local network access
+    SESSION_COOKIE_SAMESITE = 'Lax'  # CSRF protection while allowing normal navigation
+    CSRF_COOKIE_SAMESITE = 'Lax'     # CSRF protection while allowing normal navigation
     
     # HTTP Strict Transport Security (HSTS) - only sent on HTTPS responses
     # Tells browsers to always use HTTPS for this domain (when accessed via HTTPS)

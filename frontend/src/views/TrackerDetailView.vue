@@ -324,6 +324,9 @@ const openFile = async (file) => {
     try {
       // Fetch the file
       const response = await fetch(url)
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`)
+      }
       const blob = await response.blob()
 
       // Create object URL and download
