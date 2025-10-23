@@ -303,16 +303,50 @@ const getColorBadgeStyle = (color) => {
 const getFileUrl = (file) => {
   // For downloaded files (storage_type='local'), use the local file URL
   if (tracker.value.storage_type === 'local' && file.local_file) {
-    return file.local_file
+    let url = file.local_file
+    // Fix mixed content: if page is HTTPS but URL is HTTP, upgrade to HTTPS
+    if (window.location.protocol === 'https:' && url.startsWith('http://')) {
+      url = url.replace('http://', 'https://')
+    }
+    return url
   }
   // For GitHub links (storage_type='link'), use the GitHub URL
   return file.github_url || '#'
 }
 
-// Open file in new tab
-const openFile = (file) => {
+// Open or download file
+const openFile = async (file) => {
   const url = getFileUrl(file)
-  if (url && url !== '#') {
+  if (!url || url === '#') return
+
+  // For local files, use fetch to download as blob
+  if (tracker.value.storage_type === 'local' && file.local_file) {
+    try {
+      // Fetch the file
+      const response = await fetch(url)
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`)
+      }
+      const blob = await response.blob()
+
+      // Create object URL and download
+      const blobUrl = window.URL.createObjectURL(blob)
+      const link = document.createElement('a')
+      link.href = blobUrl
+      link.download = file.filename || 'download'
+      document.body.appendChild(link)
+      link.click()
+      document.body.removeChild(link)
+
+      // Clean up
+      window.URL.revokeObjectURL(blobUrl)
+    } catch (error) {
+      console.error('Download failed:', error)
+      // Fallback: just open in new tab
+      window.open(url, '_blank')
+    }
+  } else {
+    // For external links (GitHub URLs), open in new tab
     window.open(url, '_blank')
   }
 }
