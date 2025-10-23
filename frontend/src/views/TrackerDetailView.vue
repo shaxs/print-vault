@@ -310,20 +310,33 @@ const getFileUrl = (file) => {
 }
 
 // Open or download file
-const openFile = (file) => {
+const openFile = async (file) => {
   const url = getFileUrl(file)
   if (!url || url === '#') return
 
-  // For local files, trigger download
+  // For local files, use fetch to download as blob
   if (tracker.value.storage_type === 'local' && file.local_file) {
-    // Add ?download=1 parameter to trigger Nginx Content-Disposition header
-    const downloadUrl = url + '?download=1'
-    const link = document.createElement('a')
-    link.href = downloadUrl
-    link.download = file.filename || 'download'
-    document.body.appendChild(link)
-    link.click()
-    document.body.removeChild(link)
+    try {
+      // Fetch the file
+      const response = await fetch(url)
+      const blob = await response.blob()
+
+      // Create object URL and download
+      const blobUrl = window.URL.createObjectURL(blob)
+      const link = document.createElement('a')
+      link.href = blobUrl
+      link.download = file.filename || 'download'
+      document.body.appendChild(link)
+      link.click()
+      document.body.removeChild(link)
+
+      // Clean up
+      window.URL.revokeObjectURL(blobUrl)
+    } catch (error) {
+      console.error('Download failed:', error)
+      // Fallback: just open in new tab
+      window.open(url, '_blank')
+    }
   } else {
     // For external links (GitHub URLs), open in new tab
     window.open(url, '_blank')
