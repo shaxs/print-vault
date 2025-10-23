@@ -303,7 +303,12 @@ const getColorBadgeStyle = (color) => {
 const getFileUrl = (file) => {
   // For downloaded files (storage_type='local'), use the local file URL
   if (tracker.value.storage_type === 'local' && file.local_file) {
-    return file.local_file
+    let url = file.local_file
+    // Fix mixed content: if page is HTTPS but URL is HTTP, upgrade to HTTPS
+    if (window.location.protocol === 'https:' && url.startsWith('http://')) {
+      url = url.replace('http://', 'https://')
+    }
+    return url
   }
   // For GitHub links (storage_type='link'), use the GitHub URL
   return file.github_url || '#'
