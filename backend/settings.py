@@ -26,7 +26,7 @@ if not SECRET_KEY:
 # Require ALLOWED_HOSTS in production, allow wildcard in development
 allowed_hosts_env = os.environ.get("ALLOWED_HOSTS")
 if allowed_hosts_env:
-    ALLOWED_HOSTS = allowed_hosts_env.split(",")
+    ALLOWED_HOSTS = [host.strip() for host in allowed_hosts_env.split(",")]
 else:
     if DEBUG:
         ALLOWED_HOSTS = ["*"]
