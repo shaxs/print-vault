@@ -16,6 +16,7 @@ const photoFile = ref(null)
 const photoPreview = ref(null)
 const allInventoryItems = ref([])
 const allPrinters = ref([])
+const allTrackers = ref([])
 
 watch(
   () => props.initialData,
@@ -24,6 +25,9 @@ watch(
       project.value = { ...newData }
       project.value.inventory_item_ids = newData.associated_inventory_items.map((item) => item.id)
       project.value.printer_ids = newData.associated_printers.map((printer) => printer.id)
+      project.value.tracker_ids = newData.trackers
+        ? newData.trackers.map((tracker) => tracker.id)
+        : []
       isEditMode.value = true
     } else {
       project.value = {
@@ -35,6 +39,7 @@ watch(
         notes: '',
         inventory_item_ids: [],
         printer_ids: [],
+        tracker_ids: [],
       }
       isEditMode.value = false
     }
@@ -53,7 +58,7 @@ const handleFileUpload = (event) => {
 const saveProject = async () => {
   const formData = new FormData()
   for (const key in project.value) {
-    if (key === 'inventory_item_ids' || key === 'printer_ids') {
+    if (key === 'inventory_item_ids' || key === 'printer_ids' || key === 'tracker_ids') {
       project.value[key].forEach((id) => {
         formData.append(key, id)
       })
@@ -81,12 +86,14 @@ const saveProject = async () => {
 
 onMounted(async () => {
   try {
-    const [itemsRes, printersRes] = await Promise.all([
+    const [itemsRes, printersRes, trackersRes] = await Promise.all([
       APIService.getInventoryItems(),
       APIService.getPrinters(),
+      APIService.getTrackers(),
     ])
     allInventoryItems.value = itemsRes.data
     allPrinters.value = printersRes.data
+    allTrackers.value = trackersRes.data
   } catch (error) {
     console.error('Error loading form options:', error)
   }
@@ -131,6 +138,16 @@ onMounted(async () => {
         :custom-label="(opt) => allPrinters.find((p) => p.id === opt)?.title || ''"
         :multiple="true"
         placeholder="Select printers for this project"
+      ></multiselect>
+    </div>
+    <div class="form-group">
+      <label for="tracker_ids">Associated Print Trackers</label>
+      <multiselect
+        v-model="project.tracker_ids"
+        :options="allTrackers.map((t) => t.id)"
+        :custom-label="(opt) => allTrackers.find((t) => t.id === opt)?.name || ''"
+        :multiple="true"
+        placeholder="Select print trackers for this project"
       ></multiselect>
     </div>
     <div class="form-group">

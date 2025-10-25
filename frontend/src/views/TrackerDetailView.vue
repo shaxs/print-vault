@@ -302,6 +302,7 @@ const getColorBadgeStyle = (color) => {
 // Get file URL for opening
 const getFileUrl = (file) => {
   // For downloaded files (storage_type='local'), use the local file URL
+  // Backend returns relative URLs (/media/...) which browser resolves with correct protocol
   if (tracker.value.storage_type === 'local' && file.local_file) {
     return file.local_file
   }
@@ -309,10 +310,39 @@ const getFileUrl = (file) => {
   return file.github_url || '#'
 }
 
-// Open file in new tab
-const openFile = (file) => {
+// Open or download file
+const openFile = async (file) => {
   const url = getFileUrl(file)
-  if (url && url !== '#') {
+  if (!url || url === '#') return
+
+  // For local files, use fetch to download as blob
+  if (tracker.value.storage_type === 'local' && file.local_file) {
+    try {
+      // Fetch the file
+      const response = await fetch(url)
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`)
+      }
+      const blob = await response.blob()
+
+      // Create object URL and download
+      const blobUrl = window.URL.createObjectURL(blob)
+      const link = document.createElement('a')
+      link.href = blobUrl
+      link.download = file.filename || 'download'
+      document.body.appendChild(link)
+      link.click()
+      document.body.removeChild(link)
+
+      // Clean up
+      window.URL.revokeObjectURL(blobUrl)
+    } catch (error) {
+      console.error('Download failed:', error)
+      // Fallback: just open in new tab
+      window.open(url, '_blank')
+    }
+  } else {
+    // For external links (GitHub URLs), open in new tab
     window.open(url, '_blank')
   }
 }
@@ -812,15 +842,46 @@ onMounted(() => {
                       />
 
                       <label class="printed-label">Printed:</label>
-                      <input
-                        type="number"
-                        :value="file.printed_quantity || 0"
-                        @input="updateFilePrintedQuantity(file, $event.target.value)"
-                        class="form-control printed-input"
-                        :disabled="file.status === 'completed'"
-                        :max="file.quantity"
-                        min="0"
-                      />
+                      <div class="printed-control">
+                        <button
+                          class="printed-btn minus-btn"
+                          @click="
+                            updateFilePrintedQuantity(
+                              file,
+                              Math.max(0, (file.printed_quantity || 0) - 1),
+                            )
+                          "
+                          :disabled="
+                            file.status === 'completed' || (file.printed_quantity || 0) <= 0
+                          "
+                        >
+                          −
+                        </button>
+                        <input
+                          type="number"
+                          :value="file.printed_quantity || 0"
+                          @input="updateFilePrintedQuantity(file, $event.target.value)"
+                          class="form-control printed-input"
+                          :disabled="file.status === 'completed'"
+                          :max="file.quantity"
+                          min="0"
+                        />
+                        <button
+                          class="printed-btn plus-btn"
+                          @click="
+                            updateFilePrintedQuantity(
+                              file,
+                              Math.min(file.quantity, (file.printed_quantity || 0) + 1),
+                            )
+                          "
+                          :disabled="
+                            file.status === 'completed' ||
+                            (file.printed_quantity || 0) >= file.quantity
+                          "
+                        >
+                          +
+                        </button>
+                      </div>
                       <span class="required-amount">/ {{ file.quantity }}</span>
 
                       <!-- Progress Bar -->
@@ -1300,6 +1361,11 @@ onMounted(() => {
   font-size: 1.1rem;
   font-weight: 600;
   color: var(--color-heading);
+  word-wrap: break-word;
+  word-break: break-word;
+  overflow-wrap: break-word;
+  flex: 1;
+  min-width: 0;
 }
 
 .arrow {
@@ -1345,6 +1411,9 @@ onMounted(() => {
   color: var(--color-text);
   text-decoration: none;
   cursor: pointer;
+  word-wrap: break-word;
+  word-break: break-word;
+  overflow-wrap: break-word;
 }
 
 .file-link:hover {
@@ -1395,6 +1464,46 @@ onMounted(() => {
   opacity: 0.7;
 }
 
+.printed-control {
+  display: flex;
+  align-items: center;
+  gap: 0;
+}
+
+.printed-btn {
+  display: none; /* Hidden on desktop by default */
+  background-color: var(--color-background-soft);
+  border: 1px solid var(--color-border);
+  color: var(--color-text);
+  width: 32px;
+  height: 32px;
+  font-size: 1.2rem;
+  font-weight: bold;
+  cursor: pointer;
+  transition: background-color 0.2s;
+  padding: 0;
+  line-height: 1;
+}
+
+.printed-btn:hover:not(:disabled) {
+  background-color: var(--color-background-mute);
+}
+
+.printed-btn:disabled {
+  opacity: 0.3;
+  cursor: not-allowed;
+}
+
+.printed-btn.minus-btn {
+  border-radius: 4px 0 0 4px;
+  border-right: none;
+}
+
+.printed-btn.plus-btn {
+  border-radius: 0 4px 4px 0;
+  border-left: none;
+}
+
 .printed-input,
 .quantity-input {
   width: 3.5rem;
@@ -1404,6 +1513,10 @@ onMounted(() => {
   border-radius: 4px;
   background-color: var(--color-background);
   color: var(--color-text);
+}
+
+.printed-control .printed-input {
+  border-radius: 4px; /* Default for desktop */
 }
 
 .printed-input:disabled,
@@ -1653,6 +1766,19 @@ onMounted(() => {
 
 /* Mobile Responsive Styles */
 @media (max-width: 768px) {
+  /* Reduce padding to maximize usable space */
+  .main-content {
+    padding: 0.5rem !important;
+  }
+
+  .card {
+    padding: 0.5rem;
+  }
+
+  .card-body {
+    padding: 0.5rem;
+  }
+
   /* Header adjustments for mobile */
   .detail-header {
     flex-direction: column;
@@ -1669,13 +1795,39 @@ onMounted(() => {
   }
 
   .header-actions {
-    flex-wrap: wrap;
-    justify-content: flex-start;
+    display: grid;
+    grid-template-columns: auto 1fr;
+    gap: 0.5rem;
+  }
+
+  /* Filter button and Search on first row */
+  .header-actions .header-button {
+    grid-column: 1;
+    grid-row: 1;
+  }
+
+  .header-actions .search-container {
+    grid-column: 2;
+    grid-row: 1;
+  }
+
+  /* Edit and Delete buttons on second row, span full width and split equally */
+  .header-actions .edit-button {
+    grid-column: 1 / -1;
+    grid-row: 2;
+    width: calc(50% - 0.25rem);
+  }
+
+  .header-actions .delete-button {
+    grid-column: 1 / -1;
+    grid-row: 2;
+    width: calc(50% - 0.25rem);
+    margin-left: calc(50% + 0.25rem);
   }
 
   .search-input {
     min-width: 0;
-    flex-grow: 1;
+    width: 100%;
   }
 
   /* Make file rows stack vertically on mobile */
@@ -1693,8 +1845,53 @@ onMounted(() => {
 
   .file-actions {
     width: 100%;
-    justify-content: space-between;
-    flex-wrap: wrap;
+    display: grid;
+    grid-template-columns: auto 1fr auto;
+    align-items: center;
+    gap: 0.5rem 0.75rem;
+  }
+
+  /* Quantity label and input on first row */
+  .file-actions > label:nth-child(1) {
+    grid-column: 1;
+  }
+
+  .file-actions > .quantity-input {
+    grid-column: 2 / -1;
+  }
+
+  /* Printed label, control, and total on second row */
+  .file-actions > label:nth-child(3) {
+    grid-column: 1;
+  }
+
+  .file-actions > .printed-control {
+    grid-column: 2;
+    display: flex;
+    align-items: center;
+    gap: 0;
+  }
+
+  .file-actions > .required-amount {
+    grid-column: 3;
+    margin-left: 0.5rem;
+  }
+
+  /* Progress bar spans full width on third row */
+  .file-actions > .progress-bar-bg {
+    grid-column: 1 / -1;
+  }
+
+  /* Show +/- buttons on mobile */
+  .printed-btn {
+    display: block;
+  }
+
+  .printed-control .printed-input {
+    border-radius: 0; /* Remove radius when buttons are visible */
+    width: 4rem;
+    padding: 0.5rem;
+    font-size: 1rem;
   }
 
   /* Larger touch targets for mobile */
@@ -1703,7 +1900,6 @@ onMounted(() => {
     height: 24px;
   }
 
-  .printed-input,
   .quantity-input {
     width: 4rem;
     padding: 0.5rem;

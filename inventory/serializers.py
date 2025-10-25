@@ -143,13 +143,14 @@ class ProjectSerializer(serializers.ModelSerializer):
 
     inventory_item_ids = serializers.PrimaryKeyRelatedField(many=True, queryset=InventoryItem.objects.all(), source='associated_inventory_items', write_only=True, required=False)
     printer_ids = serializers.PrimaryKeyRelatedField(many=True, queryset=Printer.objects.all(), source='associated_printers', write_only=True, required=False)
+    tracker_ids = serializers.ListField(child=serializers.IntegerField(), write_only=True, required=False)
     
     class Meta:
         model = Project
         fields = [
             'id', 'project_name', 'description', 'status', 'start_date', 'end_date',
             'notes', 'photo', 'associated_inventory_items', 'associated_printers', 
-            'total_cost', 'inventory_item_ids', 'printer_ids', 'links', 'files', 'trackers'
+            'total_cost', 'inventory_item_ids', 'printer_ids', 'links', 'files', 'trackers', 'tracker_ids'
         ]
     
     def get_total_cost(self, obj):
@@ -164,17 +165,30 @@ class ProjectSerializer(serializers.ModelSerializer):
     def create(self, validated_data):
         inventory_items = validated_data.pop('associated_inventory_items', None)
         printers = validated_data.pop('associated_printers', None)
+        tracker_ids = validated_data.pop('tracker_ids', None)
         project = Project.objects.create(**validated_data)
         if inventory_items: project.associated_inventory_items.set(inventory_items)
         if printers: project.associated_printers.set(printers)
+        if tracker_ids is not None:
+            # Update trackers to point to this project
+            from .models import Tracker
+            Tracker.objects.filter(id__in=tracker_ids).update(project=project)
         return project
 
     def update(self, instance, validated_data):
         inventory_items = validated_data.pop('associated_inventory_items', None)
         printers = validated_data.pop('associated_printers', None)
+        tracker_ids = validated_data.pop('tracker_ids', None)
         instance = super().update(instance, validated_data)
         if inventory_items is not None: instance.associated_inventory_items.set(inventory_items)
         if printers is not None: instance.associated_printers.set(printers)
+        if tracker_ids is not None:
+            # Update trackers: clear old associations and set new ones
+            from .models import Tracker
+            # Clear any trackers that were previously associated with this project but are no longer selected
+            Tracker.objects.filter(project=instance).exclude(id__in=tracker_ids).update(project=None)
+            # Associate selected trackers with this project
+            Tracker.objects.filter(id__in=tracker_ids).update(project=instance)
         return instance
 
 class ProjectInventorySerializer(serializers.ModelSerializer):

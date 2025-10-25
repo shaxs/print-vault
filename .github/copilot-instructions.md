@@ -51,8 +51,11 @@ This repository is a self-hosted 3D printing management application built with D
 ## Deployment Notes
 
 - Use Docker Compose for containerized deployment.
+- **IMPORTANT**: Use `docker compose` (with space) command, NOT `docker-compose` (with hyphen).
+  - Example: `docker compose up -d`, `docker compose restart backend`
 - Configure environment variables in `.env` files for both backend and frontend.
 - Use Nginx as a reverse proxy for production deployment.
+- Production server runs on Linux (commands should be Linux-compatible).
 
 ## Tips for Copilot
 

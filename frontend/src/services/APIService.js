@@ -97,6 +97,13 @@ export default {
   downloadProjectFiles(projectId) {
     return apiClient.get(`projects/${projectId}/download-files/`, { responseType: 'blob' })
   },
+  addInventoryToProject(projectId, inventoryItemId, quantityUsed = 0) {
+    return apiClient.post(`projectinventory/`, {
+      project: projectId,
+      inventory_item: inventoryItemId,
+      quantity_used: quantityUsed,
+    })
+  },
   removeInventoryFromProject(projectId, inventoryItemId) {
     return apiClient.post(`projects/${projectId}/remove-inventory/`, {
       inventory_item_id: inventoryItemId,

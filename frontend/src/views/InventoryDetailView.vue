@@ -60,103 +60,105 @@ onMounted(fetchInventoryItem)
 </script>
 
 <template>
-  <div v-if="isLoading" class="loading-state">
-    <p>Loading...</p>
-  </div>
-  <div v-else-if="item" class="page-container">
-    <div class="detail-header">
-      <h1>{{ item.title }}</h1>
-      <div class="actions">
-        <router-link :to="`/item/${item.id}/edit`" class="btn btn-primary">Edit Item</router-link>
-        <button @click="deleteItem" class="btn btn-danger">Delete</button>
-      </div>
+  <div class="page-container">
+    <div v-if="isLoading" class="loading-state">
+      <p>Loading...</p>
     </div>
 
-    <div class="detail-grid">
-      <div class="photo-column">
-        <div class="card photo-card">
-          <div class="card-header">
-            <h3>Item Photo</h3>
-          </div>
-          <div class="card-body photo-card-body">
-            <img
-              v-if="item.photo"
-              :src="item.photo"
-              :alt="item.title"
-              class="detail-photo clickable"
-              @click="isPhotoModalVisible = true"
-            />
-            <div v-else class="no-photo">No Photo Available</div>
-          </div>
+    <div v-if="!isLoading && item" class="content-container">
+      <div class="detail-header">
+        <h1>{{ item.title }}</h1>
+        <div class="actions">
+          <router-link :to="`/item/${item.id}/edit`" class="btn btn-primary">Edit</router-link>
+          <button @click="deleteItem" class="btn btn-danger">Delete</button>
         </div>
       </div>
 
-      <div class="details-column">
-        <div class="card">
-          <div class="card-header">
-            <h3>Item Details</h3>
-          </div>
-          <div class="card-body">
-            <div class="info-grid">
-              <div class="info-item">
-                <span class="label">Brand:</span>
-                <span class="value">{{ item.brand?.name || 'N/A' }}</span>
-              </div>
-              <div class="info-item">
-                <span class="label">Part Type:</span>
-                <span class="value">{{ item.part_type?.name || 'N/A' }}</span>
-              </div>
-              <div class="info-item">
-                <span class="label">Location:</span>
-                <span class="value">{{ item.location?.name || 'N/A' }}</span>
-              </div>
-              <div class="info-item">
-                <span class="label">Quantity:</span>
-                <span class="value">{{ item.quantity }}</span>
-              </div>
-              <div class="info-item">
-                <span class="label">Cost:</span>
-                <span class="value">{{ item.cost ? `$${item.cost}` : 'N/A' }}</span>
-              </div>
-              <div v-if="item.is_consumable" class="info-item">
-                <span class="label">Low Stock Alert:</span>
-                <span class="value">Enabled</span>
-              </div>
-              <div v-if="item.is_consumable" class="info-item">
-                <span class="label">Warning Threshold:</span>
-                <span class="value">{{ item.low_stock_threshold ?? 'Not Set' }}</span>
-              </div>
+      <div class="detail-grid">
+        <div class="photo-column">
+          <div class="card photo-card">
+            <div class="card-header">
+              <h3>Item Photo</h3>
             </div>
-            <hr v-if="item.notes" />
-            <div v-if="item.notes" class="notes-section">
-              <h4>Notes</h4>
-              <p class="notes-content">{{ item.notes }}</p>
+            <div class="card-body photo-card-body">
+              <img
+                v-if="item.photo"
+                :src="item.photo"
+                :alt="item.title"
+                class="detail-photo clickable"
+                @click="isPhotoModalVisible = true"
+              />
+              <div v-else class="no-photo">No Photo Available</div>
             </div>
           </div>
         </div>
 
-        <div class="card">
-          <div class="card-header">
-            <h3>Associated Projects</h3>
+        <div class="details-column">
+          <div class="card">
+            <div class="card-header">
+              <h3>Item Details</h3>
+            </div>
+            <div class="card-body">
+              <div class="info-grid">
+                <div class="info-item">
+                  <span class="label">Brand: </span>
+                  <span class="value">{{ item.brand?.name || 'N/A' }}</span>
+                </div>
+                <div class="info-item">
+                  <span class="label">Part Type: </span>
+                  <span class="value">{{ item.part_type?.name || 'N/A' }}</span>
+                </div>
+                <div class="info-item">
+                  <span class="label">Location: </span>
+                  <span class="value">{{ item.location?.name || 'N/A' }}</span>
+                </div>
+                <div class="info-item">
+                  <span class="label">Quantity: </span>
+                  <span class="value">{{ item.quantity }}</span>
+                </div>
+                <div class="info-item">
+                  <span class="label">Cost: </span>
+                  <span class="value">{{ item.cost ? `$${item.cost}` : 'N/A' }}</span>
+                </div>
+                <div v-if="item.is_consumable" class="info-item">
+                  <span class="label">Low Stock Alert: </span>
+                  <span class="value">Enabled</span>
+                </div>
+                <div v-if="item.is_consumable" class="info-item">
+                  <span class="label">Warning Threshold: </span>
+                  <span class="value">{{ item.low_stock_threshold ?? 'Not Set' }}</span>
+                </div>
+              </div>
+              <hr v-if="item.notes" />
+              <div v-if="item.notes" class="notes-section">
+                <h4>Notes</h4>
+                <p class="notes-content">{{ item.notes }}</p>
+              </div>
+            </div>
           </div>
-          <div class="card-body table-card-body">
-            <DataTable
-              :headers="projectHeaders"
-              :items="item.associated_projects"
-              :visible-columns="projectHeaders.map((h) => h.value)"
-              @row-click="viewProject"
-              empty-message="No Projects Associated."
-              class="borderless-table"
-            >
-              <template #cell-project_name="{ item }">
-                <span class="table-link grey-link">{{ item.project_name }}</span>
-              </template>
-              <template #cell-actions="{ item }">
-                <button @click.stop="removeProjectAssociation(item)" class="btn-remove-inventory">
-                  Remove
-                </button>
-              </template>
-            </DataTable>
+
+          <div class="card">
+            <div class="card-header">
+              <h3>Associated Projects</h3>
+            </div>
+            <div class="card-body table-card-body">
+              <DataTable
+                :headers="projectHeaders"
+                :items="item.associated_projects"
+                :visible-columns="projectHeaders.map((h) => h.value)"
+                @row-click="viewProject"
+                empty-message="No Projects Associated."
+              >
+                <template #cell-project_name="{ item }">
+                  <span class="table-link grey-link">{{ item.project_name }}</span>
+                </template>
+                <template #cell-actions="{ item }">
+                  <button @click.stop="removeProjectAssociation(item)" class="btn-remove-inventory">
+                    Remove
+                  </button>
+                </template>
+              </DataTable>
+            </div>
           </div>
         </div>
       </div>
@@ -192,9 +194,19 @@ onMounted(fetchInventoryItem)
 <style scoped>
 .page-container {
   padding: 2rem;
+}
+
+@media (max-width: 768px) {
+  .page-container {
+    padding: 1rem;
+  }
+}
+
+.content-container {
   max-width: 1200px;
   margin: 0 auto;
 }
+
 .detail-header {
   display: flex;
   justify-content: space-between;
@@ -203,25 +215,71 @@ onMounted(fetchInventoryItem)
   padding-bottom: 1.5rem;
   border-bottom: 1px solid var(--color-border);
 }
+
+@media (max-width: 768px) {
+  .detail-header {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 1rem;
+    margin-bottom: 1.5rem;
+    padding-bottom: 1rem;
+  }
+}
+
 .detail-header h1 {
   font-size: 2.5rem;
   font-weight: 600;
+  word-wrap: break-word;
+  overflow-wrap: break-word;
 }
+
+@media (max-width: 768px) {
+  .detail-header h1 {
+    font-size: 1.75rem;
+  }
+}
+
 .actions {
   display: flex;
   gap: 1rem;
 }
+
+@media (max-width: 768px) {
+  .actions {
+    width: 100%;
+    justify-content: stretch;
+  }
+
+  .actions .btn {
+    flex: 1;
+  }
+}
 .detail-grid {
   display: grid;
-  grid-template-columns: 1fr 2fr;
-  gap: 2rem;
+  grid-template-columns: 1fr;
+  gap: 1.5rem;
 }
+
+@media (min-width: 768px) {
+  .detail-grid {
+    grid-template-columns: 1fr 2fr;
+    gap: 2rem;
+  }
+}
+
 .card-body.photo-card-body {
   padding: 1.5rem;
   display: flex;
   justify-content: center;
   align-items: center;
 }
+
+@media (max-width: 768px) {
+  .card-body.photo-card-body {
+    padding: 1rem;
+  }
+}
+
 .detail-photo {
   width: 100%;
   max-width: 400px;
@@ -229,6 +287,12 @@ onMounted(fetchInventoryItem)
   object-fit: cover;
   border-radius: 8px;
   border: 1px solid var(--color-border);
+}
+
+@media (max-width: 768px) {
+  .detail-photo {
+    max-width: 100%;
+  }
 }
 .clickable {
   cursor: pointer;
@@ -247,33 +311,72 @@ onMounted(fetchInventoryItem)
 }
 .card-body {
   padding: 0;
+  word-wrap: break-word;
 }
+
+.card-body.table-card-body {
+  overflow: visible;
+}
+
 .info-grid {
   padding: 1.5rem;
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
   gap: 1rem;
 }
+
+@media (max-width: 768px) {
+  .info-grid {
+    padding: 1rem;
+    grid-template-columns: 1fr;
+    gap: 0.75rem;
+  }
+}
+
 .info-item {
   display: flex;
   align-items: baseline;
+  word-wrap: break-word;
+  overflow-wrap: break-word;
+  gap: 0.25rem;
 }
+
 .info-item .label {
   font-weight: bold;
   color: var(--color-heading);
-  margin-right: 0.5rem;
+  flex-shrink: 0;
 }
+
 .info-item .value {
   font-size: 1rem;
+  word-break: break-word;
+  overflow-wrap: break-word;
+  min-width: 0;
+  flex: 1;
 }
+
+@media (max-width: 768px) {
+  .info-item .value {
+    font-size: 0.9rem;
+  }
+}
+
 hr {
   border: 0;
   border-top: 1px solid var(--color-border);
   margin: 0 1.5rem;
 }
+
 .notes-section {
   padding: 1.5rem;
 }
+
+@media (max-width: 768px) {
+  .notes-section {
+    padding: 1rem;
+  }
+}
+
 .notes-section h4 {
   margin-top: 0;
   margin-bottom: 1rem;
@@ -281,8 +384,16 @@ hr {
   font-weight: 600;
   color: var(--color-heading);
 }
+
 .notes-content {
   white-space: pre-wrap;
+  word-wrap: break-word;
+}
+
+@media (max-width: 768px) {
+  .notes-content {
+    font-size: 0.9rem;
+  }
 }
 .table-link.grey-link {
   color: var(--color-heading);
@@ -318,27 +429,6 @@ hr {
   display: block;
   border-radius: 8px;
 }
-.close-button {
-  position: absolute;
-  top: -15px;
-  right: -15px;
-  background: white;
-  color: black;
-  border: none;
-  border-radius: 50%;
-  width: 30px;
-  height: 30px;
-  font-size: 24px;
-  line-height: 30px;
-  text-align: center;
-  cursor: pointer;
-  font-weight: bold;
-}
-@media (max-width: 992px) {
-  .detail-grid {
-    grid-template-columns: 1fr;
-  }
-}
 .card {
   background: var(--color-background-soft);
   border: 1px solid var(--color-border);
@@ -346,32 +436,76 @@ hr {
   overflow: hidden;
   margin-bottom: 2rem;
 }
+
+@media (max-width: 768px) {
+  .card {
+    margin-bottom: 1rem;
+  }
+}
+
 .card:last-child {
   margin-bottom: 0;
 }
+
 .card-header {
   padding: 1rem 1.5rem;
   background: var(--color-background-mute);
   border-bottom: 1px solid var(--color-border);
 }
+
+@media (max-width: 768px) {
+  .card-header {
+    padding: 0.75rem 1rem;
+  }
+}
+
 .card-header h3 {
   margin: 0;
   font-size: 1.2rem;
   color: var(--color-heading);
 }
+
+@media (max-width: 768px) {
+  .card-header h3 {
+    font-size: 1rem;
+  }
+}
+
+.borderless-table {
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
 .borderless-table :deep(table) {
   border-collapse: collapse;
   border: none;
   width: 100%;
   margin-top: 0;
+  min-width: 600px;
 }
+
+@media (max-width: 768px) {
+  .borderless-table :deep(table) {
+    font-size: 0.875rem;
+  }
+}
+
 .borderless-table :deep(th),
 .borderless-table :deep(td) {
   border: none;
   border-bottom: 1px solid var(--color-border);
   padding: 10px 15px;
   text-align: left;
+  white-space: nowrap;
 }
+
+@media (max-width: 768px) {
+  .borderless-table :deep(th),
+  .borderless-table :deep(td) {
+    padding: 8px 10px;
+  }
+}
+
 .borderless-table :deep(thead tr:first-child th) {
   border-top: none;
 }

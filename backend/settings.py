@@ -8,14 +8,33 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 # See https://docs.djangoproject.com/en/5.0/howto/deployment/checklist/
 
 # SECURITY WARNING: keep the secret key used in production secret!
-SECRET_KEY = os.environ.get(
-    "DJANGO_SECRET_KEY", "django-insecure-default-key-for-dev"
-)
+SECRET_KEY = os.environ.get("DJANGO_SECRET_KEY")
 
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = os.environ.get("DJANGO_DEBUG", "True") == "True"
 
-ALLOWED_HOSTS = ["*"]
+# Fallback to insecure key ONLY in DEBUG mode for local development
+if not SECRET_KEY:
+    if DEBUG:
+        SECRET_KEY = "django-insecure-default-key-for-dev-only"
+    else:
+        raise ValueError(
+            "DJANGO_SECRET_KEY environment variable is required in production! "
+            "Generate one at https://djecrety.ir/"
+        )
+
+# Require ALLOWED_HOSTS in production, allow wildcard in development
+allowed_hosts_env = os.environ.get("ALLOWED_HOSTS")
+if allowed_hosts_env:
+    ALLOWED_HOSTS = [host.strip() for host in allowed_hosts_env.split(",")]
+else:
+    if DEBUG:
+        ALLOWED_HOSTS = ["*"]
+    else:
+        raise ValueError(
+            "ALLOWED_HOSTS environment variable is required in production! "
+            "Set it to a comma-separated list of allowed hostnames."
+        )
 
 
 # Application definition
@@ -140,16 +159,6 @@ TRACKER_STORAGE = {
     'CLEANUP_ON_DELETE': True,     # Delete files when tracker deleted
 }
 
-# Allowed domains for file downloads (security)
-ALLOWED_DOWNLOAD_DOMAINS = [
-    'github.com',
-    'raw.githubusercontent.com',
-    'thingiverse.com',
-    'thingiverse-production-new.s3.amazonaws.com',
-    'printables.com',
-    'media.printables.com',
-]
-
 
 # Default primary key field type
 # https://docs.djangoproject.com/en/5.0/ref/settings/#default-auto-field
@@ -157,7 +166,25 @@ ALLOWED_DOWNLOAD_DOMAINS = [
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
 # CORS settings
-CORS_ALLOW_ALL_ORIGINS = True
+# Allow requests from the same hosts that are allowed by Django
+CORS_ALLOW_ALL_ORIGINS = DEBUG  # Only allow all origins in DEBUG mode
+CORS_ALLOWED_ORIGINS = [
+    f"http://{host}" for host in ALLOWED_HOSTS if host not in ["*", "localhost", "127.0.0.1"]
+] + [
+    f"https://{host}" for host in ALLOWED_HOSTS if host not in ["*", "localhost", "127.0.0.1"]
+] + [
+    "http://localhost:5173",
+    "http://localhost:8000",
+    "http://127.0.0.1:5173",
+    "http://127.0.0.1:8000",
+]
+
+# CSRF settings for production
+CSRF_TRUSTED_ORIGINS = [
+    f"http://{host}" for host in ALLOWED_HOSTS if host not in ["*", "localhost", "127.0.0.1"]
+] + [
+    f"https://{host}" for host in ALLOWED_HOSTS if host not in ["*", "localhost", "127.0.0.1"]
+]
 
 # Django REST Framework settings
 REST_FRAMEWORK = {

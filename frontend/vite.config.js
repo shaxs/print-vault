@@ -19,7 +19,7 @@ export default defineConfig({
     VitePWA({
       registerType: 'autoUpdate',
       devOptions: {
-        enabled: true,
+        enabled: false, // Disabled in development to prevent caching issues
       },
       manifest: {
         name: 'Print Vault',

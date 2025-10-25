@@ -1,23 +1,26 @@
 """
 File Download Service for Print Vault Trackers
 
-Handles downloading files from various sources:
-- GitHub (raw.githubusercontent.com)
-- Thingiverse
-- Printables
-- Generic URLs
+Handles downloading files from any public HTTP/HTTPS URL.
+
+Security Features:
+- Blocks localhost and private IP ranges (SSRF protection)
+- Only allows HTTP/HTTPS schemes
+- Streaming downloads (no memory overflow)
+- File size limits (5 GB per file)
+- Timeout handling (10 minutes default)
 
 Features:
-- Streaming downloads (no memory overflow)
 - Retry logic with exponential backoff
 - Progress callbacks
-- Checksum verification
-- Timeout handling
+- Checksum verification (optional)
 """
 
 import os
 import time
 import hashlib
+import socket
+import ipaddress
 import requests
 from urllib.parse import urlparse, quote
 from django.conf import settings
@@ -51,37 +54,79 @@ class FileDownloadService:
         self.chunk_size = tracker_storage.get('CHUNK_SIZE', 8192)
         self.max_file_size = tracker_storage.get('MAX_FILE_SIZE', 5 * 1024 * 1024 * 1024)  # 5 GB
         self.verify_checksums = tracker_storage.get('VERIFY_CHECKSUMS', False)
-        
-        # Allowed domains for security
-        self.allowed_domains = getattr(settings, 'ALLOWED_DOWNLOAD_DOMAINS', [
-            'github.com',
-            'raw.githubusercontent.com',
-            'thingiverse.com',
-            'thingiverse-production-new.s3.amazonaws.com',
-            'printables.com',
-            'media.printables.com',
-        ])
     
     def validate_url(self, url):
         """
-        Validate that URL is from an allowed domain.
+        Validate URL for security (prevent SSRF attacks).
+        
+        Allows any public HTTP/HTTPS URL but blocks:
+        - localhost and loopback addresses (127.0.0.0/8, ::1)
+        - Private IP ranges (RFC 1918: 10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16)
+        - Link-local addresses (169.254.0.0/16, fe80::/10)
+        - IPv6 private ranges (fc00::/7)
+        - Non-HTTP(S) schemes (file://, ftp://, etc.)
         
         Args:
             url (str): URL to validate
             
         Raises:
-            ValueError: If URL domain is not allowed
+            ValueError: If URL is invalid or blocked for security
         """
         parsed = urlparse(url)
         
-        if not parsed.netloc:
-            raise ValueError(f"Invalid URL: {url}")
+        # Must have a scheme and netloc
+        if not parsed.scheme or not parsed.netloc:
+            raise ValueError(f"Invalid URL format: {url}")
         
-        if parsed.netloc not in self.allowed_domains:
-            raise ValueError(
-                f"Downloads from {parsed.netloc} are not allowed. "
-                f"Allowed domains: {', '.join(self.allowed_domains)}"
-            )
+        # Only allow HTTP and HTTPS
+        if parsed.scheme not in ['http', 'https']:
+            raise ValueError(f"Only HTTP and HTTPS URLs are allowed, got: {parsed.scheme}://")
+        
+        # Extract hostname (remove port if present)
+        hostname = parsed.netloc.split(':')[0].lower()
+        
+        # Try to resolve hostname to IP address(es)
+        try:
+            # Get all IP addresses for this hostname
+            addr_info = socket.getaddrinfo(hostname, None)
+            ip_addresses = [addr[4][0] for addr in addr_info]
+        except (socket.gaierror, socket.error):
+            # If hostname doesn't resolve, try to parse it as an IP directly
+            try:
+                ip_addresses = [hostname]
+                ipaddress.ip_address(hostname)  # Validate it's an IP
+            except ValueError:
+                raise ValueError(f"Cannot resolve hostname: {hostname}")
+        
+        # Check each resolved IP address
+        for ip_str in ip_addresses:
+            try:
+                ip = ipaddress.ip_address(ip_str)
+                
+                # Block loopback addresses (127.0.0.0/8, ::1)
+                if ip.is_loopback:
+                    raise ValueError(f"Downloads from loopback addresses are not allowed: {ip}")
+                
+                # Block private IP ranges (RFC 1918 for IPv4, fc00::/7 for IPv6)
+                if ip.is_private:
+                    raise ValueError(f"Downloads from private IP addresses are not allowed: {ip}")
+                
+                # Block link-local addresses (169.254.0.0/16, fe80::/10)
+                if ip.is_link_local:
+                    raise ValueError(f"Downloads from link-local addresses are not allowed: {ip}")
+                
+                # Block reserved/multicast addresses
+                if ip.is_reserved or ip.is_multicast:
+                    raise ValueError(f"Downloads from reserved/multicast addresses are not allowed: {ip}")
+                    
+            except ValueError as e:
+                # If it's our custom error message, re-raise it
+                if "not allowed" in str(e):
+                    raise
+                # Otherwise, it's an invalid IP format
+                raise ValueError(f"Invalid IP address format: {ip_str}")
+        
+        return True
     
     def download_file(self, url, destination, timeout=None, progress_callback=None):
         """
