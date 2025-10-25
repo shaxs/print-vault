@@ -5,6 +5,7 @@ import APIService from '../services/APIService'
 import DataTable from '../components/DataTable.vue'
 import ErrorModal from '../components/ErrorModal.vue'
 import InfoModal from '../components/InfoModal.vue'
+import AddInventoryToProjectModal from '../components/AddInventoryToProjectModal.vue'
 
 const route = useRoute()
 const router = useRouter()
@@ -16,6 +17,7 @@ const isInfoModalVisible = ref(false)
 const infoModalMessage = ref('')
 const isPhotoModalVisible = ref(false)
 const isDownloading = ref(false)
+const isAddInventoryModalVisible = ref(false)
 
 const fetchProject = async () => {
   try {
@@ -117,6 +119,17 @@ const getTrackerProgressStyle = (tracker) => {
   }
 }
 
+const existingInventoryIds = computed(() => {
+  return project.value?.associated_inventory_items?.map((item) => item.id) || []
+})
+
+const handleInventoryAdded = async () => {
+  isAddInventoryModalVisible.value = false
+  infoModalMessage.value = 'Inventory items added successfully!'
+  isInfoModalVisible.value = true
+  await fetchProject() // Refresh the project data
+}
+
 onMounted(fetchProject)
 </script>
 
@@ -143,10 +156,10 @@ onMounted(fetchProject)
         <div class="header-actions">
           <router-link
             :to="{ name: 'project-edit', params: { id: project.id } }"
-            class="btn btn-sm btn-primary"
-            >Edit Project</router-link
+            class="btn btn-primary"
+            >Edit</router-link
           >
-          <button @click="deleteProject" class="btn btn-sm btn-danger">Delete</button>
+          <button @click="deleteProject" class="btn btn-danger">Delete</button>
         </div>
       </div>
 
@@ -293,7 +306,16 @@ onMounted(fetchProject)
         </div>
 
         <div v-if="project" class="details-container inventory-full-width">
-          <div class="card-header"><h3>Associated Inventory Items</h3></div>
+          <div class="card-header">
+            <h3>Associated Inventory Items</h3>
+            <button
+              @click="isAddInventoryModalVisible = true"
+              type="button"
+              class="btn btn-sm btn-primary"
+            >
+              Add Inventory
+            </button>
+          </div>
           <DataTable
             :headers="inventoryHeaders"
             :items="project.associated_inventory_items"
@@ -320,11 +342,6 @@ onMounted(fetchProject)
               </button>
             </template>
           </DataTable>
-          <div
-            v-if="!project.associated_inventory_items || !project.associated_inventory_items.length"
-          >
-            <p>No inventory items are associated with this project.</p>
-          </div>
         </div>
       </div>
     </div>
@@ -346,6 +363,14 @@ onMounted(fetchProject)
       :message="infoModalMessage"
       @close="isInfoModalVisible = false"
     />
+
+    <AddInventoryToProjectModal
+      :show="isAddInventoryModalVisible"
+      :project-id="project?.id"
+      :existing-inventory-ids="existingInventoryIds"
+      @close="isAddInventoryModalVisible = false"
+      @added="handleInventoryAdded"
+    />
   </div>
 </template>
 
@@ -355,6 +380,13 @@ onMounted(fetchProject)
 .page-container {
   padding: 2rem;
 }
+
+@media (max-width: 768px) {
+  .page-container {
+    padding: 1rem;
+  }
+}
+
 .content-container {
   max-width: 1200px;
   margin: 0 auto;
@@ -366,11 +398,31 @@ onMounted(fetchProject)
   margin-bottom: 2rem;
   padding-bottom: 1.5rem;
   border-bottom: 1px solid var(--color-border);
+  gap: 1rem;
 }
+
+@media (max-width: 768px) {
+  .detail-header {
+    flex-direction: column;
+    gap: 1rem;
+    margin-bottom: 1.5rem;
+    padding-bottom: 1rem;
+  }
+}
+
 .header-content {
   display: flex;
   align-items: center;
+  min-width: 0;
+  flex: 1;
 }
+
+@media (max-width: 768px) {
+  .header-content {
+    width: 100%;
+  }
+}
+
 .detail-photo {
   width: 100px;
   height: 100px;
@@ -378,19 +430,56 @@ onMounted(fetchProject)
   border-radius: 8px;
   margin-right: 1.5rem;
   border: 1px solid var(--color-border);
+  flex-shrink: 0;
 }
+
+@media (max-width: 768px) {
+  .detail-photo {
+    width: 80px;
+    height: 80px;
+    margin-right: 1rem;
+  }
+}
+
 .detail-photo.clickable {
   cursor: pointer;
 }
+
+.header-info {
+  min-width: 0;
+  flex: 1;
+}
+
 .header-info h1 {
   font-size: 2.5rem;
   font-weight: 600;
   margin: 0;
   color: var(--color-heading);
+  word-wrap: break-word;
+  overflow-wrap: break-word;
 }
+
+@media (max-width: 768px) {
+  .header-info h1 {
+    font-size: 1.75rem;
+  }
+}
+
 .header-actions {
   display: flex;
   gap: 1rem;
+  flex-shrink: 0;
+}
+
+@media (max-width: 768px) {
+  .header-actions {
+    width: 100%;
+    justify-content: stretch;
+  }
+
+  .header-actions .btn {
+    flex: 1;
+  }
 }
 .detail-grid {
   display: grid;
@@ -412,6 +501,13 @@ onMounted(fetchProject)
   margin-bottom: 20px;
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
 }
+
+@media (max-width: 768px) {
+  .card {
+    margin-bottom: 1rem;
+  }
+}
+
 .card-header {
   display: flex;
   justify-content: space-between;
@@ -422,15 +518,37 @@ onMounted(fetchProject)
   border-top-left-radius: 8px;
   border-top-right-radius: 8px;
   border-top: none;
+  gap: 0.5rem;
+  flex-wrap: wrap;
 }
+
+@media (max-width: 768px) {
+  .card-header {
+    padding: 12px 15px 8px 15px;
+  }
+}
+
 .card-header h3 {
   margin: 0;
   font-size: 1.2rem;
   color: var(--color-heading);
 }
+
+@media (max-width: 768px) {
+  .card-header h3 {
+    font-size: 1rem;
+  }
+}
+
 .card-body {
   padding: 20px;
   flex-grow: 1;
+}
+
+@media (max-width: 768px) {
+  .card-body {
+    padding: 15px;
+  }
 }
 .card-section h4 {
   margin-top: 0;
@@ -465,7 +583,15 @@ onMounted(fetchProject)
   align-items: center;
   padding: 0.5rem 0;
   border-bottom: 1px solid var(--color-border-mute);
+  word-break: break-word;
 }
+
+@media (max-width: 768px) {
+  .resource-list li {
+    font-size: 0.875rem;
+  }
+}
+
 .resource-list li:last-child {
   border-bottom: none;
 }
@@ -473,6 +599,7 @@ onMounted(fetchProject)
 .card-body :deep(a) {
   color: var(--color-text);
   text-decoration: none;
+  word-break: break-word;
 }
 .resource-list a:hover,
 .card-body :deep(a:hover) {
@@ -484,6 +611,17 @@ onMounted(fetchProject)
   gap: 0.5rem;
   margin-top: 1rem;
 }
+
+@media (max-width: 768px) {
+  .block-add-form > div {
+    flex-direction: column;
+  }
+
+  .block-add-form button {
+    width: 100%;
+  }
+}
+
 .block-add-form .form-group {
   margin: 0;
 }
@@ -566,6 +704,13 @@ onMounted(fetchProject)
   padding-bottom: 30px;
 }
 
+@media (max-width: 768px) {
+  .inventory-full-width {
+    grid-column: 1;
+    overflow-x: auto;
+  }
+}
+
 /* Tracker Cards Styling */
 .tracker-list {
   margin-bottom: 1rem;
@@ -584,6 +729,15 @@ onMounted(fetchProject)
   justify-content: space-between;
   align-items: center;
   margin-bottom: 0.5rem;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+@media (max-width: 768px) {
+  .tracker-header-row {
+    flex-direction: column;
+    align-items: flex-start;
+  }
 }
 
 .tracker-name {
@@ -600,6 +754,12 @@ onMounted(fetchProject)
 .tracker-stats {
   font-size: 0.875rem;
   color: var(--color-text);
+}
+
+@media (max-width: 768px) {
+  .tracker-stats {
+    font-size: 0.8rem;
+  }
 }
 
 .tracker-progress {
@@ -664,18 +824,41 @@ onMounted(fetchProject)
   font-size: 0.8rem;
 }
 /* DataTable borderless style for inventory section */
+.borderless-table {
+  width: 100%;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
 .borderless-table :deep(table) {
   border-collapse: collapse;
   border: none;
   width: 100%;
+  min-width: 600px;
 }
+
+@media (max-width: 768px) {
+  .borderless-table :deep(table) {
+    font-size: 0.875rem;
+  }
+}
+
 .borderless-table :deep(th),
 .borderless-table :deep(td) {
   border: none;
   border-bottom: 1px solid var(--color-border);
   padding: 10px 15px;
   text-align: left;
+  white-space: nowrap;
 }
+
+@media (max-width: 768px) {
+  .borderless-table :deep(th),
+  .borderless-table :deep(td) {
+    padding: 8px 10px;
+  }
+}
+
 .borderless-table :deep(thead tr:first-child th) {
   border-top: none;
 }
@@ -691,5 +874,15 @@ onMounted(fetchProject)
   display: flex;
   justify-content: flex-end;
   margin-top: 0.5rem;
+}
+
+@media (max-width: 768px) {
+  .manage-links-button button {
+    width: 100%;
+  }
+
+  .manage-trackers-button button {
+    width: 100%;
+  }
 }
 </style>

@@ -144,10 +144,10 @@ onMounted(fetchPrinter)
         <div class="header-actions">
           <router-link
             :to="{ name: 'printer-edit', params: { id: printer.id } }"
-            class="btn btn-sm btn-primary"
-            >Edit Printer</router-link
+            class="btn btn-primary"
+            >Edit</router-link
           >
-          <button @click="deletePrinter" class="btn btn-sm btn-danger">Delete</button>
+          <button @click="deletePrinter" class="btn btn-danger">Delete</button>
         </div>
       </div>
 
@@ -311,6 +311,12 @@ onMounted(fetchPrinter)
   padding: 2rem;
 }
 
+@media (max-width: 768px) {
+  .page-container {
+    padding: 1rem;
+  }
+}
+
 .content-container {
   max-width: 1200px;
   margin: 0 auto;
@@ -323,11 +329,29 @@ onMounted(fetchPrinter)
   margin-bottom: 2rem;
   padding-bottom: 1.5rem;
   border-bottom: 1px solid var(--color-border);
+  gap: 1rem;
+}
+
+@media (max-width: 768px) {
+  .detail-header {
+    flex-direction: column;
+    gap: 1rem;
+    margin-bottom: 1.5rem;
+    padding-bottom: 1rem;
+  }
 }
 
 .header-content {
   display: flex;
   align-items: center;
+  min-width: 0;
+  flex: 1;
+}
+
+@media (max-width: 768px) {
+  .header-content {
+    width: 100%;
+  }
 }
 
 .detail-photo {
@@ -337,10 +361,24 @@ onMounted(fetchPrinter)
   border-radius: 8px;
   margin-right: 1.5rem;
   border: 1px solid var(--color-border);
+  flex-shrink: 0;
+}
+
+@media (max-width: 768px) {
+  .detail-photo {
+    width: 80px;
+    height: 80px;
+    margin-right: 1rem;
+  }
 }
 
 .detail-photo.clickable {
   cursor: pointer;
+}
+
+.header-info {
+  min-width: 0;
+  flex: 1;
 }
 
 .header-info h1 {
@@ -348,12 +386,27 @@ onMounted(fetchPrinter)
   font-weight: 600;
   margin: 0;
   color: var(--color-heading);
+  word-wrap: break-word;
+  overflow-wrap: break-word;
+}
+
+@media (max-width: 768px) {
+  .header-info h1 {
+    font-size: 1.75rem;
+  }
 }
 
 .manufacturer-serial {
   font-size: 1.1rem;
   color: var(--color-text);
   margin: 0.25rem 0 0.5rem;
+  word-wrap: break-word;
+}
+
+@media (max-width: 768px) {
+  .manufacturer-serial {
+    font-size: 1rem;
+  }
 }
 
 .status-badge {
@@ -396,6 +449,18 @@ onMounted(fetchPrinter)
 .header-actions {
   display: flex;
   gap: 1rem;
+  flex-shrink: 0;
+}
+
+@media (max-width: 768px) {
+  .header-actions {
+    width: 100%;
+    justify-content: stretch;
+  }
+
+  .header-actions .btn {
+    flex: 1;
+  }
 }
 
 .detail-grid {
@@ -420,6 +485,12 @@ onMounted(fetchPrinter)
   flex-direction: column; /* Stack header and body vertically */
 }
 
+@media (max-width: 768px) {
+  .card {
+    margin-bottom: 1rem;
+  }
+}
+
 .card.card-full-width {
   grid-column: 1 / -1;
 }
@@ -431,6 +502,14 @@ onMounted(fetchPrinter)
   padding: 1rem 1.5rem;
   background: var(--color-background-mute);
   border-bottom: 1px solid var(--color-border);
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+@media (max-width: 768px) {
+  .card-header {
+    padding: 0.75rem 1rem;
+  }
 }
 
 .card-header h3 {
@@ -439,9 +518,21 @@ onMounted(fetchPrinter)
   color: var(--color-heading);
 }
 
+@media (max-width: 768px) {
+  .card-header h3 {
+    font-size: 1rem;
+  }
+}
+
 .card-body {
   padding: 1.5rem;
   flex-grow: 1; /* Allow body to grow and fill available space */
+}
+
+@media (max-width: 768px) {
+  .card-body {
+    padding: 1rem;
+  }
 }
 
 .card-section h4 {
@@ -455,6 +546,13 @@ onMounted(fetchPrinter)
 .card-body p {
   margin: 0 0 0.75rem 0;
   line-height: 1.6;
+  word-wrap: break-word;
+}
+
+@media (max-width: 768px) {
+  .card-body p {
+    font-size: 0.9rem;
+  }
 }
 
 .card-body p:last-child {
@@ -486,6 +584,15 @@ onMounted(fetchPrinter)
   align-items: flex-start;
   padding: 1rem 0;
   border-bottom: 1px solid var(--color-border);
+  gap: 1rem;
+  flex-wrap: wrap;
+}
+
+@media (max-width: 768px) {
+  .mod-item {
+    flex-direction: column;
+    padding: 0.75rem 0;
+  }
 }
 
 .mod-item:last-child {
@@ -498,6 +605,13 @@ onMounted(fetchPrinter)
   align-items: center;
   gap: 0.5rem;
   flex-grow: 1;
+  min-width: 0;
+}
+
+@media (max-width: 768px) {
+  .mod-info {
+    width: 100%;
+  }
 }
 
 .mod-name-link {
@@ -515,6 +629,12 @@ onMounted(fetchPrinter)
   width: 100%;
 }
 
+@media (max-width: 768px) {
+  .mod-files {
+    font-size: 0.85rem;
+  }
+}
+
 .mod-files ul {
   list-style: none;
   padding-left: 1rem;
@@ -525,6 +645,7 @@ onMounted(fetchPrinter)
 .mod-files li a {
   color: var(--color-text);
   text-decoration: none;
+  word-break: break-word;
 }
 .mod-files li a:hover {
   text-decoration: underline;
@@ -536,6 +657,23 @@ onMounted(fetchPrinter)
   flex-shrink: 0;
   margin-left: 1rem;
   align-items: center;
+  flex-wrap: wrap;
+}
+
+@media (max-width: 768px) {
+  .mod-actions {
+    width: 100%;
+    margin-left: 0;
+    justify-content: stretch;
+  }
+
+  .mod-actions .btn {
+    flex: 1;
+  }
+
+  .mod-actions .download-btn {
+    flex: 1;
+  }
 }
 
 .download-btn {

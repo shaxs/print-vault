@@ -6,6 +6,7 @@ import APIService from '@/services/APIService.js'
 
 const reminders = ref([])
 const lowStockItems = ref([])
+const isMobileMenuOpen = ref(false)
 
 const fetchNotifications = async () => {
   try {
@@ -20,26 +21,47 @@ const fetchNotifications = async () => {
   }
 }
 
+const toggleMobileMenu = () => {
+  isMobileMenuOpen.value = !isMobileMenuOpen.value
+}
+
+const closeMobileMenu = () => {
+  isMobileMenuOpen.value = false
+}
+
 onMounted(fetchNotifications)
 </script>
 
 <template>
   <div id="app-layout">
-    <nav class="sidebar">
+    <!-- Mobile hamburger menu button -->
+    <button class="mobile-menu-toggle" @click="toggleMobileMenu" aria-label="Toggle menu">
+      <span></span>
+      <span></span>
+      <span></span>
+    </button>
+
+    <!-- Mobile overlay -->
+    <div v-if="isMobileMenuOpen" class="mobile-overlay" @click="closeMobileMenu"></div>
+
+    <nav class="sidebar" :class="{ 'mobile-open': isMobileMenuOpen }">
       <div class="sidebar-header">
         <h3>Print Vault</h3>
       </div>
-      <RouterLink to="/">Inventory</RouterLink>
-      <RouterLink to="/printers">Printers</RouterLink>
-      <RouterLink to="/projects">Projects</RouterLink>
-      <RouterLink to="/trackers">Print Trackers</RouterLink>
+      <RouterLink to="/" @click="closeMobileMenu">Inventory</RouterLink>
+      <RouterLink to="/printers" @click="closeMobileMenu">Printers</RouterLink>
+      <RouterLink to="/projects" @click="closeMobileMenu">Projects</RouterLink>
+      <RouterLink to="/trackers" @click="closeMobileMenu">Print Trackers</RouterLink>
+      <div class="sidebar-spacer"></div>
+      <RouterLink to="/settings" @click="closeMobileMenu" class="settings-menu-link"
+        >Settings</RouterLink
+      >
     </nav>
 
     <div class="main-container">
       <header class="main-header">
         <div class="header-actions">
           <NotificationBell :reminders="reminders" :low-stock-items="lowStockItems" />
-          <RouterLink to="/settings" class="settings-link">Settings</RouterLink>
         </div>
       </header>
       <main class="main-content">
@@ -94,6 +116,16 @@ onMounted(fetchNotifications)
   color: var(--color-heading);
 }
 
+.sidebar-spacer {
+  flex: 1;
+}
+
+.settings-menu-link {
+  margin-top: auto;
+  border-top: 1px solid var(--color-border);
+  padding-top: 15px !important;
+}
+
 .main-container {
   flex-grow: 1;
   display: flex;
@@ -131,5 +163,86 @@ onMounted(fetchNotifications)
   flex-grow: 1;
   overflow-y: auto;
   padding: 20px;
+}
+
+/* Mobile hamburger menu button */
+.mobile-menu-toggle {
+  display: none;
+  position: fixed;
+  top: 1rem;
+  left: 1rem;
+  z-index: 1001;
+  background-color: var(--color-background-soft);
+  border: 1px solid var(--color-border);
+  border-radius: 5px;
+  padding: 8px;
+  cursor: pointer;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  gap: 4px;
+  width: 40px;
+  height: 40px;
+}
+
+.mobile-menu-toggle span {
+  display: block;
+  width: 100%;
+  height: 3px;
+  background-color: var(--color-text);
+  border-radius: 2px;
+  transition: all 0.3s;
+}
+
+/* Mobile overlay */
+.mobile-overlay {
+  display: none;
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background-color: rgba(0, 0, 0, 0.5);
+  z-index: 999;
+}
+
+/* Mobile responsive styles */
+@media (max-width: 768px) {
+  .mobile-menu-toggle {
+    display: flex;
+  }
+
+  .mobile-overlay {
+    display: block;
+  }
+
+  .sidebar {
+    position: fixed;
+    left: -250px;
+    top: 0;
+    bottom: 0;
+    z-index: 1000;
+    transition: left 0.3s ease;
+  }
+
+  .sidebar.mobile-open {
+    left: 0;
+  }
+
+  .sidebar-header {
+    padding-left: 3rem; /* Extra padding to prevent overlap with hamburger button */
+  }
+
+  .main-container {
+    margin-left: 0;
+  }
+
+  .main-header {
+    padding: 1rem 1rem 1rem 3.5rem; /* Extra left padding for hamburger button */
+  }
+
+  .main-content {
+    padding: 1rem;
+  }
 }
 </style>
