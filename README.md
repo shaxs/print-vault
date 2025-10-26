@@ -279,4 +279,11 @@ This project is primarily for personal use, but suggestions and bug reports are 
 
 ## License
 
-[Add your license information here]
+Print Vault is licensed under the [GNU Affero General Public License v3.0 (AGPL-3.0)](LICENSE).
+
+### What this means:
+- ✅ **Free for self-hosting** - Personal and commercial use
+- ✅ **Modify and share** - You can fork and improve
+- ⚠️ **SaaS restrictions** - If you host Print Vault as a service for others, you must open source your modifications
+
+For commercial licensing inquiries, please [open an issue](https://github.com/shaxs/print-vault/issues).
