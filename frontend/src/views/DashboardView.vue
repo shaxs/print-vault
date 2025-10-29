@@ -40,10 +40,10 @@ const visibleAlerts = computed(() => {
 
 // Get progress bar color (consistent with TrackerDetailView)
 const getProgressColor = (percentage) => {
-  if (percentage === 0) return '#64748b' // gray
-  if (percentage < 50) return '#ef4444' // red
-  if (percentage < 100) return '#f59e0b' // orange
-  return '#10b981' // green
+  if (percentage === 0) return 'var(--color-progress-none)' // gray
+  if (percentage < 50) return 'var(--color-progress-low)' // red
+  if (percentage < 100) return 'var(--color-progress-medium)' // orange
+  return 'var(--color-progress-complete)' // green
 }
 
 // Get progress bar style
@@ -553,7 +553,7 @@ onMounted(() => {
 
 .badge-count {
   background: var(--color-red);
-  color: white;
+  color: var(--color-text-on-colored);
   padding: 0.125rem 0.5rem;
   border-radius: 12px;
   font-size: 0.875rem;
@@ -632,18 +632,18 @@ onMounted(() => {
 }
 
 .alert-critical {
-  background: rgba(239, 68, 68, 0.1);
-  border-left: 3px solid #ef4444;
+  background: color-mix(in srgb, var(--color-alert-critical), transparent 90%);
+  border-left: 3px solid var(--color-alert-critical);
 }
 
 .alert-warning {
-  background: rgba(245, 158, 11, 0.1);
-  border-left: 3px solid #f59e0b;
+  background: color-mix(in srgb, var(--color-alert-warning), transparent 90%);
+  border-left: 3px solid var(--color-alert-warning);
 }
 
 .alert-info {
-  background: rgba(59, 130, 246, 0.1);
-  border-left: 3px solid #3b82f6;
+  background: color-mix(in srgb, var(--color-alert-info), transparent 90%);
+  border-left: 3px solid var(--color-alert-info);
 }
 
 .alert-content {
@@ -963,23 +963,23 @@ onMounted(() => {
 }
 
 .health-healthy {
-  background: rgba(16, 185, 129, 0.15);
-  color: #10b981;
+  background: color-mix(in srgb, var(--color-health-healthy), transparent 85%);
+  color: var(--color-health-healthy);
 }
 
 .health-at-risk {
-  background: rgba(245, 158, 11, 0.15);
-  color: #f59e0b;
+  background: color-mix(in srgb, var(--color-health-at-risk), transparent 85%);
+  color: var(--color-health-at-risk);
 }
 
 .health-blocked {
-  background: rgba(168, 85, 247, 0.15);
-  color: #a855f7;
+  background: color-mix(in srgb, var(--color-health-blocked), transparent 85%);
+  color: var(--color-health-blocked);
 }
 
 .health-overdue {
-  background: rgba(239, 68, 68, 0.15);
-  color: #ef4444;
+  background: color-mix(in srgb, var(--color-health-overdue), transparent 85%);
+  color: var(--color-health-overdue);
 }
 
 .project-due {
@@ -1020,18 +1020,18 @@ onMounted(() => {
 }
 
 .alert-preview.alert-critical {
-  background: rgba(239, 68, 68, 0.15);
-  border-left-color: #ef4444;
+  background: color-mix(in srgb, var(--color-alert-critical), transparent 85%);
+  border-left-color: var(--color-alert-critical);
 }
 
 .alert-preview.alert-warning {
-  background: rgba(245, 158, 11, 0.15);
-  border-left-color: #f59e0b;
+  background: color-mix(in srgb, var(--color-alert-warning), transparent 85%);
+  border-left-color: var(--color-alert-warning);
 }
 
 .alert-preview.alert-info {
-  background: rgba(59, 130, 246, 0.15);
-  border-left-color: #3b82f6;
+  background: color-mix(in srgb, var(--color-alert-info), transparent 85%);
+  border-left-color: var(--color-alert-info);
 }
 
 .alert-preview-title {

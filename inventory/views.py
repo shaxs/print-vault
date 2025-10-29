@@ -525,7 +525,6 @@ class DashboardDataView(APIView):
                     'message': f'Maintenance was due {days_overdue} days ago',
                     'link': f'/printers/{printer.id}',
                     'state_data': state_data
-
                 })
         
         # 2. Printer Under Repair (Critical)
@@ -591,7 +590,7 @@ class DashboardDataView(APIView):
                     'state_data': state_data
                 })
         
-        # 4. Project Overdue (Critical)
+        # 5. Project Overdue (Critical)
         projects_overdue = Project.objects.filter(
             due_date__lt=today
         ).exclude(status='Completed')
@@ -610,7 +609,7 @@ class DashboardDataView(APIView):
                     'state_data': state_data
                 })
         
-        # 5. Projects Blocked by Printer Status (Critical)
+        # 6. Projects Blocked by Printer Status (Critical)
         blocked_projects = Project.objects.filter(
             status='In Progress'
         ).prefetch_related('associated_printers')
@@ -645,7 +644,7 @@ class DashboardDataView(APIView):
                         'state_data': state_data
                     })
         
-        # 6. Project Due Soon (Warning)
+        # 7. Project Due Soon (Warning)
         projects_due_soon = Project.objects.filter(
             due_date__gte=today,
             due_date__lt=today + timedelta(days=7)
@@ -665,7 +664,7 @@ class DashboardDataView(APIView):
                     'state_data': state_data
                 })
         
-        # 6. Tracker with Unconfigured Files (Warning)
+        # 8. Tracker with Unconfigured Files (Warning)
         # Unconfigured = missing color or material configuration
         from django.db.models import Q
         
@@ -696,7 +695,7 @@ class DashboardDataView(APIView):
         
         # INFO ALERTS
         
-        # 6. Low Stock Items (Info)
+        # 9. Low Stock Items (Info)
         low_stock_items = InventoryItem.objects.filter(
             is_consumable=True,
             quantity__lte=F('low_stock_threshold')
@@ -768,7 +767,6 @@ class DashboardDataView(APIView):
         ).order_by('-start_date', '-id')[:10]
         
         active = []
-        today = date.today()
         
         for project in projects:
             # Collect all applicable health statuses

@@ -592,10 +592,10 @@ const overallProgressStyle = computed(() => {
 
 // Get progress bar color
 const getProgressColor = (percentage) => {
-  if (percentage === 0) return '#64748b' // gray
-  if (percentage < 50) return '#ef4444' // red
-  if (percentage < 100) return '#f59e0b' // orange
-  return '#10b981' // green
+  if (percentage === 0) return 'var(--color-progress-none)' // gray
+  if (percentage < 50) return 'var(--color-progress-low)' // red
+  if (percentage < 100) return 'var(--color-progress-medium)' // orange
+  return 'var(--color-progress-complete)' // green
 }
 
 // Computed style for individual file progress
@@ -645,7 +645,9 @@ onMounted(() => {
             <div class="header-info">
               <h1>
                 {{ tracker.name }}
-                <span v-if="tracker.show_on_dashboard" class="featured-badge">Featured</span>
+                <span v-if="tracker.show_on_dashboard" class="featured-badge alert-info"
+                  >Featured</span
+                >
               </h1>
               <p class="tracker-subtitle">
                 Associated Project:
@@ -1132,14 +1134,19 @@ onMounted(() => {
 
 .featured-badge {
   display: inline-block;
-  padding: 2px 8px;
-  border-radius: 10px;
+  padding: 0.25rem 0.625rem;
+  border-radius: 12px;
   font-size: 0.7rem;
-  font-weight: 500;
+  font-weight: 600;
   text-transform: uppercase;
-  background-color: #ffc107;
-  color: #333;
   white-space: nowrap;
+  letter-spacing: 0.025em;
+}
+
+.featured-badge.alert-info {
+  background: color-mix(in srgb, var(--color-alert-info), transparent 85%);
+  color: var(--color-alert-info);
+  border: 1px solid color-mix(in srgb, var(--color-alert-info), transparent 70%);
 }
 
 .tracker-subtitle {
@@ -1810,8 +1817,8 @@ onMounted(() => {
   }
 
   .featured-badge {
-    font-size: 0.6rem;
-    padding: 2px 6px;
+    font-size: 0.65rem;
+    padding: 0.2rem 0.5rem;
   }
 
   .tracker-subtitle {
