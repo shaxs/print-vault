@@ -197,7 +197,8 @@ cd /path/to/print-vault
 mkdir -p backups
 
 # Backup PostgreSQL database
-docker compose exec postgres pg_dump -U postgres printvault > backups/printvault_backup_$(date +%Y%m%d_%H%M%S).sql
+# Note: Database name is 'postgres' (default) and username is 'postgres' (or your POSTGRES_USER from .env)
+docker compose exec db pg_dump -U postgres postgres > backups/printvault_backup_$(date +%Y%m%d_%H%M%S).sql
 
 # Verify backup was created
 ls -lh backups/
@@ -265,8 +266,8 @@ git checkout <previous-commit-hash>
 # Or: git checkout main (if you were testing a feature branch)
 
 # Restore database backup
-docker compose up -d postgres
-cat backups/printvault_backup_YYYYMMDD_HHMMSS.sql | docker compose exec -T postgres psql -U postgres printvault
+docker compose up -d db
+cat backups/printvault_backup_YYYYMMDD_HHMMSS.sql | docker compose exec -T db psql -U postgres postgres
 
 # Rollback migrations to previous state (if needed)
 docker compose exec backend python manage.py migrate inventory <previous_migration_number>
