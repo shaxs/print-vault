@@ -643,7 +643,10 @@ onMounted(() => {
         <div class="detail-header">
           <div class="header-content">
             <div class="header-info">
-              <h1>{{ tracker.name }}</h1>
+              <h1>
+                {{ tracker.name }}
+                <span v-if="tracker.show_on_dashboard" class="featured-badge">Featured</span>
+              </h1>
               <p class="tracker-subtitle">
                 Associated Project:
                 <a v-if="tracker.project_name" @click="goToProject" class="project-link">
@@ -1121,6 +1124,22 @@ onMounted(() => {
   font-weight: 600;
   margin: 0;
   color: var(--color-heading);
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+}
+
+.featured-badge {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 10px;
+  font-size: 0.7rem;
+  font-weight: 500;
+  text-transform: uppercase;
+  background-color: #ffc107;
+  color: #333;
+  white-space: nowrap;
 }
 
 .tracker-subtitle {
@@ -1788,6 +1807,11 @@ onMounted(() => {
 
   .header-info h1 {
     font-size: 1.75rem;
+  }
+
+  .featured-badge {
+    font-size: 0.6rem;
+    padding: 2px 6px;
   }
 
   .tracker-subtitle {

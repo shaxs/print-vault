@@ -1,14 +1,34 @@
-**Last Updated**: 2025-01-26
-**Version**: 2.2.1
+**Last Updated**: 2025-10-28
+**Version**: 2.4.1
 **User**: shaxs
 
 # Print Vault - Quick Reference
 
-> 📚 **Full guidelines**: `AGENTS.md` | **UI patterns**: `DESIGN_SYSTEM.md`
+> 📚 **Full guidelines**: `AGENTS.md` | **UI patterns**: `chat_docs/instructions/DESIGN_SYSTEM.md`
+
+---
+
+## ⚠️ Important: Attach Instruction Files Before Proceeding
+
+**Before starting specialized work, always ask the user to attach the relevant instruction file:**
+
+- **API work** → Ask for `chat_docs/instructions/API_DOCUMENTATION_WORKFLOW.md`
+- **UI work** → Ask for `chat_docs/instructions/DESIGN_SYSTEM.md`
+- **Documentation** → Ask for `chat_docs/instructions/DOCUMENTATION_STRATEGY.md`
+- **Troubleshooting** → Ask for `chat_docs/instructions/TROUBLESHOOTING_GUIDE.md`
+
+**If the file is not attached, respond:**
+
+> "To proceed with [API/UI/Documentation] work, please attach `[filename]`. This file contains the required workflow and standards."
+
+**See `AGENTS.md` "AI Agent Behavior" section for complete guidelines.**
+
+---
 
 ## 💎 Token Optimization (Get More Value)
 
 **For Humans:**
+
 - **Batch related questions** - Ask about multiple related items in one message
 - **Attach files strategically** - Only attach docs you'll actually reference
   - Use `#file:chat_docs/PROJECT_HANDOFF.md` for project context
@@ -18,6 +38,7 @@
 - **Reference line numbers** - "Lines 45-60 in UserView.vue" vs "the middle part"
 
 **For AI Assistants - Efficiency Rules:**
+
 1. **Be concise but complete** - Don't waste tokens on fluff
 2. **Balance code + explanation** - Provide code examples WITH brief explanations of what changed and why
 3. **Reference existing patterns** - Point to similar code instead of recreating
@@ -27,12 +48,14 @@
 7. **Reuse code blocks** - Reference previous messages instead of rewriting
 
 **Code Presentation Preference:**
+
 - ✅ Provide code examples WITH short explanations (2-3 sentences)
 - ✅ Explain what the code does and why you chose this approach
 - ❌ Don't just dump code without context
 - ❌ Don't write long essays - keep explanations brief and focused
 
 **Example of preferred format:**
+
 ```javascript
 // Added email validation using regex pattern
 const validateEmail = (email) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
@@ -44,29 +67,36 @@ const validateEmail = (email) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
 **Examples of Efficient Prompts:**
 
 ❌ **Inefficient:**
+
 ```
 Can you help me with the user profile page? I'm not sure how to start.
 I think I need a form. What should I do?
 ```
-*Issues: Vague, multi-turn clarification needed, no context*
+
+_Issues: Vague, multi-turn clarification needed, no context_
 
 ✅ **Efficient:**
+
 ```
 #file:frontend/src/views/UserProfileView.vue
 Add email validation to the profile form (lines 45-60).
 Should match the pattern in #file:frontend/src/views/LoginView.vue (lines 23-30).
 ```
-*Benefits: Specific location, clear requirement, reference pattern*
+
+_Benefits: Specific location, clear requirement, reference pattern_
 
 ---
 
 ❌ **Inefficient:**
+
 ```
 I need to create an API for notifications. Can you walk me through it?
 ```
-*Issues: Too broad, will generate lots of exploratory content*
+
+_Issues: Too broad, will generate lots of exploratory content_
 
 ✅ **Efficient:**
+
 ```
 Create notification API endpoint:
 - GET /api/notifications/ (list with pagination)
@@ -75,24 +105,29 @@ Create notification API endpoint:
 Follow pattern in #file:backend/reminders/views.py
 Document in chat_docs/api/API_REFERENCE_NOTIFICATIONS.md after implementation.
 ```
-*Benefits: Specific requirements, reference pattern, clear scope*
+
+_Benefits: Specific requirements, reference pattern, clear scope_
 
 ---
 
 ❌ **Inefficient:**
+
 ```
 The modal doesn't look right. Can you fix it?
 ```
-*Issues: No context, requires back-and-forth, AI will guess*
+
+_Issues: No context, requires back-and-forth, AI will guess_
 
 ✅ **Efficient:**
+
 ```
 #file:frontend/src/components/UserSettingsModal.vue
 Not using BaseModal.vue. Refactor to use BaseModal pattern from
 #file:frontend/src/components/ImportURLsModal.vue (lines 1-50).
 Keep existing functionality, just change the modal wrapper.
 ```
-*Benefits: Specific problem, clear solution, reference implementation*
+
+_Benefits: Specific problem, clear solution, reference implementation_
 
 **Token Saving Tips for Complex Features:**
 
@@ -102,13 +137,14 @@ Keep existing functionality, just change the modal wrapper.
    Phase 2: API endpoints
    Phase 3: Frontend integration
    ```
-   
 2. **Use previous context:**
+
    ```
    "Using the notification model we just created, now add the API views"
    ```
 
 3. **Reference decisions:**
+
    ```
    "Same validation pattern as the user profile form"
    ```
@@ -142,10 +178,12 @@ Keep existing functionality, just change the modal wrapper.
 ## 🖥️ Development Environment
 
 **Dev servers run in PowerShell (OUTSIDE VS Code):**
+
 - Backend: `python manage.py runserver 0.0.0.0:8000`
 - Frontend: `npm run dev`
 
 **⚠️ Important for AI:**
+
 - **NEVER** try to execute server commands
 - **ALWAYS** ask user to restart/reload servers manually
 - Servers run externally so VS Code can be closed while testing
@@ -153,6 +191,7 @@ Keep existing functionality, just change the modal wrapper.
 ## 📁 File Locations
 
 **Documentation (Root chat_docs/):**
+
 - Project overview: `chat_docs/PROJECT_HANDOFF.md` (START HERE for new chats)
 - Print Tracker summary: `chat_docs/COMPLETE_PRINT_TRACKER_DEVELOPMENT_SUMMARY.md`
 - Roadmap: `chat_docs/FUTURE_ENHANCEMENTS_TODO.md`
@@ -160,6 +199,7 @@ Keep existing functionality, just change the modal wrapper.
 - Caching reference: `chat_docs/CACHING_EXPLANATION.md`
 
 **API Documentation (chat_docs/api/):**
+
 - All API references: `chat_docs/api/API_REFERENCE_*.md`
 - Inventory API: `chat_docs/api/API_REFERENCE_INVENTORY.md`
 - Printers API: `chat_docs/api/API_REFERENCE_PRINTERS.md`
@@ -171,10 +211,12 @@ Keep existing functionality, just change the modal wrapper.
 - Data Management API: `chat_docs/api/API_REFERENCE_DATA_MANAGEMENT.md`
 
 **Planning Documents (chat_docs/planning/):**
+
 - Feature planning: `chat_docs/planning/*.md`
 - Future features: Check `chat_docs/planning/` for proposals
 
 **Code:**
+
 - Base modal: `frontend/src/components/BaseModal.vue`
 - Example modal: `frontend/src/components/ImportURLsModal.vue`
 - API service: `frontend/src/services/APIService.js`
@@ -182,11 +224,13 @@ Keep existing functionality, just change the modal wrapper.
 - Django views: `backend/*/views.py`
 
 **Configuration:**
+
 - **Production**: `docker-compose.yml` (in root)
 - Backend env: `backend/.env`
 - Frontend env: `frontend/.env`
 
 **Development:**
+
 - Backend: `python manage.py runserver 0.0.0.0:8000` (PowerShell)
 - Frontend: `npm run dev` (PowerShell)
 - Database (dev): `data/db.sqlite3`
@@ -202,10 +246,10 @@ Keep existing functionality, just change the modal wrapper.
   → Update `chat_docs/api/API_REFERENCE_*.md` AFTER testing, BEFORE committing
 
 - **Create a modal**
-  → Use `BaseModal.vue` (see `DESIGN_SYSTEM.md` examples)
+  → Use `BaseModal.vue` (see `chat_docs/instructions/DESIGN_SYSTEM.md` examples)
 
 - **Style something**
-  → Use CSS variables only (check `DESIGN_SYSTEM.md`)
+  → Use CSS variables only (check `chat_docs/instructions/DESIGN_SYSTEM.md`)
 
 - **See what's planned**
   → Check `chat_docs/FUTURE_ENHANCEMENTS_TODO.md`
@@ -214,7 +258,7 @@ Keep existing functionality, just change the modal wrapper.
   → Look in `chat_docs/planning/`
 
 - **Add a form field**
-  → Pre-populate with existing data (see Form Patterns in `DESIGN_SYSTEM.md`)
+  → Pre-populate with existing data (see Form Patterns in `chat_docs/instructions/DESIGN_SYSTEM.md`)
 
 - **Run Docker commands**
   → Use `docker compose` (space, not hyphen)
@@ -225,6 +269,7 @@ Keep existing functionality, just change the modal wrapper.
 ## 📚 Documentation Structure
 
 **Root Documentation (`chat_docs/`):**
+
 - `PROJECT_HANDOFF.md` - Comprehensive project overview ⚠️ **Not auto-loaded, attach with #file: in new chats**
 - `COMPLETE_PRINT_TRACKER_DEVELOPMENT_SUMMARY.md` - Print Tracker reference
 - `FUTURE_ENHANCEMENTS_TODO.md` - Active roadmap and TODOs
@@ -232,16 +277,19 @@ Keep existing functionality, just change the modal wrapper.
 - `CACHING_EXPLANATION.md` - Technical reference for caching
 
 **API Documentation (`chat_docs/api/`):**
+
 - All `API_REFERENCE_*.md` files - Grouped API documentation
 - Mandatory to update with API changes
 
 **Planning (`chat_docs/planning/`):**
+
 - Feature proposals and analysis documents
 - Detailed implementation docs for complex features
 
 **Other:**
+
 - `AGENTS.md` - Complete development guidelines (attach with `#file:` for detailed work)
-- `DESIGN_SYSTEM.md` - UI/UX patterns (attach with `#file:` for UI work)
+- `chat_docs/instructions/DESIGN_SYSTEM.md` - UI/UX patterns (attach with `#file:` for UI work)
 
 ## 🤖 For AI Assistants
 
@@ -249,11 +297,12 @@ Keep existing functionality, just change the modal wrapper.
 
 1. **Check if it exists**: Look for similar components/patterns first
 2. **API work**: Confirm docs will be updated in `chat_docs/api/` AFTER testing, BEFORE committing
-3. **UI work**: Reference `DESIGN_SYSTEM.md` patterns (ask user to attach with `#file:`)
+3. **UI work**: Reference `chat_docs/instructions/DESIGN_SYSTEM.md` patterns (ask user to attach with `#file:`)
 4. **New to project**: Ask user to attach `chat_docs/PROJECT_HANDOFF.md` with `#file:`
 5. **Unsure**: Ask user to attach `AGENTS.md` with `#file:`
 
 **Token Efficiency for AI:**
+
 - Provide code WITH brief explanations (2-3 sentences)
 - Use diffs when modifying existing files
 - Reference similar implementations instead of writing from scratch
@@ -262,12 +311,14 @@ Keep existing functionality, just change the modal wrapper.
 - Reuse patterns from the codebase
 
 **Server Management (CRITICAL):**
+
 - ❌ **NEVER** try to execute `python manage.py runserver`
 - ❌ **NEVER** try to execute `npm run dev`
 - ❌ **NEVER** try to restart dev servers
 - ✅ **ALWAYS** ask user to manually restart servers in their PowerShell terminals
 
 **When code changes require server restart:**
+
 ```
 "Changes made to [file]. To see the changes:
 
@@ -280,6 +331,7 @@ Model changes: Run migrations, then restart Django
 **Response template for API changes:**
 
 > "Before implementing, I need to update `chat_docs/api/API_REFERENCE_[MODULE].md` after the code is stable but before we commit (mandatory requirement). I'll:
+>
 > 1. Implement and test the endpoint
 > 2. Document it with examples
 > 3. Commit code + docs together
@@ -303,12 +355,14 @@ Model changes: Run migrations, then restart Django
 ### When to Start a New Chat
 
 **Start new chat when:**
+
 - ✅ Starting a completely different feature
 - ✅ Switching between backend and frontend work (different context needed)
 - ✅ After 50+ messages (context becomes bloated)
 - ✅ When you need to attach different documentation files
 
 **Continue current chat when:**
+
 - ✅ Iterating on the same feature
 - ✅ Related bug fixes in the same area
 - ✅ Follow-up questions about code just generated
@@ -316,6 +370,7 @@ Model changes: Run migrations, then restart Django
 ### Managing Feature Continuity (Hybrid Strategy)
 
 **For small features/tactical decisions:**
+
 ```
 "Add a 'Recent Decisions' section to chat_docs/PROJECT_HANDOFF.md:
 
@@ -329,6 +384,7 @@ Model changes: Run migrations, then restart Django
 ```
 
 **For large/complex features:**
+
 ```
 "Create chat_docs/planning/[FEATURE]_IMPLEMENTATION.md with:
 - Architecture decisions
@@ -343,12 +399,14 @@ Model changes: Run migrations, then restart Django
 ### Starting a New Chat with Context
 
 **For general work:**
+
 ```
 #file:chat_docs/PROJECT_HANDOFF.md
 [Brief description of what you're working on]
 ```
 
 **For continuing a large feature:**
+
 ```
 #file:chat_docs/PROJECT_HANDOFF.md
 #file:chat_docs/planning/NOTIFICATION_SYSTEM_IMPLEMENTATION.md
@@ -356,6 +414,7 @@ Continuing work on notification system - need to add email delivery
 ```
 
 **For API work:**
+
 ```
 #file:AGENTS.md
 #file:chat_docs/api/API_REFERENCE_NOTIFICATIONS.md
@@ -363,8 +422,9 @@ Adding new notification filtering endpoints
 ```
 
 **For UI work:**
+
 ```
-#file:DESIGN_SYSTEM.md
+#file:chat_docs/instructions/DESIGN_SYSTEM.md
 #file:chat_docs/PROJECT_HANDOFF.md
 Creating new settings modal
 ```
@@ -372,12 +432,14 @@ Creating new settings modal
 ### When to Update Documentation
 
 **Update immediately after:**
+
 - ✅ Completing a major milestone
 - ✅ Establishing new patterns that others should follow
 - ✅ Making architectural decisions
 - ✅ Before starting a related feature
 
 **Don't update for:**
+
 - ❌ Every tiny code change (too much overhead)
 - ❌ Experimental/temporary code
 - ❌ Bug fixes that don't change patterns
@@ -385,13 +447,14 @@ Creating new settings modal
 ### Documentation Update Workflow
 
 **End of feature chat:**
+
 ```
 "Document our work:
 
-1. Add high-level summary (5 bullets) to chat_docs/PROJECT_HANDOFF.md 
+1. Add high-level summary (5 bullets) to chat_docs/PROJECT_HANDOFF.md
    under 'Recent Decisions - [Feature Name]'
 
-2. [If large feature] Create detailed implementation doc at 
+2. [If large feature] Create detailed implementation doc at
    chat_docs/planning/[FEATURE]_IMPLEMENTATION.md with:
    - Architecture decisions
    - Code patterns used
@@ -406,7 +469,8 @@ Creating new settings modal
 
 ## 📖 More Details
 
-See `AGENTS.md` and `DESIGN_SYSTEM.md` for:
+See `AGENTS.md` and `chat_docs/instructions/DESIGN_SYSTEM.md` for:
+
 - Complete coding standards
 - Token optimization strategies
 - Component patterns and examples

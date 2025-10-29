@@ -46,9 +46,11 @@ onMounted(fetchNotifications)
 
     <nav class="sidebar" :class="{ 'mobile-open': isMobileMenuOpen }">
       <div class="sidebar-header">
-        <h3>Print Vault</h3>
+        <RouterLink to="/dashboard" @click="closeMobileMenu" class="brand-link">
+          <h3>Print Vault</h3>
+        </RouterLink>
       </div>
-      <RouterLink to="/" @click="closeMobileMenu">Inventory</RouterLink>
+      <RouterLink to="/inventory" @click="closeMobileMenu">Inventory</RouterLink>
       <RouterLink to="/printers" @click="closeMobileMenu">Printers</RouterLink>
       <RouterLink to="/projects" @click="closeMobileMenu">Projects</RouterLink>
       <RouterLink to="/trackers" @click="closeMobileMenu">Print Trackers</RouterLink>
@@ -90,6 +92,25 @@ onMounted(fetchNotifications)
 
 .sidebar-header {
   margin-bottom: 20px;
+}
+
+.sidebar-header .brand-link {
+  text-decoration: none;
+  padding: 0;
+  margin: 0;
+  display: block;
+  transition: opacity 0.2s;
+}
+
+.sidebar-header .brand-link:hover {
+  opacity: 0.7;
+  background-color: transparent;
+}
+
+.sidebar-header .brand-link.router-link-exact-active,
+.sidebar-header .brand-link.router-link-active {
+  background-color: transparent;
+  opacity: 1;
 }
 
 .sidebar h3 {

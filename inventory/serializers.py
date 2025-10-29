@@ -148,7 +148,7 @@ class ProjectSerializer(serializers.ModelSerializer):
     class Meta:
         model = Project
         fields = [
-            'id', 'project_name', 'description', 'status', 'start_date', 'end_date',
+            'id', 'project_name', 'description', 'status', 'start_date', 'due_date',
             'notes', 'photo', 'associated_inventory_items', 'associated_printers', 
             'total_cost', 'inventory_item_ids', 'printer_ids', 'links', 'files', 'trackers', 'tracker_ids'
         ]
@@ -261,6 +261,7 @@ class TrackerSerializer(serializers.ModelSerializer):
         fields = [
             'id', 'name', 'project', 'project_name', 'github_url', 'storage_type',
             'creation_mode', 'primary_color', 'accent_color', 'created_date', 'updated_date',
+            'show_on_dashboard',
             'files', 'total_count', 'completed_count', 'in_progress_count',
             'not_started_count', 'progress_percentage', 'total_quantity',
             'printed_quantity_total', 'pending_quantity',

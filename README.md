@@ -240,6 +240,32 @@ You can now use this HTTPS address to access Print Vault from any device that is
 
 ## Troubleshooting
 
+### Permission Denied Errors
+
+If you encounter errors like:
+
+```
+target backend: failed to solve: error from sender: open /home/pi/print-vault/data/postgres: permission denied
+```
+
+This means Docker doesn't have the necessary permissions to create or write to the data directories. This typically happens when running Docker commands as a non-root user.
+
+**Solution:** Run Docker commands with `sudo`:
+
+```bash
+sudo docker compose up -d
+sudo docker compose restart backend
+sudo docker compose logs backend
+```
+
+**Alternative:** Add your user to the `docker` group (requires logout/login to take effect):
+
+```bash
+sudo usermod -aG docker $USER
+```
+
+After logging out and back in, you can run Docker commands without `sudo`.
+
 ### 400 Bad Request Errors
 
 If you're getting 400 errors when accessing Print Vault via Tailscale or a custom domain:
@@ -282,6 +308,7 @@ This project is primarily for personal use, but suggestions and bug reports are 
 Print Vault is licensed under the [GNU Affero General Public License v3.0 (AGPL-3.0)](LICENSE).
 
 ### What this means:
+
 - ✅ **Free for self-hosting** - Personal and commercial use
 - ✅ **Modify and share** - You can fork and improve
 - ⚠️ **SaaS restrictions** - If you host Print Vault as a service for others, you must open source your modifications

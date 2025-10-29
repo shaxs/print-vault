@@ -28,6 +28,9 @@ router.register(r'tracker-files', views.TrackerFileViewSet)  # Tracker File endp
 urlpatterns = [
     path('admin/', admin.site.urls),
     path('api/', include(router.urls)),
+    path('api/dashboard/', views.DashboardDataView.as_view(), name='dashboard'),
+    path('api/alerts/dismiss/', views.DismissAlertView.as_view(), name='dismiss-alert'),
+    path('api/alerts/dismiss-all/', views.DismissAllAlertsView.as_view(), name='dismiss-all-alerts'),
     path('api/export/data/', views.ExportDataView.as_view(), name='export-data'),
     path('api/import-data/', views.ImportDataView.as_view(), name='import-data'),
     path('api/delete-all-data/', views.DeleteAllData.as_view(), name='delete-all'),

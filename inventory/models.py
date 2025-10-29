@@ -1,5 +1,6 @@
 # printvault/inventory/models.py
 import os
+from datetime import timedelta
 from django.db import models
 from django.db.models.signals import post_delete, post_save
 from django.dispatch import receiver
@@ -128,17 +129,32 @@ class Project(models.Model):
     description = models.TextField(null=True, blank=True)
     status = models.CharField(max_length=50, default='Planning', choices=[('Planning', 'Planning'), ('In Progress', 'In Progress'), ('Completed', 'Completed'), ('Canceled', 'Canceled'), ('On Hold', 'On Hold')])
     start_date = models.DateField(null=True, blank=True)
-    end_date = models.DateField(null=True, blank=True)
+    due_date = models.DateField(
+        null=True,
+        blank=True,
+        help_text='Project deadline/due date for tracking purposes'
+    )
     notes = models.TextField(null=True, blank=True)
     photo = models.ImageField(upload_to='project_photos/', null=True, blank=True)
     associated_inventory_items = models.ManyToManyField(InventoryItem, through='ProjectInventory', related_name='associated_projects')
     associated_printers = models.ManyToManyField(Printer, through='ProjectPrinters', related_name='associated_projects')
+    
     class Meta:
         verbose_name = "Project"
         verbose_name_plural = "Projects"
         ordering = ['project_name']
+    
     def __str__(self):
         return self.project_name
+    
+    @property
+    def days_until_due(self):
+        """Calculate days until due date (negative if overdue)."""
+        if self.due_date:
+            from datetime import date
+            delta = self.due_date - date.today()
+            return delta.days
+        return None
 
 class ProjectLink(models.Model):
     project = models.ForeignKey(Project, related_name='links', on_delete=models.CASCADE)
@@ -243,6 +259,12 @@ class Tracker(models.Model):
     total_quantity = models.IntegerField(default=0, help_text='Total quantity of all parts')
     printed_quantity_total = models.IntegerField(default=0, help_text='Total quantity of printed parts')
     progress_percentage = models.IntegerField(default=0, help_text='Completion percentage (0-100)')
+    
+    # Dashboard display
+    show_on_dashboard = models.BooleanField(
+        default=False,
+        help_text='Display this tracker in the dashboard featured section'
+    )
     
     # File storage tracking
     storage_path = models.CharField(
@@ -481,10 +503,163 @@ def delete_tracker_file_on_disk(sender, instance, **kwargs):
 # Update tracker statistics when TrackerFile is saved or deleted
 @receiver(post_save, sender=TrackerFile)
 def update_tracker_stats_on_save(sender, instance, **kwargs):
-    """Automatically update tracker cached statistics when a file is saved."""
+    """Automatically update tracker cached statistics when a file is modified."""
     tracker = instance.tracker
     tracker.recalculate_stats()
     tracker.save(update_fields=['total_quantity', 'printed_quantity_total', 'progress_percentage', 'updated_date'])
+
+
+@receiver(post_delete, sender=TrackerFile)
+def update_tracker_stats_on_delete(sender, instance, **kwargs):
+    """Automatically update tracker cached statistics when a file is deleted."""
+    tracker = instance.tracker
+    tracker.recalculate_stats()
+    tracker.save(update_fields=['total_quantity', 'printed_quantity_total', 'progress_percentage', 'updated_date'])
+
+
+@receiver(post_save, sender=Printer)
+def cleanup_printer_dismissals(sender, instance, **kwargs):
+    """Clean up alert dismissals when printer state changes."""
+    from datetime import date
+    
+    # Clean up printer_repair dismissals if printer is no longer under repair
+    if instance.status != 'Under Repair':
+        AlertDismissal.objects.filter(
+            alert_type='printer_repair',
+            alert_id=f'printer_repair_{instance.id}'
+        ).delete()
+    
+    # Clean up maintenance_overdue dismissals if maintenance is no longer overdue
+    if instance.maintenance_reminder_date is None or instance.maintenance_reminder_date >= date.today():
+        AlertDismissal.objects.filter(
+            alert_type='maintenance_overdue',
+            alert_id=f'maintenance_overdue_{instance.id}'
+        ).delete()
+    
+    # Clean up carbon_overdue dismissals if carbon filter is no longer overdue
+    if instance.carbon_reminder_date is None or instance.carbon_reminder_date >= date.today():
+        AlertDismissal.objects.filter(
+            alert_type='carbon_overdue',
+            alert_id=f'carbon_overdue_{instance.id}'
+        ).delete()
+    
+    # Clean up carbon_soon dismissals if carbon filter is no longer due soon
+    if instance.carbon_reminder_date is None or \
+       instance.carbon_reminder_date < date.today() or \
+       instance.carbon_reminder_date >= date.today() + timedelta(days=7):
+        AlertDismissal.objects.filter(
+            alert_type='carbon_soon',
+            alert_id=f'carbon_soon_{instance.id}'
+        ).delete()
+    
+    # Clean up project_blocked dismissals for any projects using this printer
+    # If printer status changes to/from unavailable, re-check project_blocked alerts
+    if instance.status in ['Under Repair', 'Sold', 'Archived', 'Active']:
+        # Get all projects associated with this printer
+        for project in instance.associated_projects.filter(status='In Progress'):
+            # Check if project still has unavailable printers
+            unavailable_printers = project.associated_printers.filter(
+                status__in=['Under Repair', 'Sold', 'Archived']
+            )
+            # If no unavailable printers, delete the dismissal so alert can reappear
+            if not unavailable_printers.exists():
+                AlertDismissal.objects.filter(
+                    alert_type='project_blocked',
+                    alert_id=f'project_blocked_{project.id}'
+                ).delete()
+
+
+@receiver(post_save, sender=InventoryItem)
+def cleanup_inventory_dismissals(sender, instance, **kwargs):
+    """Clean up alert dismissals when inventory item state changes."""
+    
+    # Clean up low_stock dismissals if alert is disabled or item is no longer low stock
+    if not instance.is_consumable or \
+       instance.low_stock_threshold is None or \
+       instance.quantity > instance.low_stock_threshold:
+        AlertDismissal.objects.filter(
+            alert_type='low_stock',
+            alert_id=f'low_stock_{instance.id}'
+        ).delete()
+
+
+@receiver(post_save, sender=Project)
+def cleanup_project_dismissals(sender, instance, **kwargs):
+    """Clean up alert dismissals when project state changes."""
+    from datetime import date
+    
+    # Clean up project_overdue dismissals if project is completed or due date is today or future
+    if instance.status == 'Completed' or \
+       instance.due_date is None or \
+       instance.due_date >= date.today():
+        AlertDismissal.objects.filter(
+            alert_type='project_overdue',
+            alert_id=f'project_overdue_{instance.id}'
+        ).delete()
+    
+    # Clean up project_due_soon dismissals if project is completed or no longer due soon
+    if instance.status == 'Completed' or \
+       instance.due_date is None or \
+       instance.due_date < date.today() or \
+       instance.due_date >= date.today() + timedelta(days=7):
+        AlertDismissal.objects.filter(
+            alert_type='project_due_soon',
+            alert_id=f'project_due_soon_{instance.id}'
+        ).delete()
+    
+    # Clean up project_blocked dismissals if project is not in progress or no unavailable printers
+    if instance.status != 'In Progress':
+        AlertDismissal.objects.filter(
+            alert_type='project_blocked',
+            alert_id=f'project_blocked_{instance.id}'
+        ).delete()
+    else:
+        # Check if all associated printers are available
+        unavailable_printers = instance.associated_printers.filter(
+            status__in=['Under Repair', 'Sold', 'Archived']
+        )
+        if not unavailable_printers.exists():
+            AlertDismissal.objects.filter(
+                alert_type='project_blocked',
+                alert_id=f'project_blocked_{instance.id}'
+            ).delete()
+
+
+class AlertDismissal(models.Model):
+    """
+    Track dismissed alerts (dashboard alerts, notifications, etc.).
+    Used to prevent showing the same alert after user dismisses it.
+    
+    State-based invalidation: When the underlying state changes (e.g., printer
+    status changes from 'Under Repair' to 'Active' and back), the dismissal
+    becomes invalid and the alert will reappear.
+    """
+    alert_type = models.CharField(
+        max_length=50,
+        help_text='Type of alert (e.g., maintenance_overdue, low_stock, etc.)'
+    )
+    alert_id = models.CharField(
+        max_length=100,
+        help_text='Unique identifier for the specific alert instance'
+    )
+    dismissed_at = models.DateTimeField(auto_now_add=True)
+    state_hash = models.CharField(
+        max_length=64,
+        null=True,
+        blank=True,
+        help_text='SHA256 hash of the state that caused this alert (for invalidation detection)'
+    )
+    
+    class Meta:
+        verbose_name = "Alert Dismissal"
+        verbose_name_plural = "Alert Dismissals"
+        unique_together = ['alert_type', 'alert_id']
+        indexes = [
+            models.Index(fields=['alert_type', 'alert_id']),
+        ]
+    
+    def __str__(self):
+        return f"{self.alert_type}: {self.alert_id}"
 
 
 @receiver(post_delete, sender=TrackerFile)

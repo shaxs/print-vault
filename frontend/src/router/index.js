@@ -29,8 +29,12 @@ import PrintTrackerView from '../views/PrintTrackerView.vue' // TEMP: Original t
 const router = createRouter({
   history: createWebHistory(import.meta.env.BASE_URL),
   routes: [
+    // Dashboard (Home)
+    { path: '/', redirect: '/dashboard' },
+    { path: '/dashboard', name: 'dashboard', component: DashboardView },
+
     // Inventory Routes
-    { path: '/', name: 'home', component: HomeView },
+    { path: '/inventory', name: 'home', component: HomeView },
     { path: '/create', name: 'create', component: InventoryCreateView },
     { path: '/item/:id', name: 'item-detail', component: InventoryDetailView },
     { path: '/item/:id/edit', name: 'item-edit', component: InventoryEditView },
@@ -92,9 +96,6 @@ const router = createRouter({
 
     // Settings Route
     { path: '/settings', name: 'settings', component: SettingsView },
-
-    // Dashboard Route
-    { path: '/dashboard', name: 'dashboard', component: DashboardView },
   ],
 })
 
