@@ -172,7 +172,127 @@ That's it! Your instance of Print Vault is now running. You can access it in you
 
 ---
 
-## Guide 2: Secure Remote Access with Tailscale (Optional)
+## Upgrading Print Vault
+
+When a new version of Print Vault is released, follow these steps to safely upgrade your installation. **Always create a backup before upgrading!**
+
+### Step 1: Backup Your Data (REQUIRED)
+
+Before pulling any updates, create a backup from within the application:
+
+1. **In-App Backup:** Open Print Vault in your browser
+2. Navigate to **Settings → Data Management**
+3. Click **"Export Data"** and save the backup ZIP file to your computer
+4. **Important:** Keep this backup safe! It contains all your data and uploaded files
+
+### Step 2: Backup Database (Additional Safety)
+
+For extra safety, also create a direct database backup:
+
+```bash
+# SSH into your server
+cd /path/to/print-vault
+
+# Create backup directory if it doesn't exist
+mkdir -p backups
+
+# Backup PostgreSQL database
+docker compose exec postgres pg_dump -U postgres printvault > backups/printvault_backup_$(date +%Y%m%d_%H%M%S).sql
+
+# Verify backup was created
+ls -lh backups/
+```
+
+### Step 3: Pull Latest Changes
+
+```bash
+# Pull the latest version from GitHub
+git pull origin main
+
+# Or, for a specific branch/version:
+# git pull origin feature/dashboard-alerts
+```
+
+### Step 4: Apply Database Migrations
+
+If the update includes database changes (new features, models, etc.), you'll need to run migrations:
+
+```bash
+# Check which migrations will be applied
+docker compose exec backend python manage.py showmigrations inventory
+
+# Apply migrations
+docker compose exec backend python manage.py migrate
+
+# You should see output like:
+# Running migrations:
+#   Applying inventory.XXXX_new_feature... OK
+```
+
+### Step 5: Rebuild and Restart Containers
+
+```bash
+# Stop containers
+docker compose down
+
+# Rebuild with latest code
+docker compose up -d --build
+
+# Check that all containers started successfully
+docker compose ps
+
+# View logs to verify no errors
+docker compose logs -f
+```
+
+### Step 6: Verify Upgrade
+
+1. Access Print Vault in your browser
+2. Check that all your data is present
+3. Test new features mentioned in the release notes
+4. Check both light and dark modes work correctly
+
+### Rollback Instructions (If Needed)
+
+If something goes wrong, you can rollback to the previous version:
+
+```bash
+# Stop containers
+docker compose down
+
+# Checkout previous version
+git checkout <previous-commit-hash>
+# Or: git checkout main (if you were testing a feature branch)
+
+# Restore database backup
+docker compose up -d postgres
+cat backups/printvault_backup_YYYYMMDD_HHMMSS.sql | docker compose exec -T postgres psql -U postgres printvault
+
+# Rollback migrations to previous state (if needed)
+docker compose exec backend python manage.py migrate inventory <previous_migration_number>
+
+# Restart all services
+docker compose up -d --build
+```
+
+**Alternative: Restore from In-App Backup**
+
+1. Install a fresh instance of Print Vault at the previous version
+2. Navigate to **Settings → Data Management**
+3. Click **"Import Data"** and upload your backup ZIP file
+4. All your data and files will be restored
+
+### Checking for Updates
+
+To see what's new in each release:
+
+1. Visit the [Releases page](https://github.com/shaxs/print-vault/releases) on GitHub
+2. Read the release notes for new features and breaking changes
+3. Check if database migrations are required (mentioned in release notes)
+
+---
+
+## Setup Secure Remote Access with Tailscale (Optional)
 
 This guide builds upon the standard installation and adds secure HTTPS access, allowing you to connect to your Print Vault from anywhere. This method also enables the PWA "Add to Home Screen" feature on mobile devices.
 
