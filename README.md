@@ -214,37 +214,48 @@ git pull origin main
 # git pull origin feature/dashboard-alerts
 ```
 
-### Step 4: Apply Database Migrations
+### Step 4: Rebuild and Restart Containers
 
-If the update includes database changes (new features, models, etc.), you'll need to run migrations:
-
-```bash
-# Check which migrations will be applied
-docker compose exec backend python manage.py showmigrations inventory
-
-# Apply migrations
-docker compose exec backend python manage.py migrate
-
-# You should see output like:
-# Running migrations:
-#   Applying inventory.XXXX_new_feature... OK
-```
-
-### Step 5: Rebuild and Restart Containers
+**Important:** Rebuild the containers FIRST. This loads the new migration files into the container.
 
 ```bash
 # Stop containers
 docker compose down
 
-# Rebuild with latest code
+# Rebuild with latest code (use sudo if you get permission errors)
 docker compose up -d --build
+
+# If you get "permission denied" errors for data/postgres:
+sudo docker compose up -d --build
 
 # Check that all containers started successfully
 docker compose ps
 
-# View logs to verify no errors
-docker compose logs -f
+# All three containers should show "Up" status:
+# - print-vault-backend-1
+# - print-vault-frontend-1
+# - print-vault-db-1
 ```
+
+### Step 5: Verify Migrations Were Applied
+
+Migrations are automatically applied during container startup. Verify they completed:
+
+```bash
+# Check migration status (use sudo if you built with sudo)
+docker compose exec backend python manage.py showmigrations inventory
+
+# All migrations should be marked [X] (applied)
+# If you see [ ] (not applied), the container startup failed to run migrations
+
+# You can manually apply if needed:
+docker compose exec backend python manage.py migrate
+
+# View logs to check for any errors
+docker compose logs backend --tail 50
+```
+
+**Note:** You don't need to run `makemigrations` - migration files are included in the repository. You also don't need to manually run `migrate` in most cases - the entrypoint script does this automatically when the container starts.
 
 ### Step 6: Verify Upgrade
 
@@ -290,6 +301,52 @@ To see what's new in each release:
 1. Visit the [Releases page](https://github.com/shaxs/print-vault/releases) on GitHub
 2. Read the release notes for new features and breaking changes
 3. Check if database migrations are required (mentioned in release notes)
+
+### Common Upgrade Issues
+
+**Problem: "permission denied" when building containers**
+```bash
+# Error: error from sender: open /home/user/print-vault/data/postgres: permission denied
+# Solution: Use sudo for Docker commands
+sudo docker compose up -d --build
+```
+
+**Problem: Migrations not showing up**
+```bash
+# This usually means migrations were already applied automatically on container startup
+# Verify with:
+docker compose exec backend python manage.py showmigrations inventory
+
+# All recent migrations should be marked [X]
+# If containers built successfully, migrations were applied
+```
+
+**Problem: Container won't start after upgrade**
+```bash
+# Check logs for errors:
+docker compose logs backend --tail 100
+docker compose logs frontend --tail 50
+
+# Common issues:
+# - Migration errors (check backend logs)
+# - Missing environment variables (check .env file)
+# - Port conflicts (check if another service is using the port)
+```
+
+**Problem: "Database does not exist" when backing up**
+```bash
+# Make sure you're using the correct database name: 'postgres' (not 'printvault')
+docker compose exec db pg_dump -U postgres postgres > backup.sql
+```
+
+**Problem: Changes not appearing after rebuild**
+```bash
+# Make sure you actually rebuilt (not just restarted):
+docker compose down
+docker compose up -d --build  # --build is important!
+
+# Clear browser cache or hard refresh (Ctrl+F5 / Cmd+Shift+R)
+```
 
 ---
 
