@@ -365,8 +365,9 @@ onMounted(fetchProject)
     />
 
     <AddInventoryToProjectModal
+      v-if="project"
       :show="isAddInventoryModalVisible"
-      :project-id="project?.id"
+      :project-id="project.id"
       :existing-inventory-ids="existingInventoryIds"
       @close="isAddInventoryModalVisible = false"
       @added="handleInventoryAdded"

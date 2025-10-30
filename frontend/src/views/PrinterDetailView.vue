@@ -91,8 +91,10 @@ const buildVolume = computed(() => {
 
 const formatDate = (dateString) => {
   if (!dateString) return 'N/A'
+  // Parse date as local time by adding 'T00:00:00' to force local timezone
+  const date = new Date(dateString + 'T00:00:00')
   const options = { year: 'numeric', month: 'long', day: 'numeric' }
-  return new Date(dateString).toLocaleDateString(undefined, options)
+  return date.toLocaleDateString(undefined, options)
 }
 
 const deletePrinter = async () => {

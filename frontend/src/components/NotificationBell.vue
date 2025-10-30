@@ -20,38 +20,47 @@ const isModalVisible = ref(false)
 
 const allReminders = computed(() => {
   const processed = []
-  const today = new Date().setHours(0, 0, 0, 0)
+  const today = new Date()
+  today.setHours(0, 0, 0, 0)
 
   props.reminders.forEach((printer) => {
     // Check maintenance reminder
     if (printer.maintenance_reminder_date) {
-      const maintenanceDate = new Date(printer.maintenance_reminder_date).setHours(0, 0, 0, 0)
-      // CORRECTED LOGIC: Only add the reminder if the date is today or in the past
-      if (maintenanceDate <= today) {
+      // Parse date as local time by adding 'T00:00:00' to force local timezone
+      const maintenanceDate = new Date(printer.maintenance_reminder_date + 'T00:00:00')
+      const maintenanceDateOnly = new Date(maintenanceDate)
+      maintenanceDateOnly.setHours(0, 0, 0, 0)
+
+      // Only add the reminder if the date is today or in the past
+      if (maintenanceDateOnly <= today) {
         processed.push({
           id: `${printer.id}-maintenance`,
           printerId: printer.id,
           printerTitle: printer.title,
           type: 'maintenance',
-          message: `Maintenance due on ${new Date(maintenanceDate).toLocaleDateString()}`,
-          date: new Date(maintenanceDate),
-          isPastDue: maintenanceDate < today,
+          message: `Maintenance due on ${maintenanceDate.toLocaleDateString()}`,
+          date: maintenanceDate,
+          isPastDue: maintenanceDateOnly < today,
         })
       }
     }
     // Check carbon filter reminder
     if (printer.carbon_reminder_date) {
-      const carbonDate = new Date(printer.carbon_reminder_date).setHours(0, 0, 0, 0)
-      // CORRECTED LOGIC: Only add the reminder if the date is today or in the past
-      if (carbonDate <= today) {
+      // Parse date as local time by adding 'T00:00:00' to force local timezone
+      const carbonDate = new Date(printer.carbon_reminder_date + 'T00:00:00')
+      const carbonDateOnly = new Date(carbonDate)
+      carbonDateOnly.setHours(0, 0, 0, 0)
+
+      // Only add the reminder if the date is today or in the past
+      if (carbonDateOnly <= today) {
         processed.push({
           id: `${printer.id}-carbon`,
           printerId: printer.id,
           printerTitle: printer.title,
           type: 'carbon',
-          message: `Carbon filter due on ${new Date(carbonDate).toLocaleDateString()}`,
-          date: new Date(carbonDate),
-          isPastDue: carbonDate < today,
+          message: `Carbon filter due on ${carbonDate.toLocaleDateString()}`,
+          date: carbonDate,
+          isPastDue: carbonDateOnly < today,
         })
       }
     }
@@ -130,8 +139,12 @@ const dismissReminder = async (id, type) => {
                 <strong>{{ reminder.printerTitle }}</strong>
                 <p :class="{ 'past-due': reminder.isPastDue }">{{ reminder.message }}</p>
               </div>
-              <button @click="dismissReminder(reminder.id, reminder.type)" class="dismiss-button">
-                Dismiss
+              <button
+                @click="dismissReminder(reminder.id, reminder.type)"
+                class="dismiss-button"
+                title="Dismiss reminder"
+              >
+                ✕
               </button>
             </li>
           </ul>
@@ -223,13 +236,20 @@ h4:first-of-type {
   font-weight: bold;
 }
 .dismiss-button {
-  background: none;
-  border: 1px solid var(--color-border);
-  color: var(--color-text);
-  padding: 5px 10px;
-  border-radius: 5px;
+  background: transparent;
+  border: none;
+  color: var(--color-text-soft);
+  font-size: 0.9rem;
   cursor: pointer;
-  margin-left: 10px;
+  padding: 0.25rem 0.5rem;
+  border-radius: 4px;
+  transition: all 0.2s;
+  line-height: 1;
+  flex-shrink: 0;
+}
+.dismiss-button:hover {
+  background: rgba(0, 0, 0, 0.1);
+  color: var(--color-text);
 }
 .action-button {
   padding: 8px 15px;

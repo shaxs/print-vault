@@ -4,6 +4,8 @@ import zipfile
 import os
 import shutil
 import tempfile
+import hashlib
+import json
 from io import BytesIO, StringIO
 from datetime import date, timedelta
 from django.http import HttpResponse
@@ -20,7 +22,7 @@ from rest_framework.decorators import action
 from .models import (
     Brand, PartType, Location, Material, Printer, Mod, ModFile,
     InventoryItem, Project, ProjectLink, ProjectFile, ProjectInventory, ProjectPrinters,
-    Tracker, TrackerFile
+    Tracker, TrackerFile, AlertDismissal
 )
 from .serializers import (
     BrandSerializer, PartTypeSerializer, LocationSerializer, MaterialSerializer, PrinterSerializer, ModSerializer, ModFileSerializer,
@@ -202,6 +204,746 @@ class ExportDataView(APIView):
         response = HttpResponse(buffer, content_type='application/zip')
         response['Content-Disposition'] = 'attachment; filename=print-vault-backup.zip'
         return response
+
+
+class DashboardDataView(APIView):
+    """
+    API endpoint that provides all data needed for the dashboard view.
+    Returns alerts, stats, featured trackers, and active projects.
+    """
+    permission_classes = [AllowAny]
+
+    def get(self, request):
+        """
+        Generate and return dashboard data.
+        
+        Returns:
+            Response with structure:
+            {
+                'alerts': {
+                    'critical': [...],
+                    'warning': [...],
+                    'info': [...]
+                },
+                'stats': {
+                    'inventory_count': int,
+                    'printer_count': int,
+                    'project_count': int,
+                    'tracker_count': int
+                },
+                'featured_trackers': [...],
+                'active_projects': [...]
+            }
+        """
+        # Generate alerts (with state-based invalidation)
+        alerts = self._generate_alerts()
+        
+        # Get stats
+        stats = self._get_stats()
+        
+        # Get featured trackers
+        featured_trackers = self._get_featured_trackers()
+        
+        # Get active projects
+        active_projects = self._get_active_projects()
+        
+        return Response({
+            'alerts': alerts,
+            'stats': stats,
+            'featured_trackers': featured_trackers,
+            'active_projects': active_projects
+        })
+    
+    def _generate_state_hash(self, alert_type, state_data):
+        """
+        Generate a SHA256 hash of the relevant state for an alert.
+        
+        When the state changes (e.g., printer status changes), the hash
+        will be different, invalidating any previous dismissals.
+        
+        Args:
+            alert_type: Type of alert (e.g., 'printer_repair')
+            state_data: Dictionary of relevant state fields
+            
+        Returns:
+            SHA256 hash string (64 characters)
+        """
+        # Define which fields matter for each alert type
+        state_field_map = {
+            'printer_repair': ['status', 'id'],
+            'maintenance_overdue': ['last_maintained_date', 'maintenance_reminder_date', 'id'],
+            'carbon_overdue': ['carbon_reminder_date', 'id'],
+            'carbon_soon': ['carbon_reminder_date', 'id'],
+            'project_overdue': ['due_date', 'id'],
+            'project_blocked': ['printer_states', 'id'],
+            'project_due_soon': ['due_date', 'id'],
+            'tracker_unconfigured': ['github_url', 'id'],
+            'low_stock': ['quantity', 'min_quantity', 'id'],
+        }
+        
+        # Get relevant fields for this alert type
+        relevant_fields = state_field_map.get(alert_type, ['id'])
+        
+        # Extract only relevant data
+        filtered_state = {}
+        for field in relevant_fields:
+            value = state_data.get(field)
+            # Convert dates to strings for consistent hashing
+            if isinstance(value, (date, timezone.datetime)):
+                value = value.isoformat()
+            filtered_state[field] = value
+        
+        # Create deterministic JSON string (sorted keys)
+        state_json = json.dumps(filtered_state, sort_keys=True)
+        
+        # Generate SHA256 hash
+        return hashlib.sha256(state_json.encode('utf-8')).hexdigest()
+    
+    def _should_show_alert(self, alert_type, alert_id, state_data):
+        """
+        Check if an alert should be shown based on dismissal state.
+        
+        Uses state-based invalidation: if the underlying state has changed
+        since dismissal, the alert will be shown again.
+        
+        Args:
+            alert_type: Type of alert (e.g., 'printer_repair')
+            alert_id: Unique alert ID (e.g., 'printer_repair_1')
+            state_data: Dictionary of current state data
+            
+        Returns:
+            Boolean - True if alert should be shown
+        """
+        try:
+            dismissal = AlertDismissal.objects.get(
+                alert_type=alert_type,
+                alert_id=alert_id
+            )
+            
+            # Generate hash of current state
+            current_state_hash = self._generate_state_hash(alert_type, state_data)
+            
+            # If dismissal has no state_hash (old record before fix), delete it
+            if dismissal.state_hash is None:
+                dismissal.delete()
+                return True
+            
+            # If state hash matches, alert is still dismissed
+            if dismissal.state_hash == current_state_hash:
+                return False
+            
+            # State changed - delete old dismissal and show alert
+            dismissal.delete()
+            return True
+            
+        except AlertDismissal.DoesNotExist:
+            # No dismissal exists - show alert
+            return True
+    
+    def _cleanup_invalid_dismissals(self):
+        """
+        Remove dismissals for conditions that no longer exist.
+        
+        For example, if a printer was "Under Repair" (alert dismissed),
+        then changed to "Active", the dismissal should be removed so the
+        alert can reappear if the printer goes back to "Under Repair".
+        """
+        # Get all dismissals
+        dismissals = AlertDismissal.objects.all()
+        
+        for dismissal in dismissals:
+            should_delete = False
+            
+            # Check printer_repair dismissals
+            if dismissal.alert_type == 'printer_repair':
+                # Extract printer ID from alert_id (format: "printer_repair_8")
+                try:
+                    printer_id = int(dismissal.alert_id.split('_')[-1])
+                    printer = Printer.objects.get(id=printer_id)
+                    # If printer is no longer under repair, delete dismissal
+                    if printer.status != 'Under Repair':
+                        should_delete = True
+                except (ValueError, Printer.DoesNotExist):
+                    # Invalid ID or printer deleted - clean up dismissal
+                    should_delete = True
+            
+            # Check maintenance_overdue dismissals
+            elif dismissal.alert_type == 'maintenance_overdue':
+                try:
+                    printer_id = int(dismissal.alert_id.split('_')[-1])
+                    printer = Printer.objects.get(id=printer_id)
+                    # If maintenance is no longer overdue, delete dismissal
+                    if printer.maintenance_reminder_date is None or printer.maintenance_reminder_date >= date.today():
+                        should_delete = True
+                except (ValueError, Printer.DoesNotExist):
+                    should_delete = True
+            
+            # Check carbon_overdue dismissals
+            elif dismissal.alert_type == 'carbon_overdue':
+                try:
+                    printer_id = int(dismissal.alert_id.split('_')[-1])
+                    printer = Printer.objects.get(id=printer_id)
+                    # If carbon filter is no longer overdue, delete dismissal
+                    if printer.carbon_reminder_date is None or printer.carbon_reminder_date >= date.today():
+                        should_delete = True
+                except (ValueError, Printer.DoesNotExist):
+                    should_delete = True
+            
+            # Check carbon_soon dismissals
+            elif dismissal.alert_type == 'carbon_soon':
+                try:
+                    printer_id = int(dismissal.alert_id.split('_')[-1])
+                    printer = Printer.objects.get(id=printer_id)
+                    # If carbon filter is no longer due soon (outside 7-day window), delete dismissal
+                    if printer.carbon_reminder_date is None or \
+                       printer.carbon_reminder_date < date.today() or \
+                       printer.carbon_reminder_date >= date.today() + timedelta(days=7):
+                        should_delete = True
+                except (ValueError, Printer.DoesNotExist):
+                    should_delete = True
+            
+            # Check project_overdue dismissals
+            elif dismissal.alert_type == 'project_overdue':
+                try:
+                    project_id = int(dismissal.alert_id.split('_')[-1])
+                    project = Project.objects.get(id=project_id)
+                    # If project is completed or due date is today or future, delete dismissal
+                    if project.status == 'Completed' or \
+                       project.due_date is None or \
+                       project.due_date >= date.today():
+                        should_delete = True
+                except (ValueError, Project.DoesNotExist):
+                    should_delete = True
+            
+            # Check project_due_soon dismissals
+            elif dismissal.alert_type == 'project_due_soon':
+                try:
+                    project_id = int(dismissal.alert_id.split('_')[-1])
+                    project = Project.objects.get(id=project_id)
+                    # If project is completed or no longer due soon, delete dismissal
+                    if project.status == 'Completed' or \
+                       project.due_date is None or \
+                       project.due_date < date.today() or \
+                       project.due_date >= date.today() + timedelta(days=7):
+                        should_delete = True
+                except (ValueError, Project.DoesNotExist):
+                    should_delete = True
+            
+            # Check project_blocked dismissals
+            elif dismissal.alert_type == 'project_blocked':
+                try:
+                    project_id = int(dismissal.alert_id.split('_')[-1])
+                    project = Project.objects.get(id=project_id)
+                    # If project is not in progress or has no unavailable printers, delete dismissal
+                    if project.status != 'In Progress':
+                        should_delete = True
+                    else:
+                        unavailable_printers = project.associated_printers.filter(
+                            status__in=['Under Repair', 'Sold', 'Archived']
+                        )
+                        if not unavailable_printers.exists():
+                            should_delete = True
+                except (ValueError, Project.DoesNotExist):
+                    should_delete = True
+            
+            # Check low_stock dismissals
+            elif dismissal.alert_type == 'low_stock':
+                try:
+                    item_id = int(dismissal.alert_id.split('_')[-1])
+                    item = InventoryItem.objects.get(id=item_id)
+                    # Delete dismissal if:
+                    # 1. Item is no longer marked as consumable (alert disabled)
+                    # 2. Low stock threshold is not set (alert disabled)
+                    # 3. Quantity is above threshold (restocked)
+                    if not item.is_consumable or \
+                       item.low_stock_threshold is None or \
+                       item.quantity > item.low_stock_threshold:
+                        should_delete = True
+                except (ValueError, InventoryItem.DoesNotExist):
+                    should_delete = True
+            
+            # Check tracker_unconfigured dismissals
+            elif dismissal.alert_type == 'tracker_unconfigured':
+                try:
+                    tracker_id = int(dismissal.alert_id.split('_')[-1])
+                    tracker = Tracker.objects.get(id=tracker_id)
+                    # If tracker has no files missing color/material, delete dismissal
+                    from django.db.models import Q
+                    unconfigured_count = tracker.files.filter(
+                        Q(color='') | Q(material='')
+                    ).count()
+                    if unconfigured_count == 0:
+                        should_delete = True
+                except (ValueError, Tracker.DoesNotExist):
+                    should_delete = True
+            
+            # Delete if condition no longer exists
+            if should_delete:
+                dismissal.delete()
+    
+    def _generate_alerts(self):
+        """
+        Generate all dashboard alerts with state-based dismissal checking.
+        
+        Uses state-based invalidation: dismissed alerts will reappear if the
+        underlying state changes (e.g., printer status toggles).
+        
+        Returns:
+            Dictionary with 'critical', 'warning', and 'info' alert arrays
+        """
+        # Clean up dismissals for conditions that no longer exist
+        self._cleanup_invalid_dismissals()
+        
+        today = date.today()
+        alerts = {
+            'critical': [],
+            'warning': [],
+            'info': []
+        }
+        
+        # CRITICAL ALERTS
+        
+        # 1. Maintenance Overdue (Critical)
+        # Show for all printers with overdue maintenance, regardless of status
+        maintenance_overdue = Printer.objects.filter(
+            maintenance_reminder_date__lt=today
+        ).select_related('manufacturer')
+        
+        for printer in maintenance_overdue:
+            alert_id = f"maintenance_overdue_{printer.id}"
+            state_data = {
+                'id': printer.id,
+                'last_maintained_date': printer.last_maintained_date.isoformat() if printer.last_maintained_date else None,
+                'maintenance_reminder_date': printer.maintenance_reminder_date.isoformat() if printer.maintenance_reminder_date else None
+            }
+            if self._should_show_alert('maintenance_overdue', alert_id, state_data):
+                days_overdue = (today - printer.maintenance_reminder_date).days
+                alerts['critical'].append({
+                    'alert_type': 'maintenance_overdue',
+                    'alert_id': alert_id,
+                    'title': f'Maintenance Overdue: {printer.title}',
+                    'message': f'Maintenance was due {days_overdue} days ago',
+                    'link': f'/printers/{printer.id}',
+                    'state_data': state_data
+                })
+        
+        # 2. Printer Under Repair (Critical)
+        repair_printers = Printer.objects.filter(
+            status='Under Repair'
+        ).select_related('manufacturer')
+        
+        for printer in repair_printers:
+            alert_id = f"printer_repair_{printer.id}"
+            state_data = {'id': printer.id, 'status': printer.status}
+            if self._should_show_alert('printer_repair', alert_id, state_data):
+                alerts['critical'].append({
+                    'alert_type': 'printer_repair',
+                    'alert_id': alert_id,
+                    'title': f'Printer Under Repair: {printer.title}',
+                    'message': 'This printer is currently under repair',
+                    'link': f'/printers/{printer.id}',
+                    'state_data': state_data
+                })
+        
+        # 3. Carbon Filter Overdue (Critical)
+        carbon_overdue = Printer.objects.filter(
+            carbon_reminder_date__lt=today
+        ).select_related('manufacturer')
+        
+        for printer in carbon_overdue:
+            alert_id = f"carbon_overdue_{printer.id}"
+            state_data = {
+                'id': printer.id,
+                'carbon_reminder_date': printer.carbon_reminder_date.isoformat() if printer.carbon_reminder_date else None
+            }
+            if self._should_show_alert('carbon_overdue', alert_id, state_data):
+                days_overdue = (today - printer.carbon_reminder_date).days
+                alerts['critical'].append({
+                    'alert_type': 'carbon_overdue',
+                    'alert_id': alert_id,
+                    'title': f'Carbon Filter Overdue: {printer.title}',
+                    'message': f'Carbon filter replacement was due {days_overdue} days ago',
+                    'link': f'/printers/{printer.id}',
+                    'state_data': state_data
+                })
+        
+        # WARNING ALERTS
+        
+        # 4. Carbon Filter Due Soon (Warning)
+        # Show for all printers with carbon filter due within 7 days
+        carbon_due_soon = Printer.objects.filter(
+            carbon_reminder_date__gte=today,
+            carbon_reminder_date__lt=today + timedelta(days=7)
+        ).select_related('manufacturer')
+        
+        for printer in carbon_due_soon:
+            alert_id = f"carbon_soon_{printer.id}"
+            state_data = {'id': printer.id, 'carbon_reminder_date': printer.carbon_reminder_date.isoformat() if printer.carbon_reminder_date else None}
+            if self._should_show_alert('carbon_soon', alert_id, state_data):
+                days_until = (printer.carbon_reminder_date - today).days
+                alerts['warning'].append({
+                    'alert_type': 'carbon_soon',
+                    'alert_id': alert_id,
+                    'title': f'Carbon Filter Due Soon: {printer.title}',
+                    'message': f'Carbon filter replacement due in {days_until} days',
+                    'link': f'/printers/{printer.id}',
+                    'state_data': state_data
+                })
+        
+        # 5. Project Overdue (Critical)
+        projects_overdue = Project.objects.filter(
+            due_date__lt=today
+        ).exclude(status='Completed')
+        
+        for project in projects_overdue:
+            alert_id = f"project_overdue_{project.id}"
+            state_data = {'id': project.id, 'due_date': project.due_date.isoformat() if project.due_date else None}
+            if self._should_show_alert('project_overdue', alert_id, state_data):
+                days_overdue = (today - project.due_date).days if project.due_date else 0
+                alerts['critical'].append({
+                    'alert_type': 'project_overdue',
+                    'alert_id': alert_id,
+                    'title': f'Project Overdue: {project.project_name}',
+                    'message': f'Overdue by {days_overdue} {"day" if days_overdue == 1 else "days"}',
+                    'link': f'/projects/{project.id}',
+                    'state_data': state_data
+                })
+        
+        # 6. Projects Blocked by Printer Status (Critical)
+        blocked_projects = Project.objects.filter(
+            status='In Progress'
+        ).prefetch_related('associated_printers')
+        
+        for project in blocked_projects:
+            # Check if any associated printers are unavailable
+            unavailable_printers = project.associated_printers.filter(
+                status__in=['Under Repair', 'Sold', 'Archived']
+            )
+            
+            if unavailable_printers.exists():
+                alert_id = f"project_blocked_{project.id}"
+                # Include printer IDs and statuses in state
+                printer_states = list(unavailable_printers.values_list('id', 'status'))
+                state_data = {
+                    'id': project.id,
+                    'printer_states': printer_states
+                }
+                if self._should_show_alert('project_blocked', alert_id, state_data):
+                    printer_names = list(unavailable_printers.values_list('title', flat=True))
+                    if len(printer_names) == 1:
+                        message = f"Printer '{printer_names[0]}' is unavailable"
+                    else:
+                        message = f"{len(printer_names)} printers unavailable: {', '.join(printer_names)}"
+                    
+                    alerts['critical'].append({
+                        'alert_type': 'project_blocked',
+                        'alert_id': alert_id,
+                        'title': f'Project Blocked: {project.project_name}',
+                        'message': message,
+                        'link': f'/projects/{project.id}',
+                        'state_data': state_data
+                    })
+        
+        # 7. Project Due Soon (Warning)
+        projects_due_soon = Project.objects.filter(
+            due_date__gte=today,
+            due_date__lt=today + timedelta(days=7)
+        ).exclude(status='Completed')
+        
+        for project in projects_due_soon:
+            alert_id = f"project_due_soon_{project.id}"
+            state_data = {'id': project.id, 'due_date': project.due_date.isoformat() if project.due_date else None}
+            if self._should_show_alert('project_due_soon', alert_id, state_data):
+                days_until = project.days_until_due
+                alerts['warning'].append({
+                    'alert_type': 'project_due_soon',
+                    'alert_id': alert_id,
+                    'title': f'Project Due Soon: {project.project_name}',
+                    'message': f'Due in {days_until} days',
+                    'link': f'/projects/{project.id}',
+                    'state_data': state_data
+                })
+        
+        # 8. Tracker with Unconfigured Files (Warning)
+        # Unconfigured = missing color or material configuration
+        from django.db.models import Q
+        
+        trackers_unconfigured = Tracker.objects.filter(
+            Q(files__color='') | Q(files__material='')
+        ).distinct()
+        
+        for tracker in trackers_unconfigured:
+            # Count files missing color or material
+            unconfigured_count = tracker.files.filter(
+                Q(color='') | Q(material='')
+            ).count()
+            
+            if unconfigured_count == 0:
+                continue  # Skip if no unconfigured files
+            
+            alert_id = f"tracker_unconfigured_{tracker.id}"
+            state_data = {'id': tracker.id, 'github_url': tracker.github_url}
+            if self._should_show_alert('tracker_unconfigured', alert_id, state_data):
+                alerts['warning'].append({
+                    'alert_type': 'tracker_unconfigured',
+                    'alert_id': alert_id,
+                    'title': f'Tracker Needs Configuration: {tracker.name}',
+                    'message': f'{unconfigured_count} file(s) need configuration',
+                    'link': f'/trackers/{tracker.id}',
+                    'state_data': state_data
+                })
+        
+        # INFO ALERTS
+        
+        # 9. Low Stock Items (Info)
+        low_stock_items = InventoryItem.objects.filter(
+            is_consumable=True,
+            quantity__lte=F('low_stock_threshold')
+        ).select_related('brand', 'part_type')
+        
+        for item in low_stock_items:
+            alert_id = f"low_stock_{item.id}"
+            state_data = {'id': item.id, 'quantity': item.quantity, 'min_quantity': item.low_stock_threshold}
+            if self._should_show_alert('low_stock', alert_id, state_data):
+                alerts['info'].append({
+                    'alert_type': 'low_stock',
+                    'alert_id': alert_id,
+                    'title': f'Low Stock: {item.title}',
+                    'message': f'Only {item.quantity} remaining (threshold: {item.low_stock_threshold})',
+                    'link': f'/item/{item.id}',
+                    'state_data': state_data
+                })
+        
+        return alerts
+    
+    def _get_stats(self):
+        """
+        Get count statistics for dashboard.
+        
+        Returns:
+            Dictionary with counts for inventory, printers, projects, trackers
+        """
+        return {
+            'inventory_count': InventoryItem.objects.count(),
+            'printer_count': Printer.objects.count(),
+            'project_count': Project.objects.count(),
+            'tracker_count': Tracker.objects.count()
+        }
+    
+    def _get_featured_trackers(self):
+        """
+        Get trackers marked as featured for dashboard.
+        
+        Returns:
+            List of tracker dictionaries with basic info and progress
+        """
+        trackers = Tracker.objects.filter(
+            show_on_dashboard=True
+        ).select_related('project')
+        
+        featured = []
+        for tracker in trackers:
+            featured.append({
+                'id': tracker.id,
+                'name': tracker.name,
+                'project_name': tracker.project.project_name if tracker.project else None,
+                'progress_percentage': tracker.progress_percentage,
+                'completed_count': tracker.printed_quantity_total,  # Use printed quantity, not status count
+                'total_count': tracker.total_quantity,  # Use total quantity, not file count
+                'status': 'completed' if tracker.progress_percentage == 100 else 'in-progress'
+            })
+        
+        return featured
+    
+    def _get_active_projects(self):
+        """
+        Get active projects (excluding completed, planning, on hold, canceled) with health status.
+        
+        Returns:
+            List of project dictionaries with basic info and health status
+        """
+        projects = Project.objects.filter(
+            status='In Progress'
+        ).order_by('-start_date', '-id')[:10]
+        
+        active = []
+        
+        for project in projects:
+            # Collect all applicable health statuses
+            health_statuses = []
+            health_reasons = []
+            
+            # Check if project is blocked by printer status
+            blocked_printers = project.associated_printers.filter(
+                status__in=['Under Repair', 'Sold', 'Archived']
+            )
+            
+            is_blocked = blocked_printers.exists()
+            is_overdue = False
+            is_at_risk = False
+            
+            if is_blocked:
+                # Build reason message for blocked status
+                printer_names = list(blocked_printers.values_list('title', 'status'))
+                if len(printer_names) == 1:
+                    blocked_reason = f"Printer '{printer_names[0][0]}' is {printer_names[0][1]}"
+                else:
+                    reasons = [f"{name} ({status})" for name, status in printer_names]
+                    blocked_reason = f"Printers: {', '.join(reasons)}"
+                health_statuses.append('blocked')
+                health_reasons.append(blocked_reason)
+            
+            # Check due date
+            if project.due_date:
+                days_until = project.days_until_due
+                if days_until is not None:
+                    if days_until < 0:
+                        is_overdue = True
+                        health_statuses.append('overdue')
+                        health_reasons.append(f"Past due by {abs(days_until)} days")
+                    elif days_until <= 7:
+                        is_at_risk = True
+                        health_statuses.append('at-risk')
+                        health_reasons.append(f"Due in {days_until} days")
+            
+            # If no issues, it's healthy
+            if not health_statuses:
+                health_statuses.append('healthy')
+            
+            # Primary health is the most critical (overdue > blocked > at-risk > healthy)
+            if is_overdue:
+                primary_health = 'overdue'
+            elif is_blocked:
+                primary_health = 'blocked'
+            elif is_at_risk:
+                primary_health = 'at-risk'
+            else:
+                primary_health = 'healthy'
+            
+            # Combine reasons with semicolons
+            combined_reason = '; '.join(health_reasons) if health_reasons else None
+            
+            active.append({
+                'id': project.id,
+                'name': project.project_name,
+                'status': project.status,
+                'health': primary_health,  # Primary for sorting/display
+                'health_statuses': health_statuses,  # All applicable statuses
+                'health_reason': combined_reason,
+                'due_date': project.due_date.isoformat() if project.due_date else None,
+                'days_until_due': project.days_until_due
+            })
+        
+        return active
+
+
+class DismissAlertView(APIView):
+    """
+    API endpoint to dismiss a single dashboard alert.
+    """
+    permission_classes = [AllowAny]
+    
+    def post(self, request):
+        """
+        Dismiss a single alert with state-based invalidation.
+        
+        Request body:
+            {
+                'alert_type': str,     # e.g., 'printer_repair'
+                'alert_id': str,       # e.g., 'printer_repair_1'
+                'state_data': dict     # e.g., {'id': 1, 'status': 'Under Repair'}
+            }
+        
+        The state_data is hashed and stored. If the state changes later
+        (e.g., printer status changes), the dismissal becomes invalid.
+        """
+        alert_type = request.data.get('alert_type')
+        alert_id = request.data.get('alert_id')
+        state_data = request.data.get('state_data', {})
+        
+        if not alert_type or not alert_id:
+            return Response(
+                {'error': 'Both alert_type and alert_id are required'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        # Generate state hash for this alert
+        dashboard_view = DashboardDataView()
+        state_hash = dashboard_view._generate_state_hash(alert_type, state_data)
+        
+        # Create or update the dismissal record with state hash
+        dismissal, created = AlertDismissal.objects.update_or_create(
+            alert_type=alert_type,
+            alert_id=alert_id,
+            defaults={'state_hash': state_hash}
+        )
+        
+        return Response({
+            'success': True,
+            'dismissed': {
+                'alert_type': dismissal.alert_type,
+                'alert_id': dismissal.alert_id,
+                'dismissed_at': dismissal.dismissed_at,
+                'state_hash': dismissal.state_hash
+            }
+        })
+
+
+class DismissAllAlertsView(APIView):
+    """
+    API endpoint to dismiss multiple dashboard alerts at once.
+    """
+    permission_classes = [AllowAny]
+    
+    def post(self, request):
+        """
+        Dismiss multiple alerts with state-based invalidation.
+        
+        Request body:
+            {
+                'alerts': [
+                    {
+                        'alert_type': str, 
+                        'alert_id': str,
+                        'state_data': dict
+                    },
+                    ...
+                ]
+            }
+        """
+        alerts = request.data.get('alerts', [])
+        
+        if not alerts or not isinstance(alerts, list):
+            return Response(
+                {'error': 'alerts array is required'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        dashboard_view = DashboardDataView()
+        dismissed_count = 0
+        
+        for alert in alerts:
+            alert_type = alert.get('alert_type')
+            alert_id = alert.get('alert_id')
+            state_data = alert.get('state_data', {})
+            
+            if alert_type and alert_id:
+                # Generate state hash
+                state_hash = dashboard_view._generate_state_hash(alert_type, state_data)
+                
+                # Create or update dismissal with state hash
+                AlertDismissal.objects.update_or_create(
+                    alert_type=alert_type,
+                    alert_id=alert_id,
+                    defaults={'state_hash': state_hash}
+                )
+                dismissed_count += 1
+        
+        return Response({
+            'success': True,
+            'dismissed_count': dismissed_count
+        })
+
 
 class ImportDataView(APIView):
     permission_classes = [AllowAny]

@@ -172,7 +172,190 @@ That's it! Your instance of Print Vault is now running. You can access it in you
 
 ---
 
-## Guide 2: Secure Remote Access with Tailscale (Optional)
+## Upgrading Print Vault
+
+When a new version of Print Vault is released, follow these steps to safely upgrade your installation. **Always create a backup before upgrading!**
+
+### Step 1: Backup Your Data (REQUIRED)
+
+Before pulling any updates, create a backup from within the application:
+
+1. **In-App Backup:** Open Print Vault in your browser
+2. Navigate to **Settings → Data Management**
+3. Click **"Export Data"** and save the backup ZIP file to your computer
+4. **Important:** Keep this backup safe! It contains all your data and uploaded files
+
+### Step 2: Backup Database (Additional Safety)
+
+For extra safety, also create a direct database backup:
+
+```bash
+# SSH into your server
+cd /path/to/print-vault
+
+# Create backup directory if it doesn't exist
+mkdir -p backups
+
+# Backup PostgreSQL database
+# Note: Database name is 'postgres' (default) and username is 'postgres' (or your POSTGRES_USER from .env)
+docker compose exec db pg_dump -U postgres postgres > backups/printvault_backup_$(date +%Y%m%d_%H%M%S).sql
+
+# Verify backup was created
+ls -lh backups/
+```
+
+### Step 3: Pull Latest Changes
+
+```bash
+# Pull the latest version from GitHub
+git pull origin main
+
+# Or, for a specific branch/version:
+# git pull origin feature/dashboard-alerts
+```
+
+### Step 4: Rebuild and Restart Containers
+
+**Important:** Rebuild the containers FIRST. This loads the new migration files into the container.
+
+```bash
+# Stop containers
+docker compose down
+
+# Rebuild with latest code (use sudo if you get permission errors)
+docker compose up -d --build
+
+# If you get "permission denied" errors for data/postgres:
+sudo docker compose up -d --build
+
+# Check that all containers started successfully
+docker compose ps
+
+# All three containers should show "Up" status:
+# - print-vault-backend-1
+# - print-vault-frontend-1
+# - print-vault-db-1
+```
+
+### Step 5: Verify Migrations Were Applied
+
+Migrations are automatically applied during container startup. Verify they completed:
+
+```bash
+# Check migration status (use sudo if you built with sudo)
+docker compose exec backend python manage.py showmigrations inventory
+
+# All migrations should be marked [X] (applied)
+# If you see [ ] (not applied), the container startup failed to run migrations
+
+# You can manually apply if needed:
+docker compose exec backend python manage.py migrate
+
+# View logs to check for any errors
+docker compose logs backend --tail 50
+```
+
+**Note:** You don't need to run `makemigrations` - migration files are included in the repository. You also don't need to manually run `migrate` in most cases - the entrypoint script does this automatically when the container starts.
+
+### Step 6: Verify Upgrade
+
+1. Access Print Vault in your browser
+2. Check that all your data is present
+3. Test new features mentioned in the release notes
+4. Check both light and dark modes work correctly
+
+### Rollback Instructions (If Needed)
+
+If something goes wrong, you can rollback to the previous version:
+
+```bash
+# Stop containers
+docker compose down
+
+# Checkout previous version
+git checkout <previous-commit-hash>
+# Or: git checkout main (if you were testing a feature branch)
+
+# Restore database backup
+docker compose up -d db
+cat backups/printvault_backup_YYYYMMDD_HHMMSS.sql | docker compose exec -T db psql -U postgres postgres
+
+# Rollback migrations to previous state (if needed)
+docker compose exec backend python manage.py migrate inventory <previous_migration_number>
+
+# Restart all services
+docker compose up -d --build
+```
+
+**Alternative: Restore from In-App Backup**
+
+1. Install a fresh instance of Print Vault at the previous version
+2. Navigate to **Settings → Data Management**
+3. Click **"Import Data"** and upload your backup ZIP file
+4. All your data and files will be restored
+
+### Checking for Updates
+
+To see what's new in each release:
+
+1. Visit the [Releases page](https://github.com/shaxs/print-vault/releases) on GitHub
+2. Read the release notes for new features and breaking changes
+3. Check if database migrations are required (mentioned in release notes)
+
+### Common Upgrade Issues
+
+**Problem: "permission denied" when building containers**
+
+```bash
+# Error: error from sender: open /home/user/print-vault/data/postgres: permission denied
+# Solution: Use sudo for Docker commands
+sudo docker compose up -d --build
+```
+
+**Problem: Migrations not showing up**
+
+```bash
+# This usually means migrations were already applied automatically on container startup
+# Verify with:
+docker compose exec backend python manage.py showmigrations inventory
+
+# All recent migrations should be marked [X]
+# If containers built successfully, migrations were applied
+```
+
+**Problem: Container won't start after upgrade**
+
+```bash
+# Check logs for errors:
+docker compose logs backend --tail 100
+docker compose logs frontend --tail 50
+
+# Common issues:
+# - Migration errors (check backend logs)
+# - Missing environment variables (check .env file)
+# - Port conflicts (check if another service is using the port)
+```
+
+**Problem: "Database does not exist" when backing up**
+
+```bash
+# Make sure you're using the correct database name: 'postgres' (not 'printvault')
+docker compose exec db pg_dump -U postgres postgres > backup.sql
+```
+
+**Problem: Changes not appearing after rebuild**
+
+```bash
+# Make sure you actually rebuilt (not just restarted):
+docker compose down
+docker compose up -d --build  # --build is important!
+
+# Clear browser cache or hard refresh (Ctrl+F5 / Cmd+Shift+R)
+```
+
+---
+
+## Setup Secure Remote Access with Tailscale (Optional)
 
 This guide builds upon the standard installation and adds secure HTTPS access, allowing you to connect to your Print Vault from anywhere. This method also enables the PWA "Add to Home Screen" feature on mobile devices.
 
@@ -240,6 +423,32 @@ You can now use this HTTPS address to access Print Vault from any device that is
 
 ## Troubleshooting
 
+### Permission Denied Errors
+
+If you encounter errors like:
+
+```
+target backend: failed to solve: error from sender: open /home/pi/print-vault/data/postgres: permission denied
+```
+
+This means Docker doesn't have the necessary permissions to create or write to the data directories. This typically happens when running Docker commands as a non-root user.
+
+**Solution:** Run Docker commands with `sudo`:
+
+```bash
+sudo docker compose up -d
+sudo docker compose restart backend
+sudo docker compose logs backend
+```
+
+**Alternative:** Add your user to the `docker` group (requires logout/login to take effect):
+
+```bash
+sudo usermod -aG docker $USER
+```
+
+After logging out and back in, you can run Docker commands without `sudo`.
+
 ### 400 Bad Request Errors
 
 If you're getting 400 errors when accessing Print Vault via Tailscale or a custom domain:
@@ -282,6 +491,7 @@ This project is primarily for personal use, but suggestions and bug reports are 
 Print Vault is licensed under the [GNU Affero General Public License v3.0 (AGPL-3.0)](LICENSE).
 
 ### What this means:
+
 - ✅ **Free for self-hosting** - Personal and commercial use
 - ✅ **Modify and share** - You can fork and improve
 - ⚠️ **SaaS restrictions** - If you host Print Vault as a service for others, you must open source your modifications

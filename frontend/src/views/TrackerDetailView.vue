@@ -592,10 +592,10 @@ const overallProgressStyle = computed(() => {
 
 // Get progress bar color
 const getProgressColor = (percentage) => {
-  if (percentage === 0) return '#64748b' // gray
-  if (percentage < 50) return '#ef4444' // red
-  if (percentage < 100) return '#f59e0b' // orange
-  return '#10b981' // green
+  if (percentage === 0) return 'var(--color-progress-none)' // gray
+  if (percentage < 50) return 'var(--color-progress-low)' // red
+  if (percentage < 100) return 'var(--color-progress-medium)' // orange
+  return 'var(--color-progress-complete)' // green
 }
 
 // Computed style for individual file progress
@@ -643,7 +643,12 @@ onMounted(() => {
         <div class="detail-header">
           <div class="header-content">
             <div class="header-info">
-              <h1>{{ tracker.name }}</h1>
+              <h1>
+                {{ tracker.name }}
+                <span v-if="tracker.show_on_dashboard" class="featured-badge alert-info"
+                  >Featured</span
+                >
+              </h1>
               <p class="tracker-subtitle">
                 Associated Project:
                 <a v-if="tracker.project_name" @click="goToProject" class="project-link">
@@ -1121,6 +1126,27 @@ onMounted(() => {
   font-weight: 600;
   margin: 0;
   color: var(--color-heading);
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+}
+
+.featured-badge {
+  display: inline-block;
+  padding: 0.25rem 0.625rem;
+  border-radius: 12px;
+  font-size: 0.7rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  white-space: nowrap;
+  letter-spacing: 0.025em;
+}
+
+.featured-badge.alert-info {
+  background: color-mix(in srgb, var(--color-alert-info), transparent 85%);
+  color: var(--color-alert-info);
+  border: 1px solid color-mix(in srgb, var(--color-alert-info), transparent 70%);
 }
 
 .tracker-subtitle {
@@ -1788,6 +1814,11 @@ onMounted(() => {
 
   .header-info h1 {
     font-size: 1.75rem;
+  }
+
+  .featured-badge {
+    font-size: 0.65rem;
+    padding: 0.2rem 0.5rem;
   }
 
   .tracker-subtitle {

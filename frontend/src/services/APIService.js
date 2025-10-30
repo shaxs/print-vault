@@ -293,4 +293,25 @@ export default {
   fetchURLMetadata(url) {
     return apiClient.post('trackers/fetch-url-metadata/', { url })
   },
+
+  // Dashboard
+  getDashboard() {
+    return apiClient.get('dashboard/')
+  },
+  dismissAlert(alertType, alertId, stateData = {}) {
+    return apiClient.post('alerts/dismiss/', {
+      alert_type: alertType,
+      alert_id: alertId,
+      state_data: stateData,
+    })
+  },
+  dismissAllAlerts(alerts) {
+    return apiClient.post('alerts/dismiss-all/', {
+      alerts: alerts.map((alert) => ({
+        alert_type: alert.alert_type,
+        alert_id: alert.alert_id,
+        state_data: alert.state_data || {},
+      })),
+    })
+  },
 }

@@ -68,6 +68,7 @@ const saveTracker = async () => {
       project: tracker.value.project,
       github_url: tracker.value.github_url,
       storage_type: tracker.value.storage_type,
+      show_on_dashboard: tracker.value.show_on_dashboard || false,
       primary_color: tracker.value.primary_color,
       accent_color: tracker.value.accent_color,
     })
@@ -202,6 +203,14 @@ onMounted(async () => {
           <p v-if="downloadMessage" class="success-message">{{ downloadMessage }}</p>
         </div>
 
+        <div class="form-group checkbox-group">
+          <input id="show_on_dashboard" v-model="tracker.show_on_dashboard" type="checkbox" />
+          <label for="show_on_dashboard">Featured on Dashboard</label>
+        </div>
+        <p class="help-text" style="margin-top: -0.5rem; margin-left: 0">
+          Display this tracker in the dashboard's featured section
+        </p>
+
         <div class="form-row">
           <div class="form-group">
             <label for="primary_color">Primary Color</label>
@@ -318,6 +327,24 @@ onMounted(async () => {
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 20px;
+}
+
+.checkbox-group {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 20px;
+}
+
+.checkbox-group input {
+  width: auto;
+}
+
+.checkbox-group label {
+  margin-bottom: 0;
+  font-weight: normal;
+  user-select: none;
+  cursor: pointer;
 }
 
 .color-input-group {

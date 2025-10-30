@@ -12,6 +12,26 @@
   --color-green: #42b983;
   --color-blue: #0d6efd;
   --color-red: #dc3545;
+
+  /* Text colors for specific use cases */
+  --color-text-on-colored: #ffffff; /* White text on colored backgrounds (badges, alerts) */
+
+  /* Progress bar colors */
+  --color-progress-none: #64748b; /* Gray - no progress */
+  --color-progress-low: #ef4444; /* Red - < 50% */
+  --color-progress-medium: #f59e0b; /* Orange - 50-99% */
+  --color-progress-complete: #10b981; /* Green - 100% */
+
+  /* Alert severity colors */
+  --color-alert-critical: #ef4444; /* Red - critical alerts */
+  --color-alert-warning: #f59e0b; /* Orange - warning alerts */
+  --color-alert-info: #3b82f6; /* Blue - info alerts */
+
+  /* Project health status colors */
+  --color-health-healthy: #10b981; /* Green - on track */
+  --color-health-at-risk: #f59e0b; /* Orange - needs attention */
+  --color-health-blocked: #a855f7; /* Purple - blocked/waiting */
+  --color-health-overdue: #ef4444; /* Red - past deadline */
 }
 
 /* Light Theme */
@@ -26,6 +46,26 @@
   --color-green: #42b983;
   --color-blue: #0d6efd;
   --color-red: #dc3545;
+
+  /* Text colors for specific use cases */
+  --color-text-on-colored: #ffffff; /* White text on colored backgrounds (badges, alerts) */
+
+  /* Progress bar colors (same in light theme) */
+  --color-progress-none: #64748b; /* Gray - no progress */
+  --color-progress-low: #ef4444; /* Red - < 50% */
+  --color-progress-medium: #f59e0b; /* Orange - 50-99% */
+  --color-progress-complete: #10b981; /* Green - 100% */
+
+  /* Alert severity colors (same in light theme) */
+  --color-alert-critical: #ef4444; /* Red - critical alerts */
+  --color-alert-warning: #f59e0b; /* Orange - warning alerts */
+  --color-alert-info: #3b82f6; /* Blue - info alerts */
+
+  /* Project health status colors (same in light theme) */
+  --color-health-healthy: #10b981; /* Green - on track */
+  --color-health-at-risk: #f59e0b; /* Orange - needs attention */
+  --color-health-blocked: #a855f7; /* Purple - blocked/waiting */
+  --color-health-overdue: #ef4444; /* Red - past deadline */
 }
 
 *,

@@ -27,7 +27,6 @@ frontend/dev-dist/sw.js
 # Documentation and test scripts (not for public repo)
 chat_docs/
 test_scripts/
-DESIGN_SYSTEM.md
 
 #Local Dev Database
 db.sqlite3

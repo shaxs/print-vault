@@ -35,7 +35,7 @@ watch(
         description: '',
         status: 'Planning',
         start_date: null,
-        end_date: null,
+        due_date: null,
         notes: '',
         inventory_item_ids: [],
         printer_ids: [],
@@ -117,6 +117,15 @@ onMounted(async () => {
       </select>
     </div>
     <div class="form-group">
+      <label for="start_date">Start Date</label>
+      <input id="start_date" v-model="project.start_date" type="date" />
+    </div>
+    <div class="form-group">
+      <label for="due_date">Due Date</label>
+      <input id="due_date" v-model="project.due_date" type="date" />
+      <p class="help-text">Set a deadline for this project to track due dates on the dashboard</p>
+    </div>
+    <div class="form-group">
       <label for="description">Description</label>
       <textarea id="description" v-model="project.description"></textarea>
     </div>
@@ -187,6 +196,12 @@ label {
   margin-bottom: 0.5rem;
   font-weight: bold;
   color: var(--color-heading);
+}
+.help-text {
+  font-size: 0.875rem;
+  color: var(--color-text-soft);
+  margin-top: 6px;
+  margin-bottom: 0;
 }
 input[type='text'],
 input[type='number'],
