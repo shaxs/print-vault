@@ -305,6 +305,7 @@ To see what's new in each release:
 ### Common Upgrade Issues
 
 **Problem: "permission denied" when building containers**
+
 ```bash
 # Error: error from sender: open /home/user/print-vault/data/postgres: permission denied
 # Solution: Use sudo for Docker commands
@@ -312,6 +313,7 @@ sudo docker compose up -d --build
 ```
 
 **Problem: Migrations not showing up**
+
 ```bash
 # This usually means migrations were already applied automatically on container startup
 # Verify with:
@@ -322,6 +324,7 @@ docker compose exec backend python manage.py showmigrations inventory
 ```
 
 **Problem: Container won't start after upgrade**
+
 ```bash
 # Check logs for errors:
 docker compose logs backend --tail 100
@@ -334,12 +337,14 @@ docker compose logs frontend --tail 50
 ```
 
 **Problem: "Database does not exist" when backing up**
+
 ```bash
 # Make sure you're using the correct database name: 'postgres' (not 'printvault')
 docker compose exec db pg_dump -U postgres postgres > backup.sql
 ```
 
 **Problem: Changes not appearing after rebuild**
+
 ```bash
 # Make sure you actually rebuilt (not just restarted):
 docker compose down
