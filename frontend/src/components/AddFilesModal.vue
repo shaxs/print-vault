@@ -359,7 +359,9 @@ async function uploadFiles() {
             <div v-for="(file, index) in selectedFiles" :key="index" class="file-item">
               <span class="file-name">{{ file.name }}</span>
               <span class="file-size">{{ formatFileSize(file.size) }}</span>
-              <button @click="removeFile(index)" class="btn-remove" :disabled="uploading">×</button>
+              <button @click="removeFile(index)" class="btn-icon-delete" :disabled="uploading">
+                ×
+              </button>
             </div>
           </div>
           <div class="total-size">Total: {{ formatFileSize(totalSize) }}</div>
@@ -623,30 +625,6 @@ async function uploadFiles() {
   white-space: nowrap;
 }
 
-.btn-remove {
-  background: none;
-  border: none;
-  color: #dc2626;
-  font-size: 1.5rem;
-  cursor: pointer;
-  padding: 0;
-  width: 24px;
-  height: 24px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  line-height: 1;
-}
-
-.btn-remove:hover:not(:disabled) {
-  color: #b91c1c;
-}
-
-.btn-remove:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-}
-
 .total-size {
   padding: 10px;
   text-align: right;
@@ -754,45 +732,5 @@ async function uploadFiles() {
   border: 1px solid rgba(239, 68, 68, 0.3);
   color: var(--color-text);
   white-space: pre-wrap;
-}
-
-/* Buttons */
-.btn {
-  padding: 10px 20px;
-  border-radius: 4px;
-  border: none;
-  cursor: pointer;
-  font-size: 0.95rem;
-  font-weight: 500;
-  transition: all 0.2s;
-}
-
-.btn-primary {
-  background-color: var(--vt-c-indigo);
-  color: white;
-}
-
-.btn-primary:hover:not(:disabled) {
-  background-color: var(--vt-c-indigo-dark);
-}
-
-.btn-primary:disabled {
-  opacity: 0.6;
-  cursor: not-allowed;
-}
-
-.btn-secondary {
-  background-color: var(--color-background-mute);
-  color: var(--color-text);
-  border: 1px solid var(--color-border);
-}
-
-.btn-secondary:hover:not(:disabled) {
-  background-color: var(--color-background-soft);
-}
-
-.btn-secondary:disabled {
-  opacity: 0.6;
-  cursor: not-allowed;
 }
 </style>

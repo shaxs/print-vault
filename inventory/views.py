@@ -20,12 +20,12 @@ from django_filters.rest_framework import DjangoFilterBackend
 from django.db.models import F
 from rest_framework.decorators import action
 from .models import (
-    Brand, PartType, Location, Material, Printer, Mod, ModFile,
+    Brand, PartType, Location, Material, Vendor, Printer, Mod, ModFile,
     InventoryItem, Project, ProjectLink, ProjectFile, ProjectInventory, ProjectPrinters,
     Tracker, TrackerFile, AlertDismissal
 )
 from .serializers import (
-    BrandSerializer, PartTypeSerializer, LocationSerializer, MaterialSerializer, PrinterSerializer, ModSerializer, ModFileSerializer,
+    BrandSerializer, PartTypeSerializer, LocationSerializer, MaterialSerializer, VendorSerializer, PrinterSerializer, ModSerializer, ModFileSerializer,
     InventoryItemSerializer, ProjectSerializer, ProjectLinkSerializer, ProjectFileSerializer,
     ProjectInventorySerializer, ProjectPrintersSerializer,
     TrackerSerializer, TrackerFileSerializer, TrackerCreateSerializer, TrackerListSerializer
@@ -57,7 +57,7 @@ class ExportDataView(APIView):
             # Export Inventory Items
             inv_buffer = StringIO()
             inv_writer = csv.writer(inv_buffer)
-            inv_writer.writerow(['id', 'title', 'brand', 'part_type', 'location', 'quantity', 'cost', 'notes', 'photo', 'is_consumable', 'low_stock_threshold'])
+            inv_writer.writerow(['id', 'title', 'brand', 'part_type', 'location', 'quantity', 'cost', 'notes', 'photo', 'is_consumable', 'low_stock_threshold', 'vendor', 'vendor_link', 'model'])
             for item in InventoryItem.objects.all():
                 inv_writer.writerow([
                     item.id, item.title, item.brand.name if item.brand else '',
@@ -65,7 +65,10 @@ class ExportDataView(APIView):
                     item.location.name if item.location else '',
                     item.quantity, item.cost, item.notes,
                     os.path.basename(item.photo.name) if item.photo else '',
-                    item.is_consumable, item.low_stock_threshold
+                    item.is_consumable, item.low_stock_threshold,
+                    item.vendor.name if item.vendor else '',
+                    item.vendor_link or '',
+                    item.model or ''
                 ])
             zf.writestr('inventory.csv', inv_buffer.getvalue())
 
@@ -1056,6 +1059,7 @@ class ImportDataView(APIView):
                         brand = Brand.objects.filter(name=row['brand']).first() if row['brand'] else None
                         part_type = PartType.objects.filter(name=row['part_type']).first() if row['part_type'] else None
                         location = Location.objects.filter(name=row['location']).first() if row['location'] else None
+                        vendor = Vendor.objects.filter(name=row.get('vendor', '')).first() if row.get('vendor') else None
                         item = InventoryItem(
                             id=row['id'],
                             title=row['title'],
@@ -1067,7 +1071,10 @@ class ImportDataView(APIView):
                             notes=row.get('notes', ''),
                             photo=f"inventory_photos/{row['photo']}" if row.get('photo') else None,
                             is_consumable=row.get('is_consumable', 'false').lower() == 'true',
-                            low_stock_threshold=int(row.get('low_stock_threshold', 0)) if row.get('low_stock_threshold') else None
+                            low_stock_threshold=int(row.get('low_stock_threshold', 0)) if row.get('low_stock_threshold') else None,
+                            vendor=vendor,
+                            vendor_link=row.get('vendor_link', '') or None,
+                            model=row.get('model', '') or None
                         )
                         item.save()
 
@@ -1239,6 +1246,7 @@ class DeleteAllData(APIView):
             Brand.objects.all().delete()
             PartType.objects.all().delete()
             Location.objects.all().delete()
+            Vendor.objects.all().delete()
 
             media_path = settings.MEDIA_ROOT
             if os.path.isdir(media_path):
@@ -1274,6 +1282,11 @@ class LocationViewSet(viewsets.ModelViewSet):
 class MaterialViewSet(viewsets.ModelViewSet):
     queryset = Material.objects.all().order_by('name')
     serializer_class = MaterialSerializer
+    permission_classes = [AllowAny]
+
+class VendorViewSet(viewsets.ModelViewSet):
+    queryset = Vendor.objects.all().order_by('name')
+    serializer_class = VendorSerializer
     permission_classes = [AllowAny]
 
 class ModViewSet(viewsets.ModelViewSet):

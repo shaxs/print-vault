@@ -256,8 +256,9 @@ const filteredCategories = computed(() => {
   font-size: 0.9rem;
 }
 .subtitle a {
-  color: var(--color-blue);
+  color: var(--color-text);
   text-decoration: none;
+  word-break: break-word;
 }
 .subtitle a:hover {
   text-decoration: underline;

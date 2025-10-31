@@ -19,6 +19,7 @@ const allProjects = ref([])
 const partTypes = ref([])
 const brands = ref([])
 const locations = ref([])
+const vendors = ref([])
 
 watch(
   () => props.initialData,
@@ -38,6 +39,9 @@ watch(
         brand: null,
         part_type: null,
         location: null,
+        vendor: null,
+        vendor_link: '',
+        model: '',
         quantity: 1,
         cost: null,
         notes: '',
@@ -76,6 +80,8 @@ const saveItem = async () => {
   formData.append('quantity', item.value.quantity || 0)
   if (item.value.cost) formData.append('cost', item.value.cost)
   if (item.value.notes) formData.append('notes', item.value.notes)
+  if (item.value.model) formData.append('model', item.value.model)
+  if (item.value.vendor_link) formData.append('vendor_link', item.value.vendor_link)
   formData.append('is_consumable', item.value.is_consumable)
   if (item.value.is_consumable && item.value.low_stock_threshold !== null) {
     formData.append('low_stock_threshold', item.value.low_stock_threshold)
@@ -89,6 +95,9 @@ const saveItem = async () => {
 
   const locationName = item.value.location?.name || item.value.location
   if (locationName) formData.append('location', JSON.stringify({ name: locationName }))
+
+  const vendorName = item.value.vendor?.name || item.value.vendor
+  if (vendorName) formData.append('vendor', JSON.stringify({ name: vendorName }))
 
   if (item.value.project_ids) {
     item.value.project_ids.forEach((id) => formData.append('project_ids', id))
@@ -126,6 +135,11 @@ const addLocation = (newLocation) => {
   locations.value.push(location)
   item.value.location = location
 }
+const addVendor = (newVendor) => {
+  const vendor = { name: newVendor }
+  vendors.value.push(vendor)
+  item.value.vendor = vendor
+}
 const addProject = async (newProjectName) => {
   try {
     const newProjectData = { project_name: newProjectName, status: 'Planning' }
@@ -140,15 +154,17 @@ const addProject = async (newProjectName) => {
 
 onMounted(async () => {
   try {
-    const [partTypesRes, brandsRes, locationsRes, projectsRes] = await Promise.all([
+    const [partTypesRes, brandsRes, locationsRes, vendorsRes, projectsRes] = await Promise.all([
       APIService.getPartTypes(),
       APIService.getBrands(),
       APIService.getLocations(),
+      APIService.getVendors(),
       APIService.getProjects(),
     ])
     partTypes.value = partTypesRes.data
     brands.value = brandsRes.data
     locations.value = locationsRes.data
+    vendors.value = vendorsRes.data
     allProjects.value = projectsRes.data
   } catch (error) {
     console.error('Error loading form options:', error)
@@ -219,6 +235,30 @@ onMounted(async () => {
     </div>
 
     <div class="form-group">
+      <label for="vendor">Vendor</label>
+      <multiselect
+        id="vendor"
+        v-model="item.vendor"
+        :options="vendors"
+        label="name"
+        track-by="name"
+        placeholder="Select or type to add vendor"
+        :taggable="true"
+        @tag="addVendor"
+      ></multiselect>
+    </div>
+
+    <div class="form-group">
+      <label for="vendor_link">Vendor Link</label>
+      <input id="vendor_link" v-model="item.vendor_link" type="url" placeholder="https://..." />
+    </div>
+
+    <div class="form-group">
+      <label for="model">Model Number</label>
+      <input id="model" v-model="item.model" type="text" placeholder="Model/Part Number" />
+    </div>
+
+    <div class="form-group">
       <label for="quantity">Quantity</label>
       <input id="quantity" v-model.number="item.quantity" type="number" min="0" />
     </div>
@@ -258,10 +298,10 @@ onMounted(async () => {
     </div>
 
     <div class="form-actions">
-      <button type="submit" class="save-button">Save</button>
-      <RouterLink :to="isEditMode ? `/item/${item.id}` : '/'" class="cancel-button"
-        >Cancel</RouterLink
-      >
+      <button type="submit" class="btn btn-primary">Save Inventory Item</button>
+      <RouterLink :to="isEditMode ? `/item/${item.id}` : '/'" class="btn btn-secondary">
+        Cancel
+      </RouterLink>
     </div>
   </form>
 </template>
@@ -287,6 +327,10 @@ label {
 }
 input[type='text'],
 input[type='number'],
+input[type='url'],
+input[type='email'],
+input[type='password'],
+input[type='date'],
 input[type='file'],
 textarea {
   width: 100%;
@@ -313,25 +357,7 @@ textarea {
   gap: 10px;
   margin-top: 20px;
 }
-.save-button,
-.cancel-button {
-  padding: 10px 20px;
-  border: none;
-  border-radius: 5px;
-  text-decoration: none;
-  cursor: pointer;
-  font-size: 1rem;
-  font-weight: bold;
-}
-.save-button {
-  background-color: var(--color-blue);
-  color: white;
-}
-.cancel-button {
-  background-color: var(--color-background-mute);
-  color: var(--color-heading);
-  border: 1px solid var(--color-border);
-}
+/* Removed custom button styles; use global .btn classes */
 .multiselect__tags,
 .multiselect__input {
   background: var(--color-background);

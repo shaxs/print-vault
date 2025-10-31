@@ -112,6 +112,25 @@ onMounted(fetchInventoryItem)
                   <span class="label">Location: </span>
                   <span class="value">{{ item.location?.name || 'N/A' }}</span>
                 </div>
+                <div class="info-item" v-if="item.vendor || item.vendor_link">
+                  <span class="label">Vendor: </span>
+                  <span class="value">
+                    <a
+                      v-if="item.vendor_link"
+                      :href="item.vendor_link"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      class="vendor-link"
+                    >
+                      {{ item.vendor?.name || 'External Link' }}
+                    </a>
+                    <span v-else>{{ item.vendor?.name || 'N/A' }}</span>
+                  </span>
+                </div>
+                <div class="info-item" v-if="item.model">
+                  <span class="label">Model: </span>
+                  <span class="value">{{ item.model }}</span>
+                </div>
                 <div class="info-item">
                   <span class="label">Quantity: </span>
                   <span class="value">{{ item.quantity }}</span>
@@ -153,7 +172,7 @@ onMounted(fetchInventoryItem)
                   <span class="table-link grey-link">{{ item.project_name }}</span>
                 </template>
                 <template #cell-actions="{ item }">
-                  <button @click.stop="removeProjectAssociation(item)" class="btn-remove-inventory">
+                  <button @click.stop="removeProjectAssociation(item)" class="btn-remove-datatable">
                     Remove
                   </button>
                 </template>
@@ -178,11 +197,11 @@ onMounted(fetchInventoryItem)
     >
       <p>Are you sure you want to permanently delete "{{ item.title }}"?</p>
       <template #footer>
-        <button @click="confirmDelete" class="action-button delete-button">Yes, Delete</button>
+        <button @click="confirmDelete" class="btn btn-danger btn-sm">Yes, Delete</button>
         <button
           @click="isDeleteModalVisible = false"
           type="button"
-          class="action-button cancel-button"
+          class="btn btn-secondary btn-sm"
         >
           Cancel
         </button>
@@ -529,13 +548,12 @@ hr {
   color: var(--color-heading);
   border: 1px solid var(--color-border);
 }
-.btn-remove-inventory {
-  background-color: var(--color-red);
-  color: white;
-  padding: 5px 10px;
-  border: none;
-  border-radius: 4px;
-  cursor: pointer;
-  font-size: 0.8rem;
+.vendor-link {
+  color: var(--color-text);
+  text-decoration: none;
+  word-break: break-word;
+}
+.vendor-link:hover {
+  text-decoration: underline;
 }
 </style>

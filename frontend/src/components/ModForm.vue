@@ -30,7 +30,7 @@
           <button
             type="button"
             @click.stop="toggleFileForDeletion(file.id)"
-            class="btn-delete-file"
+            class="btn-icon-delete"
           >
             &times;
           </button>
@@ -63,7 +63,7 @@
         <ul v-else class="file-list">
           <li v-for="(file, index) in newFiles" :key="index" class="file-list-item">
             <span>{{ file.name }}</span>
-            <button type="button" @click.stop="removeNewFile(index)" class="btn-delete-file">
+            <button type="button" @click.stop="removeNewFile(index)" class="btn-icon-delete">
               &times;
             </button>
           </li>
@@ -175,14 +175,22 @@ const submitForm = () => {
 }
 
 input[type='text'],
+input[type='number'],
 input[type='url'],
+input[type='email'],
+input[type='password'],
+input[type='date'],
+input[type='file'],
+textarea,
 select {
   width: 100%;
   padding: 0.75rem;
   border: 1px solid var(--color-border);
   border-radius: 4px;
+  box-sizing: border-box;
   background-color: var(--color-background);
   color: var(--color-text);
+  font-size: 1rem;
 }
 
 .file-input {
@@ -240,15 +248,6 @@ select {
 }
 .file-link:hover {
   text-decoration: underline;
-}
-
-.btn-delete-file {
-  background: none;
-  border: none;
-  color: #ef4444;
-  font-size: 1.25rem;
-  cursor: pointer;
-  padding: 0 0.5rem;
 }
 
 .form-actions {

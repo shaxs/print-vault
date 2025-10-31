@@ -116,7 +116,7 @@ watch(() => props.categoryType, loadData, { immediate: true })
   <div>
     <div class="content-header">
       <h3>{{ title }}</h3>
-      <button @click="openAddModal" class="action-button add-button">Add New</button>
+      <button @click="openAddModal" class="btn btn-primary">Add New</button>
     </div>
     <DataTable
       :headers="headers"
@@ -127,10 +127,8 @@ watch(() => props.categoryType, loadData, { immediate: true })
       <template #cell-name="{ item }">{{ item.name }}</template>
       <template #cell-actions="{ item }">
         <div class="actions-cell">
-          <button @click="openEditModal(item)" class="action-button edit-button">Edit</button>
-          <button @click="openDeleteItemModal(item)" class="action-button delete-button">
-            Delete
-          </button>
+          <button @click="openEditModal(item)" class="btn btn-sm btn-primary">Edit</button>
+          <button @click="openDeleteItemModal(item)" class="btn btn-sm btn-danger">Delete</button>
         </div>
       </template>
     </DataTable>
@@ -147,12 +145,8 @@ watch(() => props.categoryType, loadData, { immediate: true })
         </div>
       </form>
       <template #footer>
-        <button @click="saveItem" class="action-button save-button">Save</button>
-        <button
-          @click="isEditModalVisible = false"
-          type="button"
-          class="action-button cancel-button"
-        >
+        <button @click="saveItem" class="btn btn-primary">Save</button>
+        <button @click="isEditModalVisible = false" type="button" class="btn btn-secondary">
           Cancel
         </button>
       </template>
@@ -165,14 +159,8 @@ watch(() => props.categoryType, loadData, { immediate: true })
     >
       <p>Are you sure you want to delete '{{ itemToDelete?.name }}'?</p>
       <template #footer>
-        <button @click="handleDeleteConfirm" class="action-button delete-button">
-          Yes, Delete
-        </button>
-        <button
-          @click="isDeleteModalVisible = false"
-          type="button"
-          class="action-button cancel-button"
-        >
+        <button @click="handleDeleteConfirm" class="btn btn-danger">Yes, Delete</button>
+        <button @click="isDeleteModalVisible = false" type="button" class="btn btn-secondary">
           Cancel
         </button>
       </template>
@@ -195,35 +183,7 @@ watch(() => props.categoryType, loadData, { immediate: true })
   gap: 10px;
   align-items: center;
 }
-.action-button {
-  padding: 8px 15px;
-  text-decoration: none;
-  border-radius: 5px;
-  font-weight: bold;
-  border: none;
-  cursor: pointer;
-  white-space: nowrap;
-  font-size: 0.9rem;
-  height: 36px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-}
-.edit-button,
-.add-button,
-.save-button {
-  background-color: var(--color-blue);
-  color: white;
-}
-.delete-button {
-  background-color: var(--color-red);
-  color: white;
-}
-.cancel-button {
-  background-color: var(--color-background-mute);
-  color: var(--color-heading);
-  border: 1px solid var(--color-border);
-}
+/* Removed custom button styles; use global .btn classes */
 .form-group {
   margin-bottom: 1rem;
 }

@@ -14,7 +14,7 @@ const emit = defineEmits(['close'])
       <h3 class="error-title">{{ title }}</h3>
       <p>{{ message }}</p>
       <div class="form-actions">
-        <button @click="emit('close')" type="button" class="cancel-button">Close</button>
+        <button @click="emit('close')" type="button" class="btn btn-secondary">Close</button>
       </div>
     </div>
   </div>
@@ -50,24 +50,6 @@ const emit = defineEmits(['close'])
 .modal-form p {
   margin-bottom: 20px;
 }
-.form-actions {
-  display: flex;
-  justify-content: flex-end;
-  gap: 10px;
-  margin-top: 20px;
-}
-.cancel-button {
-  padding: 10px 20px;
-  border: none;
-  border-radius: 5px;
-  text-decoration: none;
-  cursor: pointer;
-  font-size: 1rem;
-  font-weight: bold;
-}
-.cancel-button {
-  background-color: var(--color-background-mute);
-  color: var(--color-heading);
-  border: 1px solid var(--color-border);
-}
+/* .form-actions styles remain for layout, but custom button styles are removed. */
+/* Removed custom button styles; use global .btn classes */
 </style>

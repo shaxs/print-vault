@@ -3,7 +3,7 @@ import json
 from rest_framework import serializers
 from django.utils import timezone
 from .models import (
-    Brand, PartType, Location, Material, Printer, Mod, ModFile,
+    Brand, PartType, Location, Material, Vendor, Printer, Mod, ModFile,
     InventoryItem, Project, ProjectLink, ProjectFile, ProjectInventory, ProjectPrinters,
     Tracker, TrackerFile
 )
@@ -33,6 +33,11 @@ class LocationSerializer(serializers.ModelSerializer):
 class MaterialSerializer(serializers.ModelSerializer):
     class Meta:
         model = Material
+        fields = ['id', 'name']
+
+class VendorSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Vendor
         fields = ['id', 'name']
         
 class ModFileSerializer(serializers.ModelSerializer):
@@ -75,6 +80,7 @@ class InventoryItemSerializer(serializers.ModelSerializer):
     brand = BrandSerializer(read_only=True)
     part_type = PartTypeSerializer(read_only=True)
     location = LocationSerializer(read_only=True)
+    vendor = VendorSerializer(read_only=True)
     associated_projects = SimpleProjectSerializer(many=True, read_only=True)
     project_ids = serializers.PrimaryKeyRelatedField(
         many=True, queryset=Project.objects.all(), source='associated_projects', write_only=True, required=False
@@ -86,7 +92,9 @@ class InventoryItemSerializer(serializers.ModelSerializer):
             'cost', 'location', 'photo', 'notes',
             'associated_projects', 'project_ids',
             # --- New Fields for Consumables ---
-            'is_consumable', 'low_stock_threshold'
+            'is_consumable', 'low_stock_threshold',
+            # --- Vendor and Model Fields ---
+            'vendor', 'vendor_link', 'model'
         ]
 
     def create(self, validated_data):
@@ -95,6 +103,7 @@ class InventoryItemSerializer(serializers.ModelSerializer):
         validated_data['brand'] = get_or_create_nested(Brand, request_data.get('brand'))
         validated_data['part_type'] = get_or_create_nested(PartType, request_data.get('part_type'))
         validated_data['location'] = get_or_create_nested(Location, request_data.get('location'))
+        validated_data['vendor'] = get_or_create_nested(Vendor, request_data.get('vendor'))
         instance = InventoryItem.objects.create(**validated_data)
         if projects:
             instance.associated_projects.set(projects)
@@ -109,6 +118,8 @@ class InventoryItemSerializer(serializers.ModelSerializer):
             instance.part_type = get_or_create_nested(PartType, request_data.get('part_type'))
         if 'location' in request_data:
             instance.location = get_or_create_nested(Location, request_data.get('location'))
+        if 'vendor' in request_data:
+            instance.vendor = get_or_create_nested(Vendor, request_data.get('vendor'))
         instance = super().update(instance, validated_data)
         if projects is not None:
             instance.associated_projects.set(projects)

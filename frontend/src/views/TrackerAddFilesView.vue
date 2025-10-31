@@ -467,7 +467,7 @@ async function uploadFiles() {
                       :disabled="uploading"
                       style="display: none"
                     />
-                    <span class="btn btn-secondary">Browse Files</span>
+                    <span class="btn btn-sm btn-secondary">Browse Files</span>
                   </label>
                   <p class="help-text">Supported: STL, 3MF, OBJ, GCODE, STEP</p>
                 </div>
@@ -618,8 +618,9 @@ async function uploadFiles() {
 }
 
 .breadcrumb a {
-  color: var(--vt-c-indigo);
+  color: var(--color-text);
   text-decoration: none;
+  word-break: break-word;
 }
 
 .breadcrumb a:hover {

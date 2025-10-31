@@ -189,12 +189,13 @@ onMounted(async () => {
     </div>
 
     <div class="form-actions">
-      <button type="submit" class="save-button btn-sm">Save Printer Details</button>
+      <button type="submit" class="btn btn-primary">Save Printer Details</button>
       <RouterLink
         :to="isEditMode ? `/printers/${printer.id}` : '/printers'"
-        class="cancel-button btn-sm"
-        >Cancel</RouterLink
+        class="btn btn-secondary"
       >
+        Cancel
+      </RouterLink>
     </div>
   </form>
 </template>
@@ -220,7 +221,11 @@ label {
 }
 input[type='text'],
 input[type='number'],
+input[type='url'],
+input[type='email'],
+input[type='password'],
 input[type='date'],
+input[type='file'],
 textarea,
 select {
   width: 100%;
@@ -251,25 +256,7 @@ select {
   gap: 10px;
   margin-top: 20px;
 }
-.save-button,
-.cancel-button {
-  padding: 10px 20px;
-  border: none;
-  border-radius: 5px;
-  text-decoration: none;
-  cursor: pointer;
-  font-size: 1rem;
-  font-weight: bold;
-}
-.save-button {
-  background-color: var(--color-blue);
-  color: white;
-}
-.cancel-button {
-  background-color: var(--color-background-mute);
-  color: var(--color-heading);
-  border: 1px solid var(--color-border);
-}
+/* Removed custom button styles; use global .btn classes */
 /* Multiselect dark theme override */
 .multiselect__tags,
 .multiselect__input {

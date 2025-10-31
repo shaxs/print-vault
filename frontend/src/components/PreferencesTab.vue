@@ -62,23 +62,6 @@ onMounted(() => {
   margin: 0;
   font-size: 0.9rem;
 }
-
-.theme-toggle {
-  background: none;
-  border: 1px solid var(--color-border);
-  color: var(--color-text);
-  padding: 8px 15px;
-  border-radius: 5px;
-  cursor: pointer;
-  font-size: 1rem;
-  font-weight: bold;
-  display: flex;
-  align-items: center;
-  gap: 5px;
-  height: 41px;
-}
-
-.theme-toggle:hover {
-  border-color: var(--color-border-hover);
-}
+/* Removed custom button styles; use global .btn classes */
+/* Removed leftover invalid CSS from previous custom button styles */
 </style>

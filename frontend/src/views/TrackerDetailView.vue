@@ -659,7 +659,7 @@ onMounted(() => {
             </div>
           </div>
           <div class="header-actions">
-            <button @click="openFilterModal" class="header-button">Filter</button>
+            <button @click="openFilterModal" class="btn btn-secondary">Filter</button>
             <div class="search-container">
               <input
                 type="search"
@@ -673,10 +673,10 @@ onMounted(() => {
             </div>
             <router-link
               :to="{ name: 'tracker-edit', params: { id: tracker.id } }"
-              class="edit-button"
+              class="btn btn-primary"
               >Edit</router-link
             >
-            <button @click="confirmDelete" class="delete-button">Delete</button>
+            <button @click="confirmDelete" class="btn btn-danger">Delete</button>
           </div>
         </div>
 
@@ -737,19 +737,19 @@ onMounted(() => {
           <button
             v-if="filteredCategories.length > 0"
             @click="toggleCollapseAll"
-            class="btn btn-secondary"
+            class="btn btn-sm btn-secondary"
           >
             {{ allCollapsed ? 'Expand All' : 'Collapse All' }}
           </button>
           <button
             @click="downloadAllAsZip"
-            class="btn btn-secondary"
+            class="btn btn-sm btn-secondary"
             :disabled="downloadingZip || !hasFiles"
           >
             <span v-if="downloadingZip">Preparing Download...</span>
             <span v-else>Download All Files</span>
           </button>
-          <button @click="openAddFilesModal" class="btn btn-primary">Add Files</button>
+          <button @click="openAddFilesModal" class="btn btn-sm btn-primary">Add Files</button>
         </div>
 
         <!-- Files by Category -->
@@ -1188,53 +1188,6 @@ onMounted(() => {
   font-size: 1.5rem;
   cursor: pointer;
   padding: 0 5px;
-}
-
-.header-button,
-.edit-button,
-.delete-button {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  padding: 8px 15px;
-  text-decoration: none;
-  border-radius: 5px;
-  font-weight: bold;
-  border: none;
-  cursor: pointer;
-  white-space: nowrap;
-  font-size: 1rem;
-  height: 41px;
-  user-select: none;
-}
-
-.header-button {
-  background: none;
-  border: 1px solid var(--color-border);
-  color: var(--color-text);
-}
-
-.header-button:hover {
-  border-color: var(--color-border-hover);
-  background-color: var(--color-background-soft);
-}
-
-.edit-button {
-  background-color: var(--color-blue);
-  color: white;
-}
-
-.edit-button:hover {
-  opacity: 0.9;
-}
-
-.delete-button {
-  background-color: var(--color-red);
-  color: white;
-}
-
-.delete-button:hover {
-  opacity: 0.9;
 }
 
 /* Controls */
@@ -1832,7 +1785,7 @@ onMounted(() => {
   }
 
   /* Filter button and Search on first row */
-  .header-actions .header-button {
+  .header-actions .btn-secondary:first-child {
     grid-column: 1;
     grid-row: 1;
   }
@@ -1843,13 +1796,13 @@ onMounted(() => {
   }
 
   /* Edit and Delete buttons on second row, span full width and split equally */
-  .header-actions .edit-button {
+  .header-actions .btn-primary {
     grid-column: 1 / -1;
     grid-row: 2;
     width: calc(50% - 0.25rem);
   }
 
-  .header-actions .delete-button {
+  .header-actions .btn-danger {
     grid-column: 1 / -1;
     grid-row: 2;
     width: calc(50% - 0.25rem);

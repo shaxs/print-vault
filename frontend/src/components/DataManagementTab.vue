@@ -143,7 +143,7 @@ const confirmRestore = async () => {
           Download a single ZIP archive containing your data as a CSV file and all your uploaded
           photos and files.
         </p>
-        <button @click="exportData" :disabled="isExporting" class="action-button edit-button">
+        <button @click="exportData" :disabled="isExporting" class="btn btn-primary btn-sm">
           <span v-if="isExporting">Creating Backup...</span>
           <span v-else>Export Backup</span>
         </button>
@@ -162,7 +162,7 @@ const confirmRestore = async () => {
               required
             />
           </div>
-          <button type="submit" class="action-button edit-button">Restore from Backup</button>
+          <button type="submit" class="btn btn-primary btn-sm">Restore from Backup</button>
         </form>
       </div>
     </div>
@@ -174,7 +174,7 @@ const confirmRestore = async () => {
           Permanently delete all inventory, printers, projects, and uploaded files. This cannot be
           undone.
         </p>
-        <button @click="handleInitialDelete" class="action-button delete-button">
+        <button @click="handleInitialDelete" class="btn btn-danger btn-sm">
           Delete All Data & Files
         </button>
       </div>
@@ -189,17 +189,18 @@ const confirmRestore = async () => {
         Restoring from a backup will delete ALL current data and files. This action is irreversible.
         Are you sure?
       </p>
-      <template #footer
-        ><button @click="proceedToFinalRestore" class="action-button delete-button">
-          Yes, Delete and Restore</button
-        ><button
+      <template #footer>
+        <button @click="proceedToFinalRestore" class="btn btn-danger btn-sm">
+          Yes, Delete and Restore
+        </button>
+        <button
           @click="isInitialRestoreModalVisible = false"
           type="button"
-          class="action-button cancel-button"
+          class="btn btn-secondary btn-sm"
         >
           Cancel
-        </button></template
-      >
+        </button>
+      </template>
     </BaseModal>
     <BaseModal
       :show="isFinalRestoreModalVisible"
@@ -220,18 +221,19 @@ const confirmRestore = async () => {
           >I understand this action is permanent and will overwrite all current data.</label
         >
       </div>
-      <template #footer
-        ><button
+      <template #footer>
+        <button
           @click="confirmRestore"
           :disabled="isFinalRestoreDisabled || isRestoring"
-          class="action-button delete-button"
+          class="btn btn-danger btn-sm"
         >
           <span v-if="isRestoring">Restoring...</span>
-          <span v-else>Permanently Restore Data</span></button
-        ><button @click="cancelFinalRestore" type="button" class="action-button cancel-button">
+          <span v-else>Permanently Restore Data</span>
+        </button>
+        <button @click="cancelFinalRestore" type="button" class="btn btn-secondary btn-sm">
           Cancel
-        </button></template
-      >
+        </button>
+      </template>
     </BaseModal>
     <InfoModal
       :show="isInfoModalVisible"
@@ -246,17 +248,16 @@ const confirmRestore = async () => {
       @close="isInitialDeleteModalVisible = false"
     >
       <p>This will delete ALL data and files. This action is permanent and cannot be undone.</p>
-      <template #footer
-        ><button @click="proceedToFinalDelete" class="action-button delete-button">
-          Yes, Proceed</button
-        ><button
+      <template #footer>
+        <button @click="proceedToFinalDelete" class="btn btn-danger btn-sm">Yes, Proceed</button>
+        <button
           @click="isInitialDeleteModalVisible = false"
           type="button"
-          class="action-button cancel-button"
+          class="btn btn-secondary btn-sm"
         >
           Cancel
-        </button></template
-      >
+        </button>
+      </template>
     </BaseModal>
     <BaseModal
       :show="isFinalDeleteModalVisible"
@@ -277,68 +278,25 @@ const confirmRestore = async () => {
           >I understand this action is permanent and cannot be undone.</label
         >
       </div>
-      <template #footer
-        ><button
+      <template #footer>
+        <button
           @click="handleFinalDelete"
           :disabled="isFinalDeleteDisabled"
-          class="action-button delete-button"
+          class="btn btn-danger btn-sm"
         >
-          Permanently Delete Everything</button
-        ><button @click="cancelFinalDelete" type="button" class="action-button cancel-button">
+          Permanently Delete Everything
+        </button>
+        <button @click="cancelFinalDelete" type="button" class="btn btn-secondary btn-sm">
           Cancel
-        </button></template
-      >
+        </button>
+      </template>
     </BaseModal>
   </div>
 </template>
 
 <style scoped>
 /* Scoped styles copied from SettingsView.vue */
-.content-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-}
-.content-header h3 {
-  color: var(--color-heading);
-}
-.action-button {
-  padding: 8px 15px;
-  text-decoration: none;
-  border-radius: 5px;
-  font-weight: bold;
-  border: none;
-  cursor: pointer;
-  white-space: nowrap;
-  font-size: 0.9rem;
-  height: 36px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-}
-.edit-button {
-  background-color: var(--color-blue);
-  color: white;
-}
-.edit-button:disabled {
-  background-color: var(--color-background-mute);
-  color: var(--color-text);
-  cursor: not-allowed;
-}
-.delete-button {
-  background-color: var(--color-red);
-  color: white;
-}
-.delete-button:disabled {
-  background-color: var(--color-background-mute);
-  color: var(--color-text);
-  cursor: not-allowed;
-}
-.cancel-button {
-  background-color: var(--color-background-mute);
-  color: var(--color-heading);
-  border: 1px solid var(--color-border);
-}
+/* All custom button styles removed; only global .btn/.btn-sm classes are used for buttons. */
 .data-actions {
   display: grid;
   grid-template-columns: 1fr 1fr;
@@ -361,9 +319,7 @@ const confirmRestore = async () => {
   font-size: 0.9rem;
   flex-grow: 1;
 }
-.action-item .action-button {
-  align-self: flex-start;
-}
+/* Removed .action-item .action-button rule; no longer needed since .action-button is gone. */
 .restore-form {
   margin-top: 10px;
   display: flex;

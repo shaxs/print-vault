@@ -152,7 +152,7 @@ const dismissReminder = async (id, type) => {
       </div>
       <p v-else>You're all caught up!</p>
       <template #footer>
-        <button @click="isModalVisible = false" type="button" class="action-button cancel-button">
+        <button @click="isModalVisible = false" type="button" class="btn btn-secondary">
           Close
         </button>
       </template>
@@ -250,18 +250,5 @@ h4:first-of-type {
 .dismiss-button:hover {
   background: rgba(0, 0, 0, 0.1);
   color: var(--color-text);
-}
-.action-button {
-  padding: 8px 15px;
-  text-decoration: none;
-  border-radius: 5px;
-  font-weight: bold;
-  border: none;
-  cursor: pointer;
-}
-.cancel-button {
-  background-color: var(--color-background-mute);
-  color: var(--color-heading);
-  border: 1px solid var(--color-border);
 }
 </style>

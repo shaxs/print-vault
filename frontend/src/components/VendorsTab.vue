@@ -3,18 +3,18 @@ import { ref, onMounted } from 'vue'
 import BaseModal from '@/components/BaseModal.vue'
 import APIService from '@/services/APIService.js'
 
-const locations = ref([])
+const vendors = ref([])
 const isEditModalVisible = ref(false)
 const editingItem = ref(null)
 const isDeleteModalVisible = ref(false)
 const itemToDelete = ref(null)
 
-const loadLocations = async () => {
+const loadVendors = async () => {
   try {
-    const response = await APIService.getLocations()
-    locations.value = response.data
+    const response = await APIService.getVendors()
+    vendors.value = response.data
   } catch (error) {
-    console.error('Failed to load locations:', error)
+    console.error('Failed to load vendors:', error)
   }
 }
 
@@ -34,15 +34,15 @@ const saveItem = async () => {
   const data = { name: editingItem.value.name }
   try {
     if (isEditing) {
-      await APIService.updateLocation(editingItem.value.id, data)
+      await APIService.updateVendor(editingItem.value.id, data)
     } else {
-      await APIService.createLocation(data)
+      await APIService.createVendor(data)
     }
     isEditModalVisible.value = false
     editingItem.value = null
-    loadLocations()
+    loadVendors()
   } catch (error) {
-    console.error('Failed to save location:', error)
+    console.error('Failed to save vendor:', error)
   }
 }
 
@@ -54,10 +54,10 @@ const openDeleteItemModal = (item) => {
 const handleDeleteConfirm = async () => {
   if (!itemToDelete.value) return
   try {
-    await APIService.deleteLocation(itemToDelete.value.id)
-    loadLocations()
+    await APIService.deleteVendor(itemToDelete.value.id)
+    loadVendors()
   } catch (error) {
-    console.error('Failed to delete location:', error)
+    console.error('Failed to delete vendor:', error)
   } finally {
     isDeleteModalVisible.value = false
     itemToDelete.value = null
@@ -65,31 +65,29 @@ const handleDeleteConfirm = async () => {
 }
 
 onMounted(() => {
-  loadLocations()
+  loadVendors()
 })
 </script>
 
 <template>
   <div>
     <div class="content-header">
-      <h3>Manage Locations</h3>
+      <h3>Manage Vendors</h3>
       <button @click="openAddModal" class="btn btn-primary">Add New</button>
     </div>
-    <ul class="locations-list">
-      <li v-for="location in locations" :key="location.id" class="location-item">
-        <span>{{ location.name }}</span>
+    <ul class="vendors-list">
+      <li v-for="vendor in vendors" :key="vendor.id" class="vendor-item">
+        <span>{{ vendor.name }}</span>
         <div class="actions-cell">
-          <button @click="openEditModal(location)" class="btn btn-sm btn-primary">Edit</button>
-          <button @click="openDeleteItemModal(location)" class="btn btn-sm btn-danger">
-            Delete
-          </button>
+          <button @click="openEditModal(vendor)" class="btn btn-sm btn-primary">Edit</button>
+          <button @click="openDeleteItemModal(vendor)" class="btn btn-sm btn-danger">Delete</button>
         </div>
       </li>
     </ul>
 
     <BaseModal
       :show="isEditModalVisible"
-      :title="editingItem && editingItem.id ? 'Edit Location' : 'Add New Location'"
+      :title="editingItem && editingItem.id ? 'Edit Vendor' : 'Add New Vendor'"
       @close="isEditModalVisible = false"
     >
       <form @submit.prevent="saveItem">
@@ -99,10 +97,10 @@ onMounted(() => {
         </div>
       </form>
       <template #footer>
-        <button @click="saveItem" class="btn btn-primary">Save</button>
         <button @click="isEditModalVisible = false" type="button" class="btn btn-secondary">
           Cancel
         </button>
+        <button @click="saveItem" class="btn btn-primary">Save</button>
       </template>
     </BaseModal>
 
@@ -111,12 +109,12 @@ onMounted(() => {
       title="Confirm Deletion"
       @close="isDeleteModalVisible = false"
     >
-      <p>Are you sure you want to delete '{{ itemToDelete?.name }}'?</p>
+      <p>Are you sure you want to delete "{{ itemToDelete?.name }}"?</p>
       <template #footer>
-        <button @click="handleDeleteConfirm" class="btn btn-danger">Yes, Delete</button>
         <button @click="isDeleteModalVisible = false" type="button" class="btn btn-secondary">
           Cancel
         </button>
+        <button @click="handleDeleteConfirm" class="btn btn-danger">Yes, Delete</button>
       </template>
     </BaseModal>
   </div>
@@ -132,23 +130,27 @@ onMounted(() => {
 .content-header h3 {
   color: var(--color-heading);
 }
-.locations-list {
+/* Removed custom button styles; use global .btn classes */
+.vendors-list {
   list-style-type: none;
   padding: 0;
   margin: 0;
 }
-.location-item {
+.vendor-item {
   display: flex;
   justify-content: space-between;
   align-items: center;
   padding: 10px;
   border-bottom: 1px solid var(--color-border);
 }
+.vendor-item span {
+  flex: 1;
+  color: var(--color-text);
+}
 .actions-cell {
   display: flex;
   gap: 10px;
 }
-/* Removed custom button styles; use global .btn classes */
 .form-group {
   margin-bottom: 1rem;
 }
