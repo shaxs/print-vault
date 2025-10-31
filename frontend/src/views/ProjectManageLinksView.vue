@@ -26,10 +26,15 @@
             />
           </div>
           <div class="form-actions form-actions-inline">
-            <button type="submit" class="btn btn-primary">
+            <button type="submit" class="btn btn-sm btn-primary">
               {{ isEditing ? 'Update Link' : 'Add Link' }}
             </button>
-            <button v-if="isEditing" type="button" @click="cancelEdit" class="btn btn-secondary">
+            <button
+              v-if="isEditing"
+              type="button"
+              @click="cancelEdit"
+              class="btn btn-sm btn-secondary"
+            >
               Cancel
             </button>
           </div>
@@ -46,8 +51,8 @@
                 <span class="link-url">{{ link.url }}</span>
               </div>
               <div class="link-actions">
-                <button @click="startEdit(link)" class="btn-icon btn-edit">✎</button>
-                <button @click="deleteLink(link.id)" class="btn-delete-file">&times;</button>
+                <button @click="startEdit(link)" class="btn-icon-edit">✎</button>
+                <button @click="deleteLink(link.id)" class="btn-icon-delete">&times;</button>
               </div>
             </li>
           </ul>
@@ -176,13 +181,22 @@ h1 {
 }
 
 input[type='text'],
-input[type='url'] {
+input[type='number'],
+input[type='url'],
+input[type='email'],
+input[type='password'],
+input[type='date'],
+input[type='file'],
+textarea,
+select {
   width: 100%;
   padding: 0.75rem;
   border: 1px solid var(--color-border);
   border-radius: 4px;
+  box-sizing: border-box;
   background-color: var(--color-background);
   color: var(--color-text);
+  font-size: 1rem;
 }
 
 .link-form {
@@ -233,26 +247,6 @@ input[type='url'] {
 .link-actions {
   display: flex;
   gap: 0.5rem;
-}
-
-.btn-icon {
-  background: none;
-  border: none;
-  cursor: pointer;
-  font-size: 1.25rem;
-}
-
-.btn-edit {
-  color: var(--color-blue);
-}
-
-.btn-delete-file {
-  background: none;
-  border: none;
-  color: #ef4444;
-  font-size: 1.25rem;
-  cursor: pointer;
-  padding: 0 0.5rem;
 }
 
 .form-actions {

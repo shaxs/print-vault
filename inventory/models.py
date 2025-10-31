@@ -50,6 +50,15 @@ class Material(models.Model):
     def __str__(self):
         return self.name
 
+class Vendor(models.Model):
+    name = models.CharField(max_length=255, unique=True, null=False)
+    class Meta:
+        verbose_name = "Vendor"
+        verbose_name_plural = "Vendors"
+        ordering = ['name']
+    def __str__(self):
+        return self.name
+
 class Printer(models.Model):
     title = models.CharField(max_length=255, null=False)
     manufacturer = models.ForeignKey(Brand, on_delete=models.SET_NULL, null=True, blank=True)
@@ -116,6 +125,11 @@ class InventoryItem(models.Model):
     # --- New Fields for Consumables ---
     is_consumable = models.BooleanField(default=False)
     low_stock_threshold = models.IntegerField(null=True, blank=True)
+    
+    # --- Vendor and Model Fields ---
+    vendor = models.ForeignKey(Vendor, on_delete=models.SET_NULL, null=True, blank=True)
+    vendor_link = models.URLField(max_length=512, null=True, blank=True)
+    model = models.CharField(max_length=255, null=True, blank=True)
     
     class Meta:
         verbose_name = "Inventory Item"

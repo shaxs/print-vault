@@ -171,10 +171,13 @@ onMounted(async () => {
       <textarea id="notes" v-model="project.notes"></textarea>
     </div>
     <div class="form-actions">
-      <button type="submit" class="save-button">Save Project</button>
-      <RouterLink :to="isEditMode ? `/projects/${project.id}` : '/projects'" class="cancel-button"
-        >Cancel</RouterLink
+      <button type="submit" class="btn btn-primary">Save Project</button>
+      <RouterLink
+        :to="isEditMode ? `/projects/${project.id}` : '/projects'"
+        class="btn btn-secondary"
       >
+        Cancel
+      </RouterLink>
     </div>
   </form>
 </template>
@@ -205,7 +208,11 @@ label {
 }
 input[type='text'],
 input[type='number'],
+input[type='url'],
+input[type='email'],
+input[type='password'],
 input[type='date'],
+input[type='file'],
 textarea,
 select {
   width: 100%;
@@ -232,25 +239,7 @@ select {
   gap: 10px;
   margin-top: 20px;
 }
-.save-button,
-.cancel-button {
-  padding: 10px 20px;
-  border: none;
-  border-radius: 5px;
-  text-decoration: none;
-  cursor: pointer;
-  font-size: 1rem;
-  font-weight: bold;
-}
-.save-button {
-  background-color: var(--color-blue);
-  color: white;
-}
-.cancel-button {
-  background-color: var(--color-background-mute);
-  color: var(--color-heading);
-  border: 1px solid var(--color-border);
-}
+/* No placeholder comment; all styles below remain unchanged */
 .multiselect__tags,
 .multiselect__input {
   background: var(--color-background);

@@ -15,7 +15,7 @@ const emit = defineEmits(['close'])
       <h3 :class="{ 'error-title': isError }">{{ title }}</h3>
       <p>{{ message }}</p>
       <div class="form-actions">
-        <button @click="emit('close')" type="button" class="action-button save-button">OK</button>
+        <button @click="emit('close')" type="button" class="btn btn-primary">OK</button>
       </div>
     </div>
   </div>
@@ -59,18 +59,5 @@ const emit = defineEmits(['close'])
   justify-content: flex-end;
   gap: 10px;
   margin-top: 20px;
-}
-.action-button {
-  padding: 10px 20px;
-  border: none;
-  border-radius: 5px;
-  text-decoration: none;
-  cursor: pointer;
-  font-size: 1rem;
-  font-weight: bold;
-}
-.save-button {
-  background-color: var(--color-blue);
-  color: white;
 }
 </style>

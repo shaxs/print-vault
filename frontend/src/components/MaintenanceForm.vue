@@ -75,8 +75,8 @@ const saveMaintenance = async () => {
     </div>
 
     <div class="form-actions">
-      <button type="submit" class="save-button">Save Maintenance</button>
-      <RouterLink :to="`/printers/${initialData.id}`" class="cancel-button">Cancel</RouterLink>
+      <button type="submit" class="btn btn-primary">Save Maintenance</button>
+      <RouterLink :to="`/printers/${initialData.id}`" class="btn btn-secondary">Cancel</RouterLink>
     </div>
   </form>
 </template>
@@ -116,24 +116,5 @@ textarea {
   justify-content: flex-end;
   gap: 10px;
   margin-top: 20px;
-}
-.save-button,
-.cancel-button {
-  padding: 10px 20px;
-  border: none;
-  border-radius: 5px;
-  text-decoration: none;
-  cursor: pointer;
-  font-size: 1rem;
-  font-weight: bold;
-}
-.save-button {
-  background-color: var(--color-blue);
-  color: white;
-}
-.cancel-button {
-  background-color: var(--color-background-mute);
-  color: var(--color-heading);
-  border: 1px solid var(--color-border);
 }
 </style>

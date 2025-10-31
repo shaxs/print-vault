@@ -337,7 +337,7 @@ onMounted(fetchProject)
             </template>
             <template #cell-cost="{ item }"> ${{ item.cost || '0.00' }} </template>
             <template #cell-actions="{ item }">
-              <button @click.stop="removeInventoryItem(item)" class="btn-remove-inventory">
+              <button @click.stop="removeInventoryItem(item)" class="btn-remove-datatable">
                 Remove
               </button>
             </template>
@@ -677,22 +677,6 @@ onMounted(fetchProject)
   max-height: 100%;
   display: block;
 }
-.close-button {
-  position: absolute;
-  top: -15px;
-  right: -15px;
-  background: white;
-  color: black;
-  border: none;
-  border-radius: 50%;
-  width: 30px;
-  height: 30px;
-  font-size: 24px;
-  line-height: 30px;
-  text-align: center;
-  cursor: pointer;
-  font-weight: bold;
-}
 .inventory-full-width {
   grid-column: 1 / span 2;
   width: 100%;
@@ -814,15 +798,6 @@ onMounted(fetchProject)
 .table-link.grey-link:visited {
   color: var(--color-heading);
   text-decoration: underline;
-}
-.btn-remove-inventory {
-  background-color: var(--color-red);
-  color: white;
-  padding: 5px 10px;
-  border: none;
-  border-radius: 4px;
-  cursor: pointer;
-  font-size: 0.8rem;
 }
 /* DataTable borderless style for inventory section */
 .borderless-table {

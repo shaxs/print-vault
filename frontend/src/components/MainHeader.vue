@@ -38,7 +38,7 @@ const clearSearch = () => {
         />
         <button v-if="modelValue" @click="clearSearch" class="search-clear-button">&times;</button>
       </div>
-      <RouterLink v-if="showAddButton" :to="createUrl" class="add-button">+ Add</RouterLink>
+      <RouterLink v-if="showAddButton" :to="createUrl" class="add-button">Add</RouterLink>
     </div>
   </div>
 </template>
@@ -108,11 +108,26 @@ const clearSearch = () => {
 .add-button {
   background-color: var(--color-blue);
   color: white;
+  transition:
+    background-color 0.2s ease,
+    border-color 0.2s ease;
+  border: 1px solid var(--color-blue);
+}
+.add-button:hover {
+  background-color: #0b5ed7;
+  border-color: #0a58ca;
 }
 .header-button {
   background: none;
   border: 1px solid var(--color-border);
   color: var(--color-text);
+  transition:
+    border-color 0.2s ease,
+    background-color 0.2s ease;
+}
+.header-button:hover {
+  border-color: var(--color-border-hover);
+  background-color: var(--color-background-mute);
 }
 .theme-toggle {
   background: none;
