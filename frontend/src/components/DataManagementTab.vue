@@ -295,8 +295,6 @@ const confirmRestore = async () => {
 </template>
 
 <style scoped>
-/* Scoped styles copied from SettingsView.vue */
-/* All custom button styles removed; only global .btn/.btn-sm classes are used for buttons. */
 .data-actions {
   display: grid;
   grid-template-columns: 1fr 1fr;

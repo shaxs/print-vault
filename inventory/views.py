@@ -106,11 +106,11 @@ class ExportDataView(APIView):
             # Export Projects
             project_buffer = StringIO()
             project_writer = csv.writer(project_buffer)
-            project_writer.writerow(['id', 'project_name', 'description', 'status', 'start_date', 'end_date', 'notes', 'photo'])
+            project_writer.writerow(['id', 'project_name', 'description', 'status', 'start_date', 'due_date', 'notes', 'photo'])
             for project in Project.objects.all():
                 project_writer.writerow([
                     project.id, project.project_name, project.description, project.status,
-                    project.start_date, project.end_date, project.notes,
+                    project.start_date, project.due_date, project.notes,
                     os.path.basename(project.photo.name) if project.photo else ''
                 ])
             zf.writestr('projects.csv', project_buffer.getvalue())
@@ -1059,7 +1059,8 @@ class ImportDataView(APIView):
                         brand = Brand.objects.filter(name=row['brand']).first() if row['brand'] else None
                         part_type = PartType.objects.filter(name=row['part_type']).first() if row['part_type'] else None
                         location = Location.objects.filter(name=row['location']).first() if row['location'] else None
-                        vendor = Vendor.objects.filter(name=row.get('vendor', '')).first() if row.get('vendor') else None
+                        vendor_name = row.get('vendor', '')
+                        vendor = Vendor.objects.filter(name=vendor_name).first() if vendor_name else None
                         item = InventoryItem(
                             id=row['id'],
                             title=row['title'],
@@ -1088,7 +1089,7 @@ class ImportDataView(APIView):
                             description=row.get('description', ''),
                             status=row.get('status', ''),
                             start_date=row.get('start_date', None) or None,
-                            end_date=row.get('end_date', None) or None,
+                            due_date=row.get('due_date', None) or None,
                             notes=row.get('notes', ''),
                             photo=f"project_photos/{row['photo']}" if row.get('photo') else None
                         )
@@ -1354,7 +1355,7 @@ class ProjectViewSet(viewsets.ModelViewSet):
     filter_backends = [DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter]
     filterset_class = ProjectFilter
     search_fields = ['project_name', 'description', 'status', 'notes']
-    ordering_fields = ['project_name', 'status', 'start_date', 'end_date']
+    ordering_fields = ['project_name', 'status', 'start_date', 'due_date']
 
 class ProjectInventoryViewSet(viewsets.ModelViewSet):
     queryset = ProjectInventory.objects.all()

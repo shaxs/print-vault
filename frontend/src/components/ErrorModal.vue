@@ -50,6 +50,4 @@ const emit = defineEmits(['close'])
 .modal-form p {
   margin-bottom: 20px;
 }
-/* .form-actions styles remain for layout, but custom button styles are removed. */
-/* Removed custom button styles; use global .btn classes */
 </style>
