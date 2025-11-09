@@ -102,6 +102,11 @@ const isLargeDownload = computed(() => {
   return totalSize.value > 1024 * 1024 * 1024 // > 1 GB
 })
 
+// Check if any uploaded files exist
+const hasUploadedFiles = computed(() => {
+  return selectedFiles.value.some((file) => file.source === 'Upload')
+})
+
 // Apply smart defaults to all unconfigured files
 function applySmartDefaults() {
   const defaultMaterial = materialOptions.value[0] || 'ABS'
@@ -361,6 +366,9 @@ const groupedFiles = computed(() => {
           <h3>File Storage Option <span class="required-badge">Required</span></h3>
           <p class="section-description">
             Choose how you want to store the STL files for this tracker.
+            <span v-if="hasUploadedFiles" class="upload-note"
+              >Any uploaded files will be stored locally.</span
+            >
           </p>
 
           <!-- File size summary -->
@@ -691,6 +699,14 @@ const groupedFiles = computed(() => {
   margin-bottom: 1rem;
 }
 
+.upload-note {
+  display: block;
+  margin-top: 0.5rem;
+  color: var(--color-text-soft);
+  font-weight: 500;
+  font-size: 0.9rem;
+}
+
 .form-group {
   margin-bottom: 1rem;
 }
@@ -951,6 +967,9 @@ const groupedFiles = computed(() => {
 
   .config-pane {
     order: -1;
+    position: relative;
+    top: auto;
+    max-height: none;
   }
 }
 </style>

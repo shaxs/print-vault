@@ -4,6 +4,7 @@ import { useRouter, useRoute } from 'vue-router'
 import APIService from '../services/APIService'
 import FileConfigurationStep from '../components/FileConfigurationStep.vue'
 import ImportURLsModal from '../components/ImportURLsModal.vue'
+import UploadFilesWizardModal from '../components/UploadFilesWizardModal.vue'
 import DownloadProgressModal from '../components/DownloadProgressModal.vue'
 
 const router = useRouter()
@@ -635,14 +636,22 @@ async function createManualTracker() {
     // Collect configured files from the fileTree
     // Since manualFileTree contains the actual file objects (not copies),
     // they already have all properties including configuration
+    // IMPORTANT: Only include URL-based files here. Uploaded files will be added via the upload endpoint.
     const configuredFiles = []
     manualFileTree.value.forEach((category) => {
       if (category.children) {
         category.children.forEach((file) => {
           if (file.isSelected) {
+            // Skip uploaded files - they'll be uploaded separately
+            if (file.source === 'Upload' || file.file instanceof File) {
+              return
+            }
+
+            // Ensure url is a string (not null/undefined) to avoid NULL constraint errors
+            const fileUrl = file.githubUrl || file.url
             configuredFiles.push({
               name: file.name,
-              url: file.url,
+              url: fileUrl === null || fileUrl === undefined ? '' : fileUrl,
               source: file.source,
               category: file.category || '',
               size: file.size,
@@ -666,8 +675,45 @@ async function createManualTracker() {
     const response = await APIService.createManualTracker(payload)
 
     if (response.data.success) {
+      const trackerId = response.data.tracker.id
+
+      // Upload any local files (files with File objects)
+      const filesToUpload = manualFiles.value.filter((f) => f.file instanceof File)
+
+      if (filesToUpload.length > 0) {
+        try {
+          // Group files by category and upload
+          const uploadsByCategory = {}
+          filesToUpload.forEach((fileData) => {
+            const category = fileData.category || 'Uploads'
+            if (!uploadsByCategory[category]) {
+              uploadsByCategory[category] = []
+            }
+            uploadsByCategory[category].push(fileData)
+          })
+
+          // Upload each file individually with its configuration
+          for (const fileData of filesToUpload) {
+            const formData = new FormData()
+
+            formData.append('files', fileData.file)
+            formData.append('category', fileData.category || 'Uploads')
+            formData.append('color', fileData.color || 'Primary')
+            formData.append('material', fileData.material || 'PLA')
+            formData.append('quantity', fileData.quantity || 1)
+
+            // Upload file with configuration
+            await APIService.uploadTrackerFiles(trackerId, formData)
+          }
+        } catch (uploadError) {
+          console.error('File upload error:', uploadError)
+          // Continue to tracker detail view even if uploads fail
+          // User can manually re-upload or see the error
+        }
+      }
+
       // Navigate to tracker detail view
-      router.push(`/trackers/${response.data.tracker.id}`)
+      router.push(`/trackers/${trackerId}`)
     } else {
       submitError.value = response.data.error || 'Failed to create tracker'
     }
@@ -1202,6 +1248,15 @@ initializeSelectionState(fileTree4.value)
       :existingCategories="getUniqueCategories()"
       :existingFiles="manualFiles"
       @close="showImportURLsModal = false"
+      @filesImported="handleFilesImported"
+    />
+
+    <!-- Upload Files Modal -->
+    <UploadFilesWizardModal
+      :show="showUploadFilesModal"
+      :existingCategories="getUniqueCategories()"
+      :existingFiles="manualFiles"
+      @close="showUploadFilesModal = false"
       @filesImported="handleFilesImported"
     />
 

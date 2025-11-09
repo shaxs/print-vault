@@ -280,8 +280,8 @@ label {
 
 .form-control:focus {
   outline: none;
-  border-color: #3b82f6;
-  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+  background-color: var(--color-background);
+  border-color: var(--color-heading);
 }
 
 .form-control:disabled {

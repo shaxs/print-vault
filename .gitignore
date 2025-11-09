@@ -36,6 +36,23 @@ AGENTS.md
 # Screenshots (documentation only, not needed in deployments)
 screenshots/
 
+# Screenshots (development)
+image-*.png
+*.png
+
+# AI agent instructions (development only)
+AGENTS.md
+feedback.md
+
+# Backup directories
+_backups/
+
+# TaskSync MCP server (embedded git repo)
+tasksync-mcp/
+# Screenshots (development)
+image-*.png
+*.png
 
 
-
+# TaskSync MCP server (embedded git repo)
+tasksync-mcp/
