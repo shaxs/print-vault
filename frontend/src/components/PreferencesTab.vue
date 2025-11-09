@@ -63,5 +63,4 @@ onMounted(() => {
   font-size: 0.9rem;
 }
 /* Removed custom button styles; use global .btn classes */
-/* Removed leftover invalid CSS from previous custom button styles */
 </style>

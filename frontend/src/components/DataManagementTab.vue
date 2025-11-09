@@ -317,7 +317,7 @@ const confirmRestore = async () => {
   font-size: 0.9rem;
   flex-grow: 1;
 }
-/* Removed .action-item .action-button rule; no longer needed since .action-button is gone. */
+/* Removed custom button styles */
 .restore-form {
   margin-top: 10px;
   display: flex;
