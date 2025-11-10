@@ -6,6 +6,7 @@ import shutil
 import tempfile
 import hashlib
 import json
+import logging
 from io import BytesIO, StringIO
 from datetime import date, timedelta
 from django.http import HttpResponse
@@ -16,9 +17,13 @@ from rest_framework.response import Response
 from rest_framework import status
 from rest_framework.views import APIView
 from django.conf import settings
+from django.db import connection
 from django_filters.rest_framework import DjangoFilterBackend
 from django.db.models import F
 from rest_framework.decorators import action
+
+logger = logging.getLogger(__name__)
+
 from .models import (
     Brand, PartType, Location, Material, Vendor, Printer, Mod, ModFile,
     InventoryItem, Project, ProjectLink, ProjectFile, ProjectInventory, ProjectPrinters,
@@ -1245,6 +1250,36 @@ class ImportDataView(APIView):
                             actual_file_size=int(row.get('actual_file_size', 0)) if row.get('actual_file_size') else None
                         )
                         tfile.save()
+
+            # Reset database sequences to prevent duplicate key errors
+            # Only reset sequences for PostgreSQL (SQLite doesn't need this)
+            if connection.vendor == 'postgresql':
+                try:
+                    from django.apps import apps
+                    from django.db.models import AutoField, BigAutoField
+                    
+                    with connection.cursor() as cursor:
+                        # Dynamically get all models with auto-incrementing primary keys
+                        tables_to_reset = []
+                        for model in apps.get_app_config('inventory').get_models():
+                            pk_field = model._meta.pk
+                            if pk_field and isinstance(pk_field, (AutoField, BigAutoField)):
+                                tables_to_reset.append((model._meta.db_table, pk_field.column))
+                        for table_name, column_name in tables_to_reset:
+                            cursor.execute(f"""
+                                SELECT setval(
+                                    pg_get_serial_sequence('{table_name}', '{column_name}'),
+                                    COALESCE((SELECT MAX({column_name}) FROM {table_name}), 1),
+                                    true
+                                )
+                            """)
+                except Exception as seq_error:
+                    # Import succeeded but sequence reset failed - warn user
+                    return Response({
+                        'success': 'Data restored successfully.',
+                        'warning': 'Failed to reset database sequences. New records may encounter ID conflicts.',
+                        'error': str(seq_error)
+                    }, status=status.HTTP_200_OK)
 
             return Response({'success': 'Data restored successfully.'}, status=status.HTTP_200_OK)
         except Exception as e:
