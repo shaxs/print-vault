@@ -6,6 +6,7 @@ import shutil
 import tempfile
 import hashlib
 import json
+import logging
 from io import BytesIO, StringIO
 from datetime import date, timedelta
 from django.http import HttpResponse
@@ -18,6 +19,8 @@ from rest_framework.views import APIView
 from django.conf import settings
 from django.db import connection
 from django_filters.rest_framework import DjangoFilterBackend
+
+logger = logging.getLogger(__name__)
 from django.db.models import F
 from rest_framework.decorators import action
 from .models import (
@@ -1250,7 +1253,7 @@ class ImportDataView(APIView):
             # Reset database sequences to prevent duplicate key errors
             # Only reset sequences for PostgreSQL (SQLite doesn't need this)
             if 'postgresql' in settings.DATABASES['default']['ENGINE']:
-                print("DEBUG: Detected PostgreSQL, resetting sequences...")
+                logger.info("Detected PostgreSQL, resetting sequences after import...")
                 with connection.cursor() as cursor:
                     # Get all tables and reset their ID sequences
                     tables_to_reset = [
@@ -1279,9 +1282,9 @@ class ImportDataView(APIView):
                                 )
                             """)
                             result = cursor.fetchone()
-                            print(f"DEBUG: Reset {table_name}.{column_name} sequence to {result[0]}")
+                            logger.info(f"Reset {table_name}.{column_name} sequence to {result[0]}")
                         except Exception as seq_error:
-                            print(f"ERROR: Failed to reset sequence for {table_name}: {seq_error}")
+                            logger.error(f"Failed to reset sequence for {table_name}: {seq_error}")
 
             return Response({'success': 'Data restored successfully.'}, status=status.HTTP_200_OK)
         except Exception as e:
