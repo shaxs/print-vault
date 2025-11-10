@@ -16,6 +16,7 @@ from rest_framework.response import Response
 from rest_framework import status
 from rest_framework.views import APIView
 from django.conf import settings
+from django.db import connection
 from django_filters.rest_framework import DjangoFilterBackend
 from django.db.models import F
 from rest_framework.decorators import action
@@ -1245,6 +1246,36 @@ class ImportDataView(APIView):
                             actual_file_size=int(row.get('actual_file_size', 0)) if row.get('actual_file_size') else None
                         )
                         tfile.save()
+
+            # Reset database sequences to prevent duplicate key errors
+            # Only reset sequences for PostgreSQL (SQLite doesn't need this)
+            if 'postgresql' in settings.DATABASES['default']['ENGINE']:
+                with connection.cursor() as cursor:
+                    # Get all tables and reset their ID sequences
+                    tables_to_reset = [
+                        ('inventory_brand', 'id'),
+                        ('inventory_parttype', 'id'),
+                        ('inventory_location', 'id'),
+                        ('inventory_material', 'id'),
+                        ('inventory_vendor', 'id'),
+                        ('inventory_printer', 'id'),
+                        ('inventory_mod', 'id'),
+                        ('inventory_modfile', 'id'),
+                        ('inventory_inventoryitem', 'id'),
+                        ('inventory_project', 'id'),
+                        ('inventory_projectlink', 'id'),
+                        ('inventory_projectfile', 'id'),
+                        ('inventory_tracker', 'id'),
+                        ('inventory_trackerfile', 'id'),
+                    ]
+                    for table_name, column_name in tables_to_reset:
+                        cursor.execute(f"""
+                            SELECT setval(
+                                pg_get_serial_sequence('{table_name}', '{column_name}'),
+                                COALESCE((SELECT MAX({column_name}) FROM {table_name}), 1),
+                                true
+                            )
+                        """)
 
             return Response({'success': 'Data restored successfully.'}, status=status.HTTP_200_OK)
         except Exception as e:
