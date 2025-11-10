@@ -2,12 +2,13 @@
 <script setup>
 import { ref } from 'vue'
 
-const props = defineProps({
+defineProps({
   projectId: { type: Number, required: true },
 })
 
 const emit = defineEmits(['save', 'cancel'])
 
+const fileInput = ref(null)
 const newFiles = ref([])
 
 const handleFileUpload = (event) => {
@@ -31,7 +32,7 @@ const cancel = () => {
   <form @submit.prevent="save" class="item-form">
     <div class="form-group">
       <label>Attach New Files</label>
-      <button type="button" @click="$refs.fileInput.click()" class="btn btn-sm btn-secondary">
+      <button type="button" @click="fileInput.click()" class="btn btn-sm btn-secondary">
         Choose Files
       </button>
       <input
@@ -45,7 +46,7 @@ const cancel = () => {
       <ul v-if="newFiles.length > 0" class="file-list">
         <li v-for="(file, index) in newFiles" :key="index">
           <span>{{ file.name }}</span>
-          <button type="button" @click="removeNewFile(index)" class="btn-delete-file">
+          <button type="button" @click="removeNewFile(index)" class="btn-icon-delete">
             &times;
           </button>
         </li>

@@ -713,20 +713,4 @@ onMounted(fetchPrinter)
   max-height: 100%;
   display: block;
 }
-.close-button {
-  position: absolute;
-  top: -15px;
-  right: -15px;
-  background: white;
-  color: black;
-  border: none;
-  border-radius: 50%;
-  width: 30px;
-  height: 30px;
-  font-size: 24px;
-  line-height: 30px;
-  text-align: center;
-  cursor: pointer;
-  font-weight: bold;
-}
 </style>

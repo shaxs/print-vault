@@ -73,16 +73,14 @@ onMounted(() => {
   <div>
     <div class="content-header">
       <h3>Manage Brands & Manufacturers</h3>
-      <button @click="openAddModal" class="action-button add-button">Add New</button>
+      <button @click="openAddModal" class="btn btn-primary">Add New</button>
     </div>
     <ul class="brands-list">
       <li v-for="brand in brands" :key="brand.id" class="brand-item">
         <span>{{ brand.name }}</span>
         <div class="actions-cell">
-          <button @click="openEditModal(brand)" class="action-button edit-button">Edit</button>
-          <button @click="openDeleteItemModal(brand)" class="action-button delete-button">
-            Delete
-          </button>
+          <button @click="openEditModal(brand)" class="btn btn-sm btn-primary">Edit</button>
+          <button @click="openDeleteItemModal(brand)" class="btn btn-sm btn-danger">Delete</button>
         </div>
       </li>
     </ul>
@@ -99,12 +97,8 @@ onMounted(() => {
         </div>
       </form>
       <template #footer>
-        <button @click="saveItem" class="action-button save-button">Save</button>
-        <button
-          @click="isEditModalVisible = false"
-          type="button"
-          class="action-button cancel-button"
-        >
+        <button @click="saveItem" class="btn btn-primary">Save</button>
+        <button @click="isEditModalVisible = false" type="button" class="btn btn-secondary">
           Cancel
         </button>
       </template>
@@ -117,14 +111,8 @@ onMounted(() => {
     >
       <p>Are you sure you want to delete '{{ itemToDelete?.name }}'?</p>
       <template #footer>
-        <button @click="handleDeleteConfirm" class="action-button delete-button">
-          Yes, Delete
-        </button>
-        <button
-          @click="isDeleteModalVisible = false"
-          type="button"
-          class="action-button cancel-button"
-        >
+        <button @click="handleDeleteConfirm" class="btn btn-danger">Yes, Delete</button>
+        <button @click="isDeleteModalVisible = false" type="button" class="btn btn-secondary">
           Cancel
         </button>
       </template>
@@ -158,35 +146,7 @@ onMounted(() => {
   display: flex;
   gap: 10px;
 }
-.action-button {
-  padding: 8px 15px;
-  text-decoration: none;
-  border-radius: 5px;
-  font-weight: bold;
-  border: none;
-  cursor: pointer;
-  white-space: nowrap;
-  font-size: 0.9rem;
-  height: 36px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-}
-.edit-button,
-.add-button,
-.save-button {
-  background-color: var(--color-blue); /* Ensures Edit button is blue */
-  color: white;
-}
-.delete-button {
-  background-color: var(--color-red); /* Ensures Delete button is red */
-  color: white;
-}
-.cancel-button {
-  background-color: var(--color-background-mute);
-  color: var(--color-heading);
-  border: 1px solid var(--color-border);
-}
+/* Removed custom button styles; use global .btn classes */
 .form-group {
   margin-bottom: 1rem;
 }

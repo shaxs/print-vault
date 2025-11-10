@@ -218,6 +218,19 @@ export default {
     return apiClient.delete(`materials/${id}/`)
   },
 
+  getVendors() {
+    return apiClient.get('vendors/')
+  },
+  createVendor(data) {
+    return apiClient.post('vendors/', data)
+  },
+  updateVendor(id, data) {
+    return apiClient.patch(`vendors/${id}/`, data)
+  },
+  deleteVendor(id) {
+    return apiClient.delete(`vendors/${id}/`)
+  },
+
   // Trackers
   getTrackers(params) {
     return apiClient.get('trackers/', { params })
