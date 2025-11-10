@@ -315,32 +315,15 @@ const openFile = async (file) => {
   const url = getFileUrl(file)
   if (!url || url === '#') return
 
-  // For local files, use fetch to download as blob
+  // For local files, add ?download=1 to trigger download via nginx Content-Disposition header
   if (file.local_file) {
-    try {
-      // Fetch the file
-      const response = await fetch(url)
-      if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`)
-      }
-      const blob = await response.blob()
-
-      // Create object URL and download
-      const blobUrl = window.URL.createObjectURL(blob)
-      const link = document.createElement('a')
-      link.href = blobUrl
-      link.download = file.filename || 'download'
-      document.body.appendChild(link)
-      link.click()
-      document.body.removeChild(link)
-
-      // Clean up
-      window.URL.revokeObjectURL(blobUrl)
-    } catch (error) {
-      console.error('Download failed:', error)
-      // Fallback: just open in new tab
-      window.open(url, '_blank')
-    }
+    const downloadUrl = url.includes('?') ? `${url}&download=1` : `${url}?download=1`
+    const link = document.createElement('a')
+    link.href = downloadUrl
+    link.download = file.filename || 'download'
+    document.body.appendChild(link)
+    link.click()
+    document.body.removeChild(link)
   } else {
     // For external links (GitHub URLs), convert to raw URL and trigger download
     let downloadUrl = url
@@ -626,13 +609,8 @@ const fileProgressStyle = (file) => {
 
 // Add Files functionality
 const openAddFilesModal = () => {
-  console.log('Add Files clicked, tracker:', tracker.value)
-  console.log('Tracker ID:', tracker.value?.id)
   if (tracker.value && tracker.value.id) {
-    console.log('Navigating to tracker-add-files with id:', tracker.value.id)
     router.push({ name: 'tracker-add-files', params: { id: tracker.value.id } })
-  } else {
-    console.error('Cannot navigate: tracker data not loaded', tracker.value)
   }
 }
 
@@ -770,7 +748,9 @@ onMounted(() => {
             <span v-if="downloadingZip">Preparing Download...</span>
             <span v-else>Download All Files</span>
           </button>
-          <button @click="openAddFilesModal" class="btn btn-sm btn-primary" :disabled="!tracker">Add Files</button>
+          <button @click="openAddFilesModal" class="btn btn-sm btn-primary" :disabled="!tracker">
+            Add Files
+          </button>
         </div>
 
         <!-- Files by Category -->
