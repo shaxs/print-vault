@@ -234,8 +234,8 @@ body {
   position: absolute;
   top: -15px;
   right: -15px;
-  background: white;
-  color: black;
+  background: var(--color-background-soft);
+  color: var(--color-text);
   border: none;
   border-radius: 50%;
   width: 30px;

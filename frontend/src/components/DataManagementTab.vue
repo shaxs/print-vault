@@ -295,8 +295,6 @@ const confirmRestore = async () => {
 </template>
 
 <style scoped>
-/* Scoped styles copied from SettingsView.vue */
-/* All custom button styles removed; only global .btn/.btn-sm classes are used for buttons. */
 .data-actions {
   display: grid;
   grid-template-columns: 1fr 1fr;
@@ -319,7 +317,7 @@ const confirmRestore = async () => {
   font-size: 0.9rem;
   flex-grow: 1;
 }
-/* Removed .action-item .action-button rule; no longer needed since .action-button is gone. */
+/* Removed custom button styles */
 .restore-form {
   margin-top: 10px;
   display: flex;

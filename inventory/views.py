@@ -106,11 +106,11 @@ class ExportDataView(APIView):
             # Export Projects
             project_buffer = StringIO()
             project_writer = csv.writer(project_buffer)
-            project_writer.writerow(['id', 'project_name', 'description', 'status', 'start_date', 'end_date', 'notes', 'photo'])
+            project_writer.writerow(['id', 'project_name', 'description', 'status', 'start_date', 'due_date', 'notes', 'photo'])
             for project in Project.objects.all():
                 project_writer.writerow([
                     project.id, project.project_name, project.description, project.status,
-                    project.start_date, project.end_date, project.notes,
+                    project.start_date, project.due_date, project.notes,
                     os.path.basename(project.photo.name) if project.photo else ''
                 ])
             zf.writestr('projects.csv', project_buffer.getvalue())
@@ -948,6 +948,27 @@ class DismissAllAlertsView(APIView):
         })
 
 
+def parse_date(date_string):
+    """
+    Parse date string from CSV export to date object.
+    Returns None if date_string is empty or None.
+    """
+    if not date_string or date_string.strip() == '':
+        return None
+    try:
+        from datetime import datetime
+        # Try common date formats
+        for fmt in ('%Y-%m-%d', '%m/%d/%Y', '%d/%m/%Y'):
+            try:
+                return datetime.strptime(date_string.strip(), fmt).date()
+            except ValueError:
+                continue
+        # If no format matches, return None
+        return None
+    except Exception:
+        return None
+
+
 class ImportDataView(APIView):
     permission_classes = [AllowAny]
     def post(self, request, *args, **kwargs):
@@ -1034,8 +1055,8 @@ class ImportDataView(APIView):
                             id=row['id'],
                             title=row['title'],
                             manufacturer=manufacturer,
-                            serial_number=row.get('serial_number') or None,  # <-- Fix here
-                            purchase_date=row.get('purchase_date', None) or None,
+                            serial_number=row.get('serial_number') or None,
+                            purchase_date=parse_date(row.get('purchase_date')),
                             status=row.get('status', ''),
                             notes=row.get('notes', ''),
                             purchase_price=row.get('purchase_price', None) or None,
@@ -1043,10 +1064,10 @@ class ImportDataView(APIView):
                             build_size_y=row.get('build_size_y', None) or None,
                             build_size_z=row.get('build_size_z', None) or None,
                             photo=f"printer_photos/{row['photo']}" if row.get('photo') else None,
-                            last_maintained_date=row.get('last_maintained_date', None) or None,
-                            maintenance_reminder_date=row.get('maintenance_reminder_date', None) or None,
-                            last_carbon_replacement_date=row.get('last_carbon_replacement_date', None) or None,
-                            carbon_reminder_date=row.get('carbon_reminder_date', None) or None,
+                            last_maintained_date=parse_date(row.get('last_maintained_date')),
+                            maintenance_reminder_date=parse_date(row.get('maintenance_reminder_date')),
+                            last_carbon_replacement_date=parse_date(row.get('last_carbon_replacement_date')),
+                            carbon_reminder_date=parse_date(row.get('carbon_reminder_date')),
                             maintenance_notes=row.get('maintenance_notes', ''),
                             moonraker_url=row.get('moonraker_url', None)
                         )
@@ -1059,7 +1080,8 @@ class ImportDataView(APIView):
                         brand = Brand.objects.filter(name=row['brand']).first() if row['brand'] else None
                         part_type = PartType.objects.filter(name=row['part_type']).first() if row['part_type'] else None
                         location = Location.objects.filter(name=row['location']).first() if row['location'] else None
-                        vendor = Vendor.objects.filter(name=row.get('vendor', '')).first() if row.get('vendor') else None
+                        vendor_name = row.get('vendor', '')
+                        vendor = Vendor.objects.filter(name=vendor_name).first() if vendor_name else None
                         item = InventoryItem(
                             id=row['id'],
                             title=row['title'],
@@ -1087,8 +1109,8 @@ class ImportDataView(APIView):
                             project_name=row['project_name'],
                             description=row.get('description', ''),
                             status=row.get('status', ''),
-                            start_date=row.get('start_date', None) or None,
-                            end_date=row.get('end_date', None) or None,
+                            start_date=parse_date(row.get('start_date')),
+                            due_date=parse_date(row.get('due_date')),
                             notes=row.get('notes', ''),
                             photo=f"project_photos/{row['photo']}" if row.get('photo') else None
                         )
@@ -1354,7 +1376,7 @@ class ProjectViewSet(viewsets.ModelViewSet):
     filter_backends = [DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter]
     filterset_class = ProjectFilter
     search_fields = ['project_name', 'description', 'status', 'notes']
-    ordering_fields = ['project_name', 'status', 'start_date', 'end_date']
+    ordering_fields = ['project_name', 'status', 'start_date', 'due_date']
 
 class ProjectInventoryViewSet(viewsets.ModelViewSet):
     queryset = ProjectInventory.objects.all()

@@ -301,12 +301,12 @@ const getColorBadgeStyle = (color) => {
 
 // Get file URL for opening
 const getFileUrl = (file) => {
-  // For downloaded files (storage_type='local'), use the local file URL
+  // For files with local_file (uploaded or downloaded), use the local file URL
   // Backend returns relative URLs (/media/...) which browser resolves with correct protocol
-  if (tracker.value.storage_type === 'local' && file.local_file) {
+  if (file.local_file) {
     return file.local_file
   }
-  // For GitHub links (storage_type='link'), use the GitHub URL
+  // For GitHub links, use the GitHub URL
   return file.github_url || '#'
 }
 
@@ -316,7 +316,7 @@ const openFile = async (file) => {
   if (!url || url === '#') return
 
   // For local files, use fetch to download as blob
-  if (tracker.value.storage_type === 'local' && file.local_file) {
+  if (file.local_file) {
     try {
       // Fetch the file
       const response = await fetch(url)
@@ -342,8 +342,22 @@ const openFile = async (file) => {
       window.open(url, '_blank')
     }
   } else {
-    // For external links (GitHub URLs), open in new tab
-    window.open(url, '_blank')
+    // For external links (GitHub URLs), convert to raw URL and trigger download
+    let downloadUrl = url
+
+    // Convert GitHub blob URLs to raw URLs for direct download
+    if (url.includes('github.com') && url.includes('/blob/')) {
+      downloadUrl = url.replace('github.com', 'raw.githubusercontent.com').replace('/blob/', '/')
+    }
+
+    const link = document.createElement('a')
+    link.href = downloadUrl
+    link.download = file.filename || 'download'
+    link.target = '_blank'
+    link.rel = 'noopener noreferrer'
+    document.body.appendChild(link)
+    link.click()
+    document.body.removeChild(link)
   }
 }
 
@@ -612,7 +626,9 @@ const fileProgressStyle = (file) => {
 
 // Add Files functionality
 const openAddFilesModal = () => {
-  router.push({ name: 'tracker-add-files', params: { id: tracker.value.id } })
+  if (tracker.value && tracker.value.id) {
+    router.push({ name: 'tracker-add-files', params: { id: tracker.value.id } })
+  }
 }
 
 onMounted(() => {
@@ -749,7 +765,9 @@ onMounted(() => {
             <span v-if="downloadingZip">Preparing Download...</span>
             <span v-else>Download All Files</span>
           </button>
-          <button @click="openAddFilesModal" class="btn btn-sm btn-primary">Add Files</button>
+          <button @click="openAddFilesModal" class="btn btn-sm btn-primary" :disabled="!tracker">
+            Add Files
+          </button>
         </div>
 
         <!-- Files by Category -->
