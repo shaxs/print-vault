@@ -1254,32 +1254,40 @@ class ImportDataView(APIView):
             # Reset database sequences to prevent duplicate key errors
             # Only reset sequences for PostgreSQL (SQLite doesn't need this)
             if connection.vendor == 'postgresql':
-                with connection.cursor() as cursor:
-                    # Get all tables and reset their ID sequences
-                    tables_to_reset = [
-                        ('inventory_brand', 'id'),
-                        ('inventory_parttype', 'id'),
-                        ('inventory_location', 'id'),
-                        ('inventory_material', 'id'),
-                        ('inventory_vendor', 'id'),
-                        ('inventory_printer', 'id'),
-                        ('inventory_mod', 'id'),
-                        ('inventory_modfile', 'id'),
-                        ('inventory_inventoryitem', 'id'),
-                        ('inventory_project', 'id'),
-                        ('inventory_projectlink', 'id'),
-                        ('inventory_projectfile', 'id'),
-                        ('inventory_tracker', 'id'),
-                        ('inventory_trackerfile', 'id'),
-                    ]
-                    for table_name, column_name in tables_to_reset:
-                        cursor.execute(f"""
-                            SELECT setval(
-                                pg_get_serial_sequence('{table_name}', '{column_name}'),
-                                COALESCE((SELECT MAX({column_name}) FROM {table_name}), 1),
-                                true
-                            )
-                        """)
+                try:
+                    with connection.cursor() as cursor:
+                        # Get all tables and reset their ID sequences
+                        tables_to_reset = [
+                            ('inventory_brand', 'id'),
+                            ('inventory_parttype', 'id'),
+                            ('inventory_location', 'id'),
+                            ('inventory_material', 'id'),
+                            ('inventory_vendor', 'id'),
+                            ('inventory_printer', 'id'),
+                            ('inventory_mod', 'id'),
+                            ('inventory_modfile', 'id'),
+                            ('inventory_inventoryitem', 'id'),
+                            ('inventory_project', 'id'),
+                            ('inventory_projectlink', 'id'),
+                            ('inventory_projectfile', 'id'),
+                            ('inventory_tracker', 'id'),
+                            ('inventory_trackerfile', 'id'),
+                        ]
+                        for table_name, column_name in tables_to_reset:
+                            cursor.execute(f"""
+                                SELECT setval(
+                                    pg_get_serial_sequence('{table_name}', '{column_name}'),
+                                    COALESCE((SELECT MAX({column_name}) FROM {table_name}), 1),
+                                    true
+                                )
+                            """)
+                except Exception as seq_error:
+                    # Import succeeded but sequence reset failed - warn user
+                    return Response({
+                        'success': 'Data restored successfully.',
+                        'warning': 'Failed to reset database sequences. New records may encounter ID conflicts.',
+                        'error': str(seq_error)
+                    }, status=status.HTTP_200_OK)
 
             return Response({'success': 'Data restored successfully.'}, status=status.HTTP_200_OK)
         except Exception as e:
