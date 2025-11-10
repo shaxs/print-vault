@@ -1255,24 +1255,16 @@ class ImportDataView(APIView):
             # Only reset sequences for PostgreSQL (SQLite doesn't need this)
             if connection.vendor == 'postgresql':
                 try:
+                    from django.apps import apps
+                    from django.db.models import AutoField, BigAutoField
+                    
                     with connection.cursor() as cursor:
-                        # Get all tables and reset their ID sequences
-                        tables_to_reset = [
-                            ('inventory_brand', 'id'),
-                            ('inventory_parttype', 'id'),
-                            ('inventory_location', 'id'),
-                            ('inventory_material', 'id'),
-                            ('inventory_vendor', 'id'),
-                            ('inventory_printer', 'id'),
-                            ('inventory_mod', 'id'),
-                            ('inventory_modfile', 'id'),
-                            ('inventory_inventoryitem', 'id'),
-                            ('inventory_project', 'id'),
-                            ('inventory_projectlink', 'id'),
-                            ('inventory_projectfile', 'id'),
-                            ('inventory_tracker', 'id'),
-                            ('inventory_trackerfile', 'id'),
-                        ]
+                        # Dynamically get all models with auto-incrementing primary keys
+                        tables_to_reset = []
+                        for model in apps.get_app_config('inventory').get_models():
+                            pk_field = model._meta.pk
+                            if pk_field and isinstance(pk_field, (AutoField, BigAutoField)):
+                                tables_to_reset.append((model._meta.db_table, pk_field.column))
                         for table_name, column_name in tables_to_reset:
                             cursor.execute(f"""
                                 SELECT setval(
