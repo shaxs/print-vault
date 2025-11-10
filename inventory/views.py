@@ -1252,7 +1252,7 @@ class ImportDataView(APIView):
 
             # Reset database sequences to prevent duplicate key errors
             # Only reset sequences for PostgreSQL (SQLite doesn't need this)
-            if 'postgresql' in settings.DATABASES['default']['ENGINE']:
+            if connection.vendor == 'postgresql':
                 with connection.cursor() as cursor:
                     # Get all tables and reset their ID sequences
                     tables_to_reset = [
