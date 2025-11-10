@@ -291,7 +291,8 @@ async function createTracker() {
 
     collectFiles(fileTree4.value)
 
-    if (selectedFilesData.length === 0) {
+    // Check if we have at least one file (either from GitHub or uploaded files)
+    if (selectedFilesData.length === 0 && manualFiles.value.length === 0) {
       submitError.value = 'Please select at least one file to track'
       submitting.value = false
       return
