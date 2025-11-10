@@ -221,6 +221,7 @@ class TrackerFileSerializer(serializers.ModelSerializer):
     """Serializer for individual tracker files."""
     remaining_quantity = serializers.IntegerField(read_only=True)
     is_complete = serializers.BooleanField(read_only=True)
+    local_file = serializers.SerializerMethodField()
     
     class Meta:
         model = TrackerFile
@@ -238,6 +239,13 @@ class TrackerFileSerializer(serializers.ModelSerializer):
             'download_status', 'download_error', 'downloaded_at',
             'file_checksum', 'actual_file_size'
         ]
+    
+    def get_local_file(self, obj):
+        """Return relative URL for local_file to avoid mixed content issues with HTTPS."""
+        if obj.local_file:
+            # Return relative URL starting with /media/
+            return obj.local_file.url if obj.local_file.url.startswith('/') else f"/{obj.local_file.url}"
+        return None
 
 
 class TrackerFileCreateSerializer(serializers.ModelSerializer):
