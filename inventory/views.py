@@ -1705,11 +1705,8 @@ class TrackerViewSet(viewsets.ModelViewSet):
                 status=status.HTTP_400_BAD_REQUEST
             )
         
-        if not files:
-            return Response(
-                {'error': 'at least one file is required'},
-                status=status.HTTP_400_BAD_REQUEST
-            )
+        # Allow empty files array - files can be uploaded separately via upload-files endpoint
+        # This enables upload-only trackers where files are added after tracker creation
         
         try:
             # Create tracker
