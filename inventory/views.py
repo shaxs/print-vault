@@ -19,10 +19,11 @@ from rest_framework.views import APIView
 from django.conf import settings
 from django.db import connection
 from django_filters.rest_framework import DjangoFilterBackend
-
-logger = logging.getLogger(__name__)
 from django.db.models import F
 from rest_framework.decorators import action
+
+logger = logging.getLogger(__name__)
+
 from .models import (
     Brand, PartType, Location, Material, Vendor, Printer, Mod, ModFile,
     InventoryItem, Project, ProjectLink, ProjectFile, ProjectInventory, ProjectPrinters,
