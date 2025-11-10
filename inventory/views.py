@@ -1250,6 +1250,7 @@ class ImportDataView(APIView):
             # Reset database sequences to prevent duplicate key errors
             # Only reset sequences for PostgreSQL (SQLite doesn't need this)
             if 'postgresql' in settings.DATABASES['default']['ENGINE']:
+                print("DEBUG: Detected PostgreSQL, resetting sequences...")
                 with connection.cursor() as cursor:
                     # Get all tables and reset their ID sequences
                     tables_to_reset = [
@@ -1269,13 +1270,18 @@ class ImportDataView(APIView):
                         ('inventory_trackerfile', 'id'),
                     ]
                     for table_name, column_name in tables_to_reset:
-                        cursor.execute(f"""
-                            SELECT setval(
-                                pg_get_serial_sequence('{table_name}', '{column_name}'),
-                                COALESCE((SELECT MAX({column_name}) FROM {table_name}), 1),
-                                true
-                            )
-                        """)
+                        try:
+                            cursor.execute(f"""
+                                SELECT setval(
+                                    pg_get_serial_sequence('{table_name}', '{column_name}'),
+                                    COALESCE((SELECT MAX({column_name}) FROM {table_name}), 1),
+                                    true
+                                )
+                            """)
+                            result = cursor.fetchone()
+                            print(f"DEBUG: Reset {table_name}.{column_name} sequence to {result[0]}")
+                        except Exception as seq_error:
+                            print(f"ERROR: Failed to reset sequence for {table_name}: {seq_error}")
 
             return Response({'success': 'Data restored successfully.'}, status=status.HTTP_200_OK)
         except Exception as e:
