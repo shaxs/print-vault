@@ -745,6 +745,13 @@ onMounted(() => {
               missing configuration (color/material/quantity).
               <span style="text-decoration: underline">Click to filter</span>
             </div>
+
+            <!-- Notes section -->
+            <div v-if="tracker.notes" class="notes-section">
+              <hr />
+              <h4>Notes</h4>
+              <p class="notes-content">{{ tracker.notes }}</p>
+            </div>
           </div>
         </div>
 
@@ -2077,5 +2084,30 @@ onMounted(() => {
 .checkbox-label input[type='checkbox'] {
   cursor: pointer;
   margin-right: 4px;
+}
+
+/* Notes Section */
+.notes-section {
+  margin-top: 1rem;
+}
+
+.notes-section hr {
+  margin: 1rem 0;
+  border: none;
+  border-top: 1px solid var(--color-border);
+}
+
+.notes-section h4 {
+  margin: 0 0 0.75rem 0;
+  font-size: 0.9rem;
+  font-weight: 500;
+  color: var(--color-heading);
+}
+
+.notes-content {
+  color: var(--color-text);
+  line-height: 1.6;
+  white-space: pre-wrap;
+  word-break: break-word;
 }
 </style>

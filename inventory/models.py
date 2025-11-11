@@ -295,6 +295,13 @@ class Tracker(models.Model):
         help_text='Whether all files have been successfully downloaded'
     )
     
+    # Notes field
+    notes = models.TextField(
+        null=True,
+        blank=True,
+        help_text='Optional notes about this tracker'
+    )
+    
     class Meta:
         verbose_name = "Print Tracker"
         verbose_name_plural = "Print Trackers"

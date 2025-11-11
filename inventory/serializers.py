@@ -280,7 +280,7 @@ class TrackerSerializer(serializers.ModelSerializer):
         fields = [
             'id', 'name', 'project', 'project_name', 'github_url', 'storage_type',
             'creation_mode', 'primary_color', 'accent_color', 'created_date', 'updated_date',
-            'show_on_dashboard',
+            'show_on_dashboard', 'notes',
             'files', 'total_count', 'completed_count', 'in_progress_count',
             'not_started_count', 'progress_percentage', 'total_quantity',
             'printed_quantity_total', 'pending_quantity',
@@ -301,7 +301,7 @@ class TrackerCreateSerializer(serializers.ModelSerializer):
         model = Tracker
         fields = [
             'id', 'name', 'project', 'github_url', 'storage_type', 'creation_mode',
-            'primary_color', 'accent_color', 'files'
+            'primary_color', 'accent_color', 'notes', 'files'
         ]
     
     def create(self, validated_data):

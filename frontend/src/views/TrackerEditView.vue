@@ -71,6 +71,7 @@ const saveTracker = async () => {
       show_on_dashboard: tracker.value.show_on_dashboard || false,
       primary_color: tracker.value.primary_color,
       accent_color: tracker.value.accent_color,
+      notes: tracker.value.notes || '',
     })
     router.push(`/trackers/${route.params.id}`)
   } catch (err) {
@@ -170,6 +171,11 @@ onMounted(async () => {
             class="form-input"
             placeholder="https://github.com/..."
           />
+        </div>
+
+        <div class="form-group">
+          <label for="notes">Notes</label>
+          <textarea id="notes" v-model="tracker.notes" rows="4" class="form-input"></textarea>
         </div>
 
         <div class="form-group">
