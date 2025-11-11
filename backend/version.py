@@ -4,8 +4,11 @@ Print Vault Version Information
 import subprocess
 import os
 import sys
+import logging
 from django.utils import timezone
 import django
+
+logger = logging.getLogger(__name__)
 
 # Semantic version - update this manually on releases
 VERSION = "1.0.0-beta.2"
@@ -262,7 +265,8 @@ def compare_versions(current, latest):
                 # Both stable and equal
                 return 'up-to-date'
     except Exception as e:
-        print(f"Version comparison error: {e}")
+        # Log with context for debugging version comparison failures
+        logger.error(f"Version comparison error between '{current}' and '{latest}': {e}", exc_info=True)
         return 'unknown'
 
 def get_full_version_info():
