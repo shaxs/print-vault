@@ -327,4 +327,12 @@ export default {
       })),
     })
   },
+
+  // Version
+  getVersion() {
+    return apiClient.get('version/')
+  },
+  checkForUpdates() {
+    return apiClient.get('version/check-update/')
+  },
 }
