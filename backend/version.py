@@ -94,10 +94,19 @@ def get_migration_status():
 
 def get_latest_github_release():
     """
-    Fetch latest release from GitHub API.
+    Fetch latest release from GitHub API with 1-hour caching.
+    
+    Uses Django's cache framework to store results for 3600 seconds (1 hour)
+    to prevent GitHub API rate limiting (60 requests/hour for unauthenticated).
     
     Returns:
-        dict: Latest release information or error
+        dict: Latest release information including:
+            - version (str): Semantic version without 'v' prefix (e.g., '1.0.0-beta.2')
+            - name (str): Release name/title
+            - published_at (str): ISO 8601 timestamp
+            - html_url (str): GitHub release page URL
+            - body (str): Release notes in markdown format
+            - error (str|None): Error message if fetch failed, None otherwise
     """
     import requests
     from django.core.cache import cache
