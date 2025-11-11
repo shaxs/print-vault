@@ -216,17 +216,17 @@ git pull origin main
 
 ### Step 4: Rebuild and Restart Containers
 
-**Important:** Rebuild the containers FIRST. This loads the new migration files into the container.
+**Important:** Rebuild the containers with `--no-cache` to ensure the latest code is loaded. This prevents issues with cached Docker layers containing outdated code.
 
 ```bash
 # Stop containers
 docker compose down
 
-# Rebuild with latest code (use sudo if you get permission errors)
-docker compose up -d --build
+# Rebuild with latest code using --no-cache (use sudo if you get permission errors)
+docker compose up -d --build --no-cache
 
 # If you get "permission denied" errors for data/postgres:
-sudo docker compose up -d --build
+sudo docker compose up -d --build --no-cache
 
 # Check that all containers started successfully
 docker compose ps
@@ -236,6 +236,8 @@ docker compose ps
 # - print-vault-frontend-1
 # - print-vault-db-1
 ```
+
+**Why `--no-cache`?** When Docker builds images, it caches layers to speed up builds. During upgrades, cached layers might contain old code, causing version mismatches or bugs. Using `--no-cache` forces a fresh build with the latest code.
 
 ### Step 5: Verify Migrations Were Applied
 

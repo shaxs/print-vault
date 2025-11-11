@@ -2754,3 +2754,106 @@ class TrackerFileViewSet(viewsets.ModelViewSet):
         file.save()
         serializer = self.get_serializer(file)
         return Response(serializer.data)
+
+
+# ============================================================================
+# VERSION API ENDPOINT
+# ============================================================================
+
+class VersionView(APIView):
+    """
+    API endpoint that returns version information for troubleshooting.
+    
+    GET /api/version/
+    
+    Returns:
+    {
+        "version": "1.0.0",
+        "commit": "a1b2c3d",
+        "python_version": "3.13.5",
+        "django_version": "5.2.4",
+        "build_time": "2025-01-30T12:34:56Z"
+    }
+    """
+    permission_classes = [AllowAny]
+    
+    def get(self, request):
+        """Return version information from backend.version module."""
+        from backend.version import get_full_version_info
+        
+        try:
+            version_info = get_full_version_info()
+            return Response(version_info)
+        except Exception as e:
+            # Log full error details for debugging (visible in server logs only)
+            logger.error(f'Version endpoint error: {str(e)}', exc_info=True)
+            # Return generic error message to client (security best practice)
+            return Response(
+                {'error': 'Failed to retrieve version information'},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+
+
+class CheckUpdateView(APIView):
+    """
+    API endpoint to check for available updates from GitHub releases.
+    
+    GET /api/version/check-update/
+    
+    Returns:
+    {
+        "current_version": "1.0.0-beta.2",
+        "latest_version": "1.0.0",
+        "update_available": true,
+        "status": "outdated" | "up-to-date" | "newer" | "unknown",
+        "release_url": "https://github.com/shaxs/print-vault/releases/tag/v1.0.0",
+        "release_notes": "Markdown content",
+        "published_at": "2025-01-30T12:00:00Z",
+        "error": null
+    }
+    """
+    permission_classes = [AllowAny]
+    
+    def get(self, request):
+        """Check for updates by comparing current version with latest GitHub release."""
+        from backend.version import get_latest_github_release, compare_versions, get_version
+        
+        try:
+            current_version = get_version()
+            latest_release = get_latest_github_release()
+            
+            if latest_release.get('error'):
+                return Response({
+                    'current_version': current_version,
+                    'latest_version': None,
+                    'update_available': False,
+                    'status': 'unknown',
+                    'error': latest_release['error']
+                })
+            
+            latest_version = latest_release.get('version')
+            status_result = compare_versions(current_version, latest_version)
+            
+            return Response({
+                'current_version': current_version,
+                'latest_version': latest_version,
+                'update_available': status_result == 'outdated',
+                'status': status_result,
+                'release_url': latest_release.get('html_url'),
+                'release_notes': latest_release.get('body'),
+                'release_name': latest_release.get('name'),
+                'published_at': latest_release.get('published_at'),
+                'error': None
+            })
+            
+        except Exception as e:
+            # Log full error details for debugging (visible in server logs only)
+            logger.error(f'Update check error: {str(e)}', exc_info=True)
+            # Return generic error message to client (security best practice)
+            return Response(
+                {
+                    'error': 'Failed to check for updates',
+                    'update_available': False
+                },
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
