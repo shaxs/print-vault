@@ -2785,10 +2785,11 @@ class VersionView(APIView):
             version_info = get_full_version_info()
             return Response(version_info)
         except Exception as e:
+            # Log full error details for debugging (visible in server logs only)
+            logger.error(f'Version endpoint error: {str(e)}', exc_info=True)
+            # Return generic error message to client (security best practice)
             return Response(
-                {
-                    'error': f'Failed to retrieve version info: {str(e)}'
-                },
+                {'error': 'Failed to retrieve version information'},
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR
             )
 
@@ -2846,9 +2847,12 @@ class CheckUpdateView(APIView):
             })
             
         except Exception as e:
+            # Log full error details for debugging (visible in server logs only)
+            logger.error(f'Update check error: {str(e)}', exc_info=True)
+            # Return generic error message to client (security best practice)
             return Response(
                 {
-                    'error': f'Failed to check for updates: {str(e)}',
+                    'error': 'Failed to check for updates',
                     'update_available': False
                 },
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR
