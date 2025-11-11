@@ -297,7 +297,8 @@ const checkForUpdates = async () => {
     }
   } catch (err) {
     console.error('Failed to check for updates:', err)
-    // Silently fail - don't bother user if update check fails
+    // Silently fail - update checks are non-critical and shouldn't disrupt user experience
+    // (GitHub API may be down, rate-limited, or blocked - version info still loads normally)
   }
 }
 
