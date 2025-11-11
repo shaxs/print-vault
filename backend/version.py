@@ -24,6 +24,8 @@ def get_git_commit():
         if result.returncode == 0:
             return result.stdout.strip()
     except Exception:
+        # Silently fail if git unavailable (Docker containers without .git, non-git environments)
+        # Diagnostic info - shouldn't break app if unavailable
         pass
     return "unknown"
 
@@ -40,6 +42,8 @@ def get_git_branch():
         if result.returncode == 0:
             return result.stdout.strip()
     except Exception:
+        # Silently fail if git unavailable (Docker containers without .git, non-git environments)
+        # Diagnostic info - shouldn't break app if unavailable
         pass
     return "unknown"
 
