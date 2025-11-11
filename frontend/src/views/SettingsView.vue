@@ -8,6 +8,7 @@ import MaterialsTab from '@/components/MaterialsTab.vue'
 import VendorsTab from '@/components/VendorsTab.vue'
 import PreferencesTab from '@/components/PreferencesTab.vue'
 import DataManagementTab from '@/components/DataManagementTab.vue'
+import AboutTab from '@/components/AboutTab.vue'
 
 const activeTab = ref('brands')
 </script>
@@ -38,6 +39,9 @@ const activeTab = ref('brands')
         <button @click="activeTab = 'data'" :class="{ active: activeTab === 'data' }">
           Data Management
         </button>
+        <button @click="activeTab = 'about'" :class="{ active: activeTab === 'about' }">
+          About
+        </button>
       </div>
       <div class="tab-content">
         <BrandsTab v-if="activeTab === 'brands'" />
@@ -47,6 +51,7 @@ const activeTab = ref('brands')
         <VendorsTab v-if="activeTab === 'vendors'" />
         <PreferencesTab v-if="activeTab === 'preferences'" />
         <DataManagementTab v-if="activeTab === 'data'" />
+        <AboutTab v-if="activeTab === 'about'" />
       </div>
     </div>
   </div>
