@@ -17,6 +17,7 @@ const isEditMode = ref(false)
 const photoFile = ref(null)
 const photoPreview = ref(null)
 const saveDirection = ref(null) // 'next', 'back', or null for normal save
+const saveAndAddAnother = ref(false)
 
 // Check if we're in filtered navigation mode
 const hasFilteredNav = computed(() => {
@@ -92,6 +93,28 @@ const handleFileUpload = (event) => {
   }
 }
 
+const clearForm = () => {
+  item.value = {
+    title: '',
+    brand: null,
+    part_type: null,
+    location: null,
+    vendor: null,
+    vendor_link: '',
+    model: '',
+    quantity: 1,
+    cost: null,
+    notes: '',
+    project_ids: [],
+    is_consumable: false,
+    low_stock_threshold: null,
+  }
+  photoFile.value = null
+  photoPreview.value = null
+  const fileInput = document.querySelector('input[type="file"]')
+  if (fileInput) fileInput.value = ''
+}
+
 const saveItem = async () => {
   const formData = new FormData()
   formData.append('title', item.value.title || '')
@@ -133,7 +156,7 @@ const saveItem = async () => {
       savedItem = await APIService.createInventoryItem(formData)
     }
 
-    // Handle filtered navigation (Save + Next / Save + Back)
+    // Handle filtered navigation (Save + Next / Save + Back) - Edit mode only
     if (saveDirection.value === 'next' && canNavigateNext.value) {
       const nextItemId = props.filteredItemIds[props.currentIndex + 1]
       const nextIndex = props.currentIndex + 1
@@ -173,6 +196,16 @@ const saveItem = async () => {
           currentIndex: prevIndex,
         },
       })
+    } else if (saveAndAddAnother.value) {
+      // Handle Save + Add Another - Create mode only
+      clearForm()
+      saveAndAddAnother.value = false
+      // Scroll to top and focus first input to make it clear the form is ready
+      setTimeout(() => {
+        window.scrollTo({ top: 0, behavior: 'smooth' })
+        const firstInput = document.querySelector('#title')
+        if (firstInput) firstInput.focus()
+      }, 100)
     } else {
       // Normal save - redirect to detail view (clear session storage)
       saveDirection.value = null
@@ -249,6 +282,11 @@ const addProject = async (newProjectName) => {
   }
 }
 
+const handleSaveAndAddAnother = () => {
+  saveAndAddAnother.value = true
+  saveItem()
+}
+
 onMounted(async () => {
   try {
     const [partTypesRes, brandsRes, locationsRes, vendorsRes, projectsRes] = await Promise.all([
@@ -270,7 +308,7 @@ onMounted(async () => {
 </script>
 
 <template>
-  <form @submit.prevent="saveItem" class="item-form">
+  <form ref="inventoryForm" @submit.prevent="saveItem" class="item-form">
     <div class="form-group">
       <label for="title">Title</label>
       <input id="title" v-model="item.title" type="text" required />
@@ -395,6 +433,7 @@ onMounted(async () => {
     </div>
 
     <div class="form-actions">
+      <!-- Edit mode: Show filtered navigation buttons -->
       <button
         v-if="isEditMode && canNavigateBack"
         type="button"
@@ -411,7 +450,20 @@ onMounted(async () => {
       >
         Save + Next
       </button>
+      
+      <!-- Always show Save button -->
       <button type="submit" class="btn btn-primary">Save</button>
+      
+      <!-- Create mode: Show Save + Add Another button -->
+      <button
+        v-if="!isEditMode"
+        type="button"
+        class="btn btn-success"
+        @click="handleSaveAndAddAnother"
+      >
+        Save + Add Another
+      </button>
+      
       <RouterLink :to="isEditMode ? `/item/${item.id}` : '/'" class="btn btn-secondary">
         Cancel
       </RouterLink>
