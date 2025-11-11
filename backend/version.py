@@ -122,6 +122,9 @@ def get_latest_github_release():
     
     try:
         # GitHub API endpoint for latest release
+        # Note: Uses unauthenticated requests (60/hour limit)
+        # Enhancement: Add GITHUB_TOKEN in settings for 5000/hour limit if needed
+        # headers = {'Authorization': f'token {settings.GITHUB_TOKEN}'} if settings.GITHUB_TOKEN else {}
         url = 'https://api.github.com/repos/shaxs/print-vault/releases/latest'
         response = requests.get(url, timeout=5)
         
