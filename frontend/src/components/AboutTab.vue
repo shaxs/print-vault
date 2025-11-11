@@ -402,7 +402,7 @@ onMounted(() => {
 }
 
 .retry-button:hover {
-  background-color: var(--color-blue-hover);
+  background-color: #0b5ed7;
 }
 
 /* Update Notification Alert - matches Dashboard alert-info style */
