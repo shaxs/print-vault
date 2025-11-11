@@ -12,6 +12,9 @@ const isLoading = ref(true)
 const isDeleteModalVisible = ref(false)
 const isPhotoModalVisible = ref(false)
 
+// Preserve view state from list navigation
+const viewState = computed(() => history.state || {})
+
 const fetchInventoryItem = async () => {
   try {
     const response = await APIService.getInventoryItem(route.params.id)
@@ -56,6 +59,14 @@ const viewProject = (project) => {
   router.push({ name: 'project-detail', params: { id: project.id } })
 }
 
+const editItem = () => {
+  router.push({
+    name: 'item-edit',
+    params: { id: item.value.id },
+    state: viewState.value,
+  })
+}
+
 onMounted(fetchInventoryItem)
 </script>
 
@@ -69,7 +80,7 @@ onMounted(fetchInventoryItem)
       <div class="detail-header">
         <h1>{{ item.title }}</h1>
         <div class="actions">
-          <router-link :to="`/item/${item.id}/edit`" class="btn btn-primary">Edit</router-link>
+          <button @click="editItem" class="btn btn-primary">Edit</button>
           <button @click="deleteItem" class="btn btn-danger">Delete</button>
         </div>
       </div>

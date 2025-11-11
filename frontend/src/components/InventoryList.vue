@@ -2,7 +2,7 @@
 import { useRouter } from 'vue-router'
 import DataTable from './DataTable.vue'
 
-defineProps({
+const props = defineProps({
   items: { type: Array, required: true },
   visibleColumns: { type: Array, required: true },
 })
@@ -20,7 +20,27 @@ const headers = [
 ]
 
 const viewItem = (item) => {
-  router.push({ name: 'item-detail', params: { id: item.id } })
+  // Create array of filtered item IDs and find current position
+  const filteredItemIds = props.items.map((i) => i.id)
+  const currentIndex = filteredItemIds.indexOf(item.id)
+
+  // Save to sessionStorage for reliability across navigations
+  sessionStorage.setItem(
+    'inventoryNavState',
+    JSON.stringify({
+      filteredItemIds,
+      currentIndex,
+    }),
+  )
+
+  router.push({
+    name: 'item-detail',
+    params: { id: item.id },
+    state: {
+      filteredItemIds,
+      currentIndex,
+    },
+  })
 }
 </script>
 

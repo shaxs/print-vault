@@ -56,3 +56,6 @@ image-*.png
 
 # TaskSync MCP server (embedded git repo)
 tasksync-mcp/
+.vscode/mcp.json
+.vscode/tasks.json
+TODO_ACTIVE.md

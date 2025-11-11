@@ -105,15 +105,20 @@ const openFilterModal = async () => {
 }
 
 const applyFilters = () => {
-  const newFilters = {}
+  const newFilters = { ...route.query } // Start with existing query
+
+  // Update or remove each filter based on temporary values
   for (const key in temporaryFilters) {
     if (temporaryFilters[key]) {
       newFilters[key] = temporaryFilters[key]
+    } else {
+      delete newFilters[key] // Remove filter if set to "All" (empty)
     }
   }
+
   localStorage.setItem(filterStorageKey, JSON.stringify(newFilters))
   isFilterModalVisible.value = false
-  router.push({ query: { ...route.query, ...newFilters } })
+  router.push({ query: newFilters })
 }
 
 const clearFilters = () => {
@@ -124,8 +129,25 @@ const clearFilters = () => {
   router.push({ query: { search: searchText.value || undefined } })
 }
 
+const clearFiltersAndClose = () => {
+  clearFilters()
+  isFilterModalVisible.value = false
+}
+
 onMounted(() => {
   loadColumns()
+
+  // Restore filters from localStorage if they exist and not already in URL
+  const storedFilters = localStorage.getItem(filterStorageKey)
+  if (storedFilters && Object.keys(route.query).length === 0) {
+    try {
+      const filters = JSON.parse(storedFilters)
+      // Restore filters to URL to trigger the watch and load data
+      router.replace({ query: filters })
+    } catch (error) {
+      console.error('Failed to restore filters:', error)
+    }
+  }
 })
 </script>
 
@@ -185,10 +207,24 @@ onMounted(() => {
               </select>
             </div>
             <div class="form-actions">
-              <button type="submit" class="save-button">Apply Filters</button>
-              <button @click="isFilterModalVisible = false" type="button" class="cancel-button">
-                Cancel
+              <button
+                v-if="isFilterActive"
+                @click="clearFiltersAndClose"
+                type="button"
+                class="btn btn-danger"
+              >
+                Remove Filters
               </button>
+              <div class="form-actions-right">
+                <button type="submit" class="btn btn-primary">Apply Filters</button>
+                <button
+                  @click="isFilterModalVisible = false"
+                  type="button"
+                  class="btn btn-secondary"
+                >
+                  Cancel
+                </button>
+              </div>
             </div>
           </form>
         </div>
@@ -236,7 +272,7 @@ onMounted(() => {
   padding: 20px;
   border-radius: 8px;
   width: 90%;
-  max-width: 400px;
+  max-width: 500px;
 }
 .modal-form h3 {
   color: var(--color-heading);
@@ -263,27 +299,14 @@ onMounted(() => {
 }
 .form-actions {
   display: flex;
-  justify-content: flex-end;
+  justify-content: space-between;
+  align-items: center;
   gap: 10px;
   margin-top: 20px;
 }
-.save-button,
-.cancel-button {
-  padding: 10px 20px;
-  border: none;
-  border-radius: 5px;
-  text-decoration: none;
-  cursor: pointer;
-  font-size: 1rem;
-  font-weight: bold;
-}
-.save-button {
-  background-color: var(--color-blue);
-  color: white;
-}
-.cancel-button {
-  background-color: var(--color-background-mute);
-  color: var(--color-heading);
-  border: 1px solid var(--color-border);
+.form-actions-right {
+  display: flex;
+  gap: 10px;
+  justify-content: flex-end;
 }
 </style>

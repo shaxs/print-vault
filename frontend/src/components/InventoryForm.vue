@@ -1,5 +1,5 @@
 <script setup>
-import { ref, onMounted, watch } from 'vue'
+import { ref, onMounted, watch, computed } from 'vue'
 import { useRouter, RouterLink } from 'vue-router'
 import APIService from '@/services/APIService.js'
 import Multiselect from 'vue-multiselect'
@@ -7,6 +7,8 @@ import 'vue-multiselect/dist/vue-multiselect.css'
 
 const props = defineProps({
   initialData: { type: Object, default: null },
+  filteredItemIds: { type: Array, default: null },
+  currentIndex: { type: Number, default: null },
 })
 
 const router = useRouter()
@@ -14,6 +16,22 @@ const item = ref({})
 const isEditMode = ref(false)
 const photoFile = ref(null)
 const photoPreview = ref(null)
+const saveDirection = ref(null) // 'next', 'back', or null for normal save
+
+// Check if we're in filtered navigation mode
+const hasFilteredNav = computed(() => {
+  return props.filteredItemIds && props.filteredItemIds.length > 0 && props.currentIndex !== null
+})
+
+// Show Save + Back button if not the first item
+const canNavigateBack = computed(() => {
+  return hasFilteredNav.value && props.currentIndex > 0
+})
+
+// Show Save + Next button if not the last item
+const canNavigateNext = computed(() => {
+  return hasFilteredNav.value && props.currentIndex < props.filteredItemIds.length - 1
+})
 
 const allProjects = ref([])
 const partTypes = ref([])
@@ -114,10 +132,89 @@ const saveItem = async () => {
     } else {
       savedItem = await APIService.createInventoryItem(formData)
     }
-    router.push(`/item/${savedItem.data.id}`)
+
+    // Handle filtered navigation (Save + Next / Save + Back)
+    if (saveDirection.value === 'next' && canNavigateNext.value) {
+      const nextItemId = props.filteredItemIds[props.currentIndex + 1]
+      const nextIndex = props.currentIndex + 1
+      saveDirection.value = null
+
+      // Save to sessionStorage as backup
+      const navState = {
+        filteredItemIds: props.filteredItemIds,
+        currentIndex: nextIndex,
+      }
+      sessionStorage.setItem('inventoryNavState', JSON.stringify(navState))
+
+      router.push({
+        name: 'item-edit',
+        params: { id: nextItemId },
+        state: navState,
+      })
+    } else if (saveDirection.value === 'back' && canNavigateBack.value) {
+      const prevItemId = props.filteredItemIds[props.currentIndex - 1]
+      const prevIndex = props.currentIndex - 1
+      saveDirection.value = null
+
+      // Save to sessionStorage as backup
+      sessionStorage.setItem(
+        'inventoryNavState',
+        JSON.stringify({
+          filteredItemIds: props.filteredItemIds,
+          currentIndex: prevIndex,
+        }),
+      )
+
+      router.push({
+        name: 'item-edit',
+        params: { id: prevItemId },
+        state: {
+          filteredItemIds: props.filteredItemIds,
+          currentIndex: prevIndex,
+        },
+      })
+    } else {
+      // Normal save - redirect to detail view (clear session storage)
+      saveDirection.value = null
+      sessionStorage.removeItem('inventoryNavState')
+      router.push(`/item/${savedItem.data.id}`)
+    }
   } catch (error) {
     console.error('There was an error saving the item:', error)
+    saveDirection.value = null
   }
+}
+
+const handleSaveAndNext = async () => {
+  // Pre-save the next state to sessionStorage before API call
+  if (canNavigateNext.value) {
+    const nextIndex = props.currentIndex + 1
+    sessionStorage.setItem(
+      'inventoryNavState',
+      JSON.stringify({
+        filteredItemIds: props.filteredItemIds,
+        currentIndex: nextIndex,
+      }),
+    )
+  }
+  saveDirection.value = 'next'
+  await saveItem()
+}
+
+const handleSaveAndBack = async () => {
+  // Pre-save the previous state to sessionStorage before API call
+  if (canNavigateBack.value) {
+    const prevIndex = props.currentIndex - 1
+    sessionStorage.setItem(
+      'inventoryNavState',
+      JSON.stringify({
+        filteredItemIds: props.filteredItemIds,
+        currentIndex: prevIndex,
+      }),
+    )
+  }
+  saveDirection.value = 'back'
+  await saveItem()
 }
 
 const addBrand = (newBrand) => {
@@ -298,7 +395,23 @@ onMounted(async () => {
     </div>
 
     <div class="form-actions">
-      <button type="submit" class="btn btn-primary">Save Inventory Item</button>
+      <button
+        v-if="isEditMode && canNavigateBack"
+        type="button"
+        class="btn btn-secondary"
+        @click="handleSaveAndBack"
+      >
+        Save + Back
+      </button>
+      <button
+        v-if="isEditMode && canNavigateNext"
+        type="button"
+        class="btn btn-success"
+        @click="handleSaveAndNext"
+      >
+        Save + Next
+      </button>
+      <button type="submit" class="btn btn-primary">Save</button>
       <RouterLink :to="isEditMode ? `/item/${item.id}` : '/'" class="btn btn-secondary">
         Cancel
       </RouterLink>

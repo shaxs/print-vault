@@ -86,10 +86,19 @@ const openFilterModal = () => {
 }
 
 const applyFilters = () => {
-  const newFilters = { status: temporaryFilters.status || undefined }
-  localStorage.setItem(filterStorageKey, JSON.stringify(newFilters))
+  const newFilters = { ...route.query }
+  if (temporaryFilters.status) {
+    newFilters.status = temporaryFilters.status
+  } else {
+    delete newFilters.status
+  }
+
+  const filtersToStore = {}
+  if (newFilters.status) filtersToStore.status = newFilters.status
+  localStorage.setItem(filterStorageKey, JSON.stringify(filtersToStore))
+
   isFilterModalVisible.value = false
-  router.push({ query: { ...route.query, ...newFilters } })
+  router.push({ query: newFilters })
 }
 
 const clearFilters = () => {
@@ -105,6 +114,17 @@ const clearFiltersAndClose = () => {
 
 onMounted(() => {
   loadColumns()
+
+  // Restore filters from localStorage if they exist and not already in URL
+  const storedFilters = localStorage.getItem(filterStorageKey)
+  if (storedFilters && Object.keys(route.query).length === 0) {
+    try {
+      const filters = JSON.parse(storedFilters)
+      router.replace({ query: filters })
+    } catch (error) {
+      console.error('Failed to restore filters:', error)
+    }
+  }
 })
 </script>
 
@@ -211,7 +231,7 @@ onMounted(() => {
   padding: 20px;
   border-radius: 8px;
   width: 90%;
-  max-width: 400px;
+  max-width: 500px;
 }
 .modal-form h3 {
   color: var(--color-heading);
