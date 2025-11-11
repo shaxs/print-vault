@@ -351,6 +351,12 @@ Build Time: ${formatDateTime(versionInfo.value.build_time)}${migrationInfo}`
 }
 
 onMounted(() => {
+  // Set initial dismissal state immediately to prevent flash (will be revalidated after API call)
+  const dismissed = localStorage.getItem('update_dismissed')
+  if (dismissed) {
+    updateDismissed.value = true
+  }
+
   fetchVersion()
   checkForUpdates()
 })
