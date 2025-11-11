@@ -158,9 +158,15 @@ def compare_versions(current, latest):
     """
     Compare semantic versions including prerelease identifiers.
     
+    Supported prerelease types (in priority order):
+    - alpha < beta < rc < stable
+    
+    Note: Unknown prerelease types (e.g., 'dev', 'nightly') default to beta priority.
+    
     Examples:
     - 1.0.0-beta.2 vs 1.0.0-beta.3 → outdated
     - 1.0.0-beta.3 vs 1.0.0 → outdated (stable is newer than beta)
+    - 1.0.0-alpha.1 vs 1.0.0-beta.1 → outdated (alpha < beta)
     - 1.0.0 vs 1.1.0 → outdated
     
     Returns:
