@@ -168,10 +168,17 @@ const confirmRestore = async () => {
       console.warn('Import completed with errors:', response.data.errors)
       console.warn('Error details:', response.data.message)
 
-      const errorList = response.data.errors.join(', ')
+      // Limit errors shown in modal to first 10 (similar to validation modal pattern)
+      const maxErrorsToShow = 10
+      const errorList = response.data.errors.slice(0, maxErrorsToShow).join('\n• ')
+      const moreErrors =
+        response.data.errors_count > maxErrorsToShow
+          ? `\n... and ${response.data.errors_count - maxErrorsToShow} more errors`
+          : ''
+
       showInfoModal(
         'Partial Success',
-        `Data restored but ${response.data.errors_count} items could not be imported:\n\n${errorList}\n\nCheck browser console and server logs for detailed error information.`,
+        `Data restored but ${response.data.errors_count} items could not be imported:\n\n• ${errorList}${moreErrors}\n\nCheck browser console and server logs for detailed error information.`,
         true, // warning style
       )
     } else {
