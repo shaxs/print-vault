@@ -153,6 +153,12 @@ const cancelFinalRestore = () => {
   isFinalRestoreModalVisible.value = false
   restoreConfirmationText.value = ''
   restoreCheckbox.value = false
+  // Clear file input and validation results when canceling final confirmation
+  restoreFile.value = null
+  validationResults.value = null
+  if (restoreFileInput.value) {
+    restoreFileInput.value.value = ''
+  }
 }
 const confirmRestore = async () => {
   if (!restoreFile.value) {
