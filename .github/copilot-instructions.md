@@ -38,9 +38,12 @@ Auto-loaded at the start of every Copilot Chat. Keep small. Attach canonical ins
 
 - If a required canonical file is not attached for specialized work, the AI MUST request it before proceeding:
   - Example: "Please attach `#file:chat_docs/instructions/DESIGN_SYSTEM.md` so I can follow canonical UI rules."
-- **Dev server commands** (Django backend, Vite frontend) run in external PowerShell — user must run these:
-  - `python manage.py migrate`, `python manage.py makemigrations`, `npm run dev`, server restarts
-- **All other commands** (git, docker, npm install, etc.) can be run by AI with user permission via run_in_terminal tool.
+- **Dev environment:** Non-Docker bare metal servers run in external PowerShell — user must run these:
+  - Django: `python manage.py migrate`, `python manage.py makemigrations`, `python manage.py runserver`
+  - Frontend: `npm run dev`, `npm install`
+  - Dev server restarts/stops
+- **Production environment:** Docker commands (`docker compose up`, `docker compose build`, etc.) can be run by AI
+- **All other commands** (git, file operations, etc.) can be run by AI via run_in_terminal tool
 - Always include 2–3 sentence rationale with generated code examples (user preference).
 
 ## Token Optimization Tips (short)
