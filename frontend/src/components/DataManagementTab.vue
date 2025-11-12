@@ -119,9 +119,23 @@ const confirmRestore = async () => {
     const formData = new FormData()
     formData.append('backup_file', restoreFile.value) // Ensure the key matches the backend
 
-    await APIService.restoreData(formData)
+    const response = await APIService.restoreData(formData)
     cancelFinalRestore()
-    showInfoModal('Success', 'Data has been successfully restored.')
+    
+    // Check if there were partial import errors
+    if (response.data.errors_count && response.data.errors_count > 0) {
+      console.warn('Import completed with errors:', response.data.errors)
+      console.warn('Error details:', response.data.message)
+      
+      const errorList = response.data.errors.join(', ')
+      showInfoModal(
+        'Partial Success',
+        `Data restored but ${response.data.errors_count} items could not be imported:\n\n${errorList}\n\nCheck browser console and server logs for detailed error information.`,
+        true // warning style
+      )
+    } else {
+      showInfoModal('Success', 'Data has been successfully restored.')
+    }
   } catch (error) {
     const errorMessage =
       error.response?.data?.error || 'An error occurred during the restore process.'
