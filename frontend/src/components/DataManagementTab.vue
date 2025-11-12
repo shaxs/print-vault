@@ -10,6 +10,7 @@ const deleteConfirmationText = ref('')
 const deleteCheckbox = ref(false)
 
 const restoreFile = ref(null)
+const restoreFileInput = ref(null) // Reference to the file input element
 const isRestoring = ref(false)
 const isValidating = ref(false)
 const isExporting = ref(false)
@@ -138,6 +139,10 @@ const cancelValidationWarning = () => {
   isValidationWarningModalVisible.value = false
   validationResults.value = null
   restoreFile.value = null
+  // Clear the file input element to allow re-selection
+  if (restoreFileInput.value) {
+    restoreFileInput.value.value = ''
+  }
 }
 const proceedWithPartialImport = () => {
   isValidationWarningModalVisible.value = false
@@ -188,6 +193,9 @@ const confirmRestore = async () => {
     // Clear file input and validation results after successful restore
     restoreFile.value = null
     validationResults.value = null
+    if (restoreFileInput.value) {
+      restoreFileInput.value.value = ''
+    }
   } catch (error) {
     const errorMessage =
       error.response?.data?.error || 'An error occurred during the restore process.'
@@ -222,6 +230,7 @@ const confirmRestore = async () => {
             <label for="backup-upload">Upload Backup File (*.zip)</label
             ><input
               id="backup-upload"
+              ref="restoreFileInput"
               type="file"
               @change="handleRestoreUpload"
               accept=".zip"
