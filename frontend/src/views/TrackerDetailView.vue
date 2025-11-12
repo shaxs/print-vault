@@ -226,12 +226,17 @@ const updateFileQuantity = async (file, newValue) => {
   const quantity = parseInt(newValue) || 1
   const clamped = Math.max(1, quantity)
 
+  // Store previous value for rollback on error
+  const previousQuantity = file.quantity
+
   try {
-    await APIService.updateTrackerFileConfiguration(file.id, file.color, file.material, clamped)
+    // Optimistically update the UI
     file.quantity = clamped
-    await loadTracker()
+    await APIService.updateTrackerFileConfiguration(file.id, file.color, file.material, clamped)
   } catch (err) {
     console.error('Failed to update file quantity:', err)
+    // Rollback on error
+    file.quantity = previousQuantity
     alert('Failed to update file quantity')
   }
 }
@@ -865,7 +870,7 @@ onMounted(() => {
                       <input
                         type="number"
                         :value="file.quantity"
-                        @change="updateFileQuantity(file, $event.target.value)"
+                        @input.stop="updateFileQuantity(file, $event.target.value)"
                         class="form-control quantity-input"
                         :disabled="file.status === 'completed'"
                         min="1"
