@@ -56,161 +56,280 @@ class ReadOnlyViewSet(mixins.RetrieveModelMixin,
 
 class ExportDataView(APIView):
     permission_classes = [AllowAny]
+    
     def get(self, request):
+        """
+        Export all Print Vault data to a ZIP archive with CSV files and media.
+        Uses defensive error handling to continue export even if individual sections fail.
+        """
         buffer = BytesIO()
+        export_errors = []  # Track which sections failed
+        
         with zipfile.ZipFile(buffer, 'w', zipfile.ZIP_DEFLATED) as zf:
             # Export Inventory Items
-            inv_buffer = StringIO()
-            inv_writer = csv.writer(inv_buffer)
-            inv_writer.writerow(['id', 'title', 'brand', 'part_type', 'location', 'quantity', 'cost', 'notes', 'photo', 'is_consumable', 'low_stock_threshold', 'vendor', 'vendor_link', 'model'])
-            for item in InventoryItem.objects.all():
-                inv_writer.writerow([
-                    item.id, item.title, item.brand.name if item.brand else '',
-                    item.part_type.name if item.part_type else '',
-                    item.location.name if item.location else '',
-                    item.quantity, item.cost, item.notes,
-                    os.path.basename(item.photo.name) if item.photo else '',
-                    item.is_consumable, item.low_stock_threshold,
-                    item.vendor.name if item.vendor else '',
-                    item.vendor_link or '',
-                    item.model or ''
-                ])
-            zf.writestr('inventory.csv', inv_buffer.getvalue())
+            try:
+                inv_buffer = StringIO()
+                inv_writer = csv.writer(inv_buffer)
+                inv_writer.writerow(['id', 'title', 'brand', 'part_type', 'location', 'quantity', 'cost', 'notes', 'photo', 'is_consumable', 'low_stock_threshold', 'vendor', 'vendor_link', 'model'])
+                for item in InventoryItem.objects.all():
+                    try:
+                        inv_writer.writerow([
+                            item.id, item.title, item.brand.name if item.brand else '',
+                            item.part_type.name if item.part_type else '',
+                            item.location.name if item.location else '',
+                            item.quantity, item.cost, item.notes,
+                            os.path.basename(item.photo.name) if item.photo else '',
+                            item.is_consumable, item.low_stock_threshold,
+                            item.vendor.name if item.vendor else '',
+                            item.vendor_link or '',
+                            item.model or ''
+                        ])
+                    except Exception as e:
+                        logger.error(f"Failed to export inventory item {item.id}: {e}", exc_info=True)
+                        export_errors.append(f"inventory_item_{item.id}")
+                zf.writestr('inventory.csv', inv_buffer.getvalue())
+            except Exception as e:
+                logger.error(f"Failed to export inventory section: {e}", exc_info=True)
+                export_errors.append("inventory_section")
 
             # Export Printers
-            printer_buffer = StringIO()
-            printer_writer = csv.writer(printer_buffer)
-            printer_writer.writerow(['id', 'title', 'manufacturer', 'serial_number', 'purchase_date', 'status', 'notes', 'purchase_price', 'photo', 'last_maintained_date', 'maintenance_reminder_date', 'last_carbon_replacement_date', 'carbon_reminder_date', 'maintenance_notes'])
-            for printer in Printer.objects.all():
-                printer_writer.writerow([
-                    printer.id, printer.title, printer.manufacturer.name if printer.manufacturer else '',
-                    printer.serial_number, printer.purchase_date, printer.status, printer.notes,
-                    printer.purchase_price, os.path.basename(printer.photo.name) if printer.photo else '',
-                    printer.last_maintained_date, printer.maintenance_reminder_date,
-                    printer.last_carbon_replacement_date, printer.carbon_reminder_date,
-                    printer.maintenance_notes
-                ])
-            zf.writestr('printers.csv', printer_buffer.getvalue())
+            try:
+                printer_buffer = StringIO()
+                printer_writer = csv.writer(printer_buffer)
+                printer_writer.writerow(['id', 'title', 'manufacturer', 'serial_number', 'purchase_date', 'status', 'notes', 'purchase_price', 'photo', 'last_maintained_date', 'maintenance_reminder_date', 'last_carbon_replacement_date', 'carbon_reminder_date', 'maintenance_notes'])
+                for printer in Printer.objects.all():
+                    try:
+                        printer_writer.writerow([
+                            printer.id, printer.title, printer.manufacturer.name if printer.manufacturer else '',
+                            printer.serial_number, printer.purchase_date, printer.status, printer.notes,
+                            printer.purchase_price, os.path.basename(printer.photo.name) if printer.photo else '',
+                            printer.last_maintained_date, printer.maintenance_reminder_date,
+                            printer.last_carbon_replacement_date, printer.carbon_reminder_date,
+                            printer.maintenance_notes
+                        ])
+                    except Exception as e:
+                        logger.error(f"Failed to export printer {printer.id}: {e}", exc_info=True)
+                        export_errors.append(f"printer_{printer.id}")
+                zf.writestr('printers.csv', printer_buffer.getvalue())
+            except Exception as e:
+                logger.error(f"Failed to export printers section: {e}", exc_info=True)
+                export_errors.append("printers_section")
             
             # Export Mods
-            mod_buffer = StringIO()
-            mod_writer = csv.writer(mod_buffer)
-            mod_writer.writerow(['id', 'printer_id', 'name', 'link', 'status'])
-            for mod in Mod.objects.all():
-                mod_writer.writerow([mod.id, mod.printer.id, mod.name, mod.link, mod.status])
-            zf.writestr('mods.csv', mod_buffer.getvalue())
+            try:
+                mod_buffer = StringIO()
+                mod_writer = csv.writer(mod_buffer)
+                mod_writer.writerow(['id', 'printer_id', 'name', 'link', 'status'])
+                for mod in Mod.objects.all():
+                    try:
+                        mod_writer.writerow([mod.id, mod.printer.id, mod.name, mod.link, mod.status])
+                    except Exception as e:
+                        logger.error(f"Failed to export mod {mod.id}: {e}", exc_info=True)
+                        export_errors.append(f"mod_{mod.id}")
+                zf.writestr('mods.csv', mod_buffer.getvalue())
+            except Exception as e:
+                logger.error(f"Failed to export mods section: {e}", exc_info=True)
+                export_errors.append("mods_section")
 
             # Export ModFiles
-            modfile_buffer = StringIO()
-            modfile_writer = csv.writer(modfile_buffer)
-            modfile_writer.writerow(['id', 'mod_id', 'file'])
-            for modfile in ModFile.objects.all():
-                modfile_writer.writerow([modfile.id, modfile.mod.id, os.path.basename(modfile.file.name) if modfile.file else ''])
-            zf.writestr('modfiles.csv', modfile_buffer.getvalue())
+            try:
+                modfile_buffer = StringIO()
+                modfile_writer = csv.writer(modfile_buffer)
+                modfile_writer.writerow(['id', 'mod_id', 'file'])
+                for modfile in ModFile.objects.all():
+                    try:
+                        modfile_writer.writerow([modfile.id, modfile.mod.id, os.path.basename(modfile.file.name) if modfile.file else ''])
+                    except Exception as e:
+                        logger.error(f"Failed to export modfile {modfile.id}: {e}", exc_info=True)
+                        export_errors.append(f"modfile_{modfile.id}")
+                zf.writestr('modfiles.csv', modfile_buffer.getvalue())
+            except Exception as e:
+                logger.error(f"Failed to export modfiles section: {e}", exc_info=True)
+                export_errors.append("modfiles_section")
 
             # Export Projects
-            project_buffer = StringIO()
-            project_writer = csv.writer(project_buffer)
-            project_writer.writerow(['id', 'project_name', 'description', 'status', 'start_date', 'due_date', 'notes', 'photo'])
-            for project in Project.objects.all():
-                project_writer.writerow([
-                    project.id, project.project_name, project.description, project.status,
-                    project.start_date, project.due_date, project.notes,
-                    os.path.basename(project.photo.name) if project.photo else ''
-                ])
-            zf.writestr('projects.csv', project_buffer.getvalue())
+            try:
+                project_buffer = StringIO()
+                project_writer = csv.writer(project_buffer)
+                project_writer.writerow(['id', 'project_name', 'description', 'status', 'start_date', 'due_date', 'notes', 'photo'])
+                for project in Project.objects.all():
+                    try:
+                        project_writer.writerow([
+                            project.id, project.project_name, project.description, project.status,
+                            project.start_date, project.due_date, project.notes,
+                            os.path.basename(project.photo.name) if project.photo else ''
+                        ])
+                    except Exception as e:
+                        logger.error(f"Failed to export project {project.id}: {e}", exc_info=True)
+                        export_errors.append(f"project_{project.id}")
+                zf.writestr('projects.csv', project_buffer.getvalue())
+            except Exception as e:
+                logger.error(f"Failed to export projects section: {e}", exc_info=True)
+                export_errors.append("projects_section")
 
             # Export ProjectLinks
-            projectlink_buffer = StringIO()
-            projectlink_writer = csv.writer(projectlink_buffer)
-            projectlink_writer.writerow(['id', 'project_id', 'name', 'url'])
-            for link in ProjectLink.objects.all():
-                projectlink_writer.writerow([link.id, link.project.id, link.name, link.url])
-            zf.writestr('project_links.csv', projectlink_buffer.getvalue())
+            try:
+                projectlink_buffer = StringIO()
+                projectlink_writer = csv.writer(projectlink_buffer)
+                projectlink_writer.writerow(['id', 'project_id', 'name', 'url'])
+                for link in ProjectLink.objects.all():
+                    try:
+                        projectlink_writer.writerow([link.id, link.project.id, link.name, link.url])
+                    except Exception as e:
+                        logger.error(f"Failed to export project link {link.id}: {e}", exc_info=True)
+                        export_errors.append(f"projectlink_{link.id}")
+                zf.writestr('project_links.csv', projectlink_buffer.getvalue())
+            except Exception as e:
+                logger.error(f"Failed to export project links section: {e}", exc_info=True)
+                export_errors.append("projectlinks_section")
 
             # Export ProjectFiles
-            projectfile_buffer = StringIO()
-            projectfile_writer = csv.writer(projectfile_buffer)
-            projectfile_writer.writerow(['id', 'project_id', 'file'])
-            for pfile in ProjectFile.objects.all():
-                projectfile_writer.writerow([pfile.id, pfile.project.id, os.path.basename(pfile.file.name) if pfile.file else ''])
-            zf.writestr('project_files.csv', projectfile_buffer.getvalue())
+            try:
+                projectfile_buffer = StringIO()
+                projectfile_writer = csv.writer(projectfile_buffer)
+                projectfile_writer.writerow(['id', 'project_id', 'file'])
+                for pfile in ProjectFile.objects.all():
+                    try:
+                        projectfile_writer.writerow([pfile.id, pfile.project.id, os.path.basename(pfile.file.name) if pfile.file else ''])
+                    except Exception as e:
+                        logger.error(f"Failed to export project file {pfile.id}: {e}", exc_info=True)
+                        export_errors.append(f"projectfile_{pfile.id}")
+                zf.writestr('project_files.csv', projectfile_buffer.getvalue())
+            except Exception as e:
+                logger.error(f"Failed to export project files section: {e}", exc_info=True)
+                export_errors.append("projectfiles_section")
 
             # Export ProjectInventory
-            projectinventory_buffer = StringIO()
-            projectinventory_writer = csv.writer(projectinventory_buffer)
-            projectinventory_writer.writerow(['project_id', 'inventory_item_id', 'quantity_used'])
-            for pi in ProjectInventory.objects.all():
-                projectinventory_writer.writerow([pi.project.id, pi.inventory_item.id, pi.quantity_used])
-            zf.writestr('project_inventory.csv', projectinventory_buffer.getvalue())
+            try:
+                projectinventory_buffer = StringIO()
+                projectinventory_writer = csv.writer(projectinventory_buffer)
+                projectinventory_writer.writerow(['project_id', 'inventory_item_id', 'quantity_used'])
+                for pi in ProjectInventory.objects.all():
+                    try:
+                        projectinventory_writer.writerow([pi.project.id, pi.inventory_item.id, pi.quantity_used])
+                    except Exception as e:
+                        logger.error(f"Failed to export project inventory {pi.id}: {e}", exc_info=True)
+                        export_errors.append(f"projectinventory_{pi.id}")
+                zf.writestr('project_inventory.csv', projectinventory_buffer.getvalue())
+            except Exception as e:
+                logger.error(f"Failed to export project inventory section: {e}", exc_info=True)
+                export_errors.append("projectinventory_section")
 
             # Export ProjectPrinters
-            projectprinters_buffer = StringIO()
-            projectprinters_writer = csv.writer(projectprinters_buffer)
-            projectprinters_writer.writerow(['project_id', 'printer_id'])
-            for pp in ProjectPrinters.objects.all():
-                projectprinters_writer.writerow([pp.project.id, pp.printer.id])
-            zf.writestr('project_printers.csv', projectprinters_buffer.getvalue())
+            try:
+                projectprinters_buffer = StringIO()
+                projectprinters_writer = csv.writer(projectprinters_buffer)
+                projectprinters_writer.writerow(['project_id', 'printer_id'])
+                for pp in ProjectPrinters.objects.all():
+                    try:
+                        projectprinters_writer.writerow([pp.project.id, pp.printer.id])
+                    except Exception as e:
+                        logger.error(f"Failed to export project printer {pp.id}: {e}", exc_info=True)
+                        export_errors.append(f"projectprinter_{pp.id}")
+                zf.writestr('project_printers.csv', projectprinters_buffer.getvalue())
+            except Exception as e:
+                logger.error(f"Failed to export project printers section: {e}", exc_info=True)
+                export_errors.append("projectprinters_section")
 
             # Export Print Trackers
-            tracker_buffer = StringIO()
-            tracker_writer = csv.writer(tracker_buffer)
-            tracker_writer.writerow([
-                'id', 'name', 'project_id', 'github_url', 'storage_type',
-                'primary_color', 'accent_color', 'total_quantity', 'printed_quantity_total',
-                'progress_percentage', 'created_date', 'updated_date', 'storage_path',
-                'total_storage_used', 'files_downloaded'
-            ])
-            for tracker in Tracker.objects.all():
+            try:
+                tracker_buffer = StringIO()
+                tracker_writer = csv.writer(tracker_buffer)
                 tracker_writer.writerow([
-                    tracker.id, tracker.name,
-                    tracker.project.id if tracker.project else '',
-                    tracker.github_url, tracker.storage_type,
-                    tracker.primary_color, tracker.accent_color,
-                    tracker.total_quantity, tracker.printed_quantity_total,
-                    tracker.progress_percentage, tracker.created_date, tracker.updated_date,
-                    tracker.storage_path, tracker.total_storage_used, tracker.files_downloaded
+                    'id', 'name', 'project_id', 'github_url', 'storage_type',
+                    'primary_color', 'accent_color', 'total_quantity', 'printed_quantity_total',
+                    'progress_percentage', 'created_date', 'updated_date', 'storage_path',
+                    'total_storage_used', 'files_downloaded'
                 ])
-            zf.writestr('trackers.csv', tracker_buffer.getvalue())
+                for tracker in Tracker.objects.all():
+                    try:
+                        tracker_writer.writerow([
+                            tracker.id, tracker.name,
+                            tracker.project.id if tracker.project else '',
+                            tracker.github_url, tracker.storage_type,
+                            tracker.primary_color, tracker.accent_color,
+                            tracker.total_quantity, tracker.printed_quantity_total,
+                            tracker.progress_percentage, tracker.created_date, tracker.updated_date,
+                            tracker.storage_path, tracker.total_storage_used, tracker.files_downloaded
+                        ])
+                    except Exception as e:
+                        logger.error(f"Failed to export tracker {tracker.id}: {e}", exc_info=True)
+                        export_errors.append(f"tracker_{tracker.id}")
+                zf.writestr('trackers.csv', tracker_buffer.getvalue())
+            except Exception as e:
+                logger.error(f"Failed to export trackers section: {e}", exc_info=True)
+                export_errors.append("trackers_section")
 
             # Export Tracker Files
-            trackerfile_buffer = StringIO()
-            trackerfile_writer = csv.writer(trackerfile_buffer)
-            trackerfile_writer.writerow([
-                'id', 'tracker_id', 'storage_type', 'filename', 'directory_path',
-                'github_url', 'local_file', 'file_size', 'sha', 'color', 'material',
-                'quantity', 'is_selected', 'status', 'printed_quantity',
-                'created_date', 'updated_date', 'download_date', 'download_status',
-                'download_error', 'downloaded_at', 'file_checksum', 'actual_file_size'
-            ])
-            for tfile in TrackerFile.objects.all():
+            try:
+                trackerfile_buffer = StringIO()
+                trackerfile_writer = csv.writer(trackerfile_buffer)
                 trackerfile_writer.writerow([
-                    tfile.id, tfile.tracker.id, tfile.storage_type,
-                    tfile.filename, tfile.directory_path, tfile.github_url,
-                    os.path.basename(tfile.local_file.name) if tfile.local_file else '',
-                    tfile.file_size, tfile.sha, tfile.color, tfile.material,
-                    tfile.quantity, tfile.is_selected, tfile.status, tfile.printed_quantity,
-                    tfile.created_date, tfile.updated_date, tfile.download_date,
-                    tfile.download_status, tfile.download_error, tfile.downloaded_at,
-                    tfile.file_checksum, tfile.actual_file_size
+                    'id', 'tracker_id', 'storage_type', 'filename', 'directory_path',
+                    'github_url', 'local_file', 'file_size', 'sha', 'color', 'material',
+                    'quantity', 'is_selected', 'status', 'printed_quantity',
+                    'created_date', 'updated_date', 'download_date', 'download_status',
+                    'download_error', 'downloaded_at', 'file_checksum', 'actual_file_size'
                 ])
-            zf.writestr('tracker_files.csv', trackerfile_buffer.getvalue())
+                for tfile in TrackerFile.objects.all():
+                    try:
+                        trackerfile_writer.writerow([
+                            tfile.id, tfile.tracker.id, tfile.storage_type,
+                            tfile.filename, tfile.directory_path, tfile.github_url,
+                            os.path.basename(tfile.local_file.name) if tfile.local_file else '',
+                            tfile.file_size, tfile.sha, tfile.color, tfile.material,
+                            tfile.quantity, tfile.is_selected, tfile.status, tfile.printed_quantity,
+                            tfile.created_date, tfile.updated_date, tfile.download_date,
+                            tfile.download_status, tfile.download_error, tfile.downloaded_at,
+                            tfile.file_checksum, tfile.actual_file_size
+                        ])
+                    except Exception as e:
+                        logger.error(f"Failed to export tracker file {tfile.id}: {e}", exc_info=True)
+                        export_errors.append(f"trackerfile_{tfile.id}")
+                zf.writestr('tracker_files.csv', trackerfile_buffer.getvalue())
+            except Exception as e:
+                logger.error(f"Failed to export tracker files section: {e}", exc_info=True)
+                export_errors.append("trackerfiles_section")
 
             # Add media files to zip
-            media_root = settings.MEDIA_ROOT
-            for root, dirs, files in os.walk(media_root):
-                for file in files:
-                    # Skip CSV files - they're already added via writestr() above
-                    if file.endswith('.csv'):
-                        continue
-                    
-                    file_path = os.path.join(root, file)
-                    arcname = os.path.relpath(file_path, media_root)
-                    zf.write(file_path, arcname)
+            try:
+                media_root = settings.MEDIA_ROOT
+                for root, dirs, files in os.walk(media_root):
+                    for file in files:
+                        # Skip CSV files - they're already added via writestr() above
+                        if file.endswith('.csv'):
+                            continue
+                        
+                        try:
+                            file_path = os.path.join(root, file)
+                            arcname = os.path.relpath(file_path, media_root)
+                            zf.write(file_path, arcname)
+                        except Exception as e:
+                            logger.error(f"Failed to add media file {file}: {e}", exc_info=True)
+                            export_errors.append(f"media_{file}")
+            except Exception as e:
+                logger.error(f"Failed to export media files: {e}", exc_info=True)
+                export_errors.append("media_section")
+            
+            # Add error report if any errors occurred
+            if export_errors:
+                error_buffer = StringIO()
+                error_buffer.write("# Print Vault Export Errors\n\n")
+                error_buffer.write(f"Export completed with {len(export_errors)} error(s).\n")
+                error_buffer.write("The following items could not be exported:\n\n")
+                for error in export_errors:
+                    error_buffer.write(f"- {error}\n")
+                error_buffer.write("\nCheck server logs for detailed error information.\n")
+                zf.writestr('EXPORT_ERRORS.txt', error_buffer.getvalue())
+                logger.warning(f"Export completed with {len(export_errors)} errors: {export_errors}")
 
         buffer.seek(0)
         response = HttpResponse(buffer, content_type='application/zip')
-        response['Content-Disposition'] = 'attachment; filename=print-vault-backup.zip'
+        
+        # Generate timestamped filename: print-vault-backup-20241112-093045.zip
+        timestamp = timezone.now().strftime('%Y%m%d-%H%M%S')
+        filename = f'print-vault-backup-{timestamp}.zip'
+        response['Content-Disposition'] = f'attachment; filename={filename}'
         return response
 
 
@@ -974,6 +1093,341 @@ def parse_date(date_string):
         return None
 
 
+class ValidateBackupView(APIView):
+    """
+    Validate a backup ZIP file before importing.
+    Returns a report of validation errors without modifying the database.
+    """
+    permission_classes = [AllowAny]
+    
+    def post(self, request, *args, **kwargs):
+        backup_file = request.FILES.get('backup_file')
+        if not backup_file:
+            return Response({'error': 'No backup file provided.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            validation_errors = []
+            validation_stats = {
+                'total_records': 0,
+                'valid_records': 0,
+                'invalid_records': 0,
+                'sections': {}
+            }
+            
+            with zipfile.ZipFile(backup_file, 'r') as zf:
+                def read_csv_from_zip(zipfile_obj, filename):
+                    with zipfile_obj.open(filename, 'r') as f:
+                        reader = csv.reader(StringIO(f.read().decode('utf-8')))
+                        header = next(reader)
+                        return [dict(zip(header, row)) for row in reader]
+                
+                # Validate Projects (base dependency)
+                if 'projects.csv' in zf.namelist():
+                    project_rows = read_csv_from_zip(zf, 'projects.csv')
+                    project_ids = set()
+                    section_valid = 0
+                    section_invalid = 0
+                    
+                    for row in project_rows:
+                        try:
+                            # Basic validation - check required fields
+                            if not row.get('id') or not row.get('project_name'):
+                                validation_errors.append({
+                                    'type': 'project',
+                                    'id': row.get('id', 'unknown'),
+                                    'error': 'Missing required fields'
+                                })
+                                section_invalid += 1
+                            else:
+                                project_ids.add(row['id'])
+                                section_valid += 1
+                        except Exception as e:
+                            validation_errors.append({
+                                'type': 'project',
+                                'id': row.get('id', 'unknown'),
+                                'error': str(e)
+                            })
+                            section_invalid += 1
+                    
+                    validation_stats['sections']['projects'] = {
+                        'total': section_valid + section_invalid,
+                        'valid': section_valid,
+                        'invalid': section_invalid
+                    }
+                    validation_stats['total_records'] += section_valid + section_invalid
+                    validation_stats['valid_records'] += section_valid
+                    validation_stats['invalid_records'] += section_invalid
+                else:
+                    project_ids = set()
+                
+                # Validate Printers (base dependency)
+                if 'printers.csv' in zf.namelist():
+                    printer_rows = read_csv_from_zip(zf, 'printers.csv')
+                    printer_ids = set()
+                    section_valid = 0
+                    section_invalid = 0
+                    
+                    for row in printer_rows:
+                        if not row.get('id') or not row.get('title'):
+                            validation_errors.append({
+                                'type': 'printer',
+                                'id': row.get('id', 'unknown'),
+                                'error': 'Missing required fields'
+                            })
+                            section_invalid += 1
+                        else:
+                            printer_ids.add(row['id'])
+                            section_valid += 1
+                    
+                    validation_stats['sections']['printers'] = {
+                        'total': section_valid + section_invalid,
+                        'valid': section_valid,
+                        'invalid': section_invalid
+                    }
+                    validation_stats['total_records'] += section_valid + section_invalid
+                    validation_stats['valid_records'] += section_valid
+                    validation_stats['invalid_records'] += section_invalid
+                else:
+                    printer_ids = set()
+                
+                # Validate Inventory Items (base dependency)
+                if 'inventory.csv' in zf.namelist():
+                    inventory_rows = read_csv_from_zip(zf, 'inventory.csv')
+                    inventory_ids = set()
+                    section_valid = 0
+                    section_invalid = 0
+                    
+                    for row in inventory_rows:
+                        if not row.get('id') or not row.get('title'):
+                            validation_errors.append({
+                                'type': 'inventory',
+                                'id': row.get('id', 'unknown'),
+                                'error': 'Missing required fields'
+                            })
+                            section_invalid += 1
+                        else:
+                            inventory_ids.add(row['id'])
+                            section_valid += 1
+                    
+                    validation_stats['sections']['inventory'] = {
+                        'total': section_valid + section_invalid,
+                        'valid': section_valid,
+                        'invalid': section_invalid
+                    }
+                    validation_stats['total_records'] += section_valid + section_invalid
+                    validation_stats['valid_records'] += section_valid
+                    validation_stats['invalid_records'] += section_invalid
+                else:
+                    inventory_ids = set()
+                
+                # Validate Trackers (base dependency)
+                if 'trackers.csv' in zf.namelist():
+                    tracker_rows = read_csv_from_zip(zf, 'trackers.csv')
+                    tracker_ids = set()
+                    section_valid = 0
+                    section_invalid = 0
+                    
+                    for row in tracker_rows:
+                        if not row.get('id') or not row.get('name'):
+                            validation_errors.append({
+                                'type': 'tracker',
+                                'id': row.get('id', 'unknown'),
+                                'error': 'Missing required fields'
+                            })
+                            section_invalid += 1
+                        elif row.get('project_id') and row['project_id'] not in project_ids:
+                            validation_errors.append({
+                                'type': 'tracker',
+                                'id': row['id'],
+                                'error': f"Missing project {row['project_id']}"
+                            })
+                            section_invalid += 1
+                        else:
+                            tracker_ids.add(row['id'])
+                            section_valid += 1
+                    
+                    validation_stats['sections']['trackers'] = {
+                        'total': section_valid + section_invalid,
+                        'valid': section_valid,
+                        'invalid': section_invalid
+                    }
+                    validation_stats['total_records'] += section_valid + section_invalid
+                    validation_stats['valid_records'] += section_valid
+                    validation_stats['invalid_records'] += section_invalid
+                else:
+                    tracker_ids = set()
+                
+                # Validate ProjectLinks (depends on projects)
+                if 'project_links.csv' in zf.namelist():
+                    link_rows = read_csv_from_zip(zf, 'project_links.csv')
+                    section_valid = 0
+                    section_invalid = 0
+                    
+                    for row in link_rows:
+                        if not row.get('project_id') or row['project_id'] not in project_ids:
+                            validation_errors.append({
+                                'type': 'projectlink',
+                                'id': row.get('id', 'unknown'),
+                                'error': f"Missing project {row.get('project_id', 'unknown')}"
+                            })
+                            section_invalid += 1
+                        else:
+                            section_valid += 1
+                    
+                    validation_stats['sections']['project_links'] = {
+                        'total': section_valid + section_invalid,
+                        'valid': section_valid,
+                        'invalid': section_invalid
+                    }
+                    validation_stats['total_records'] += section_valid + section_invalid
+                    validation_stats['valid_records'] += section_valid
+                    validation_stats['invalid_records'] += section_invalid
+                
+                # Validate ProjectFiles (depends on projects)
+                if 'project_files.csv' in zf.namelist():
+                    file_rows = read_csv_from_zip(zf, 'project_files.csv')
+                    section_valid = 0
+                    section_invalid = 0
+                    
+                    for row in file_rows:
+                        if not row.get('project_id') or row['project_id'] not in project_ids:
+                            validation_errors.append({
+                                'type': 'projectfile',
+                                'id': row.get('id', 'unknown'),
+                                'error': f"Missing project {row.get('project_id', 'unknown')}"
+                            })
+                            section_invalid += 1
+                        else:
+                            section_valid += 1
+                    
+                    validation_stats['sections']['project_files'] = {
+                        'total': section_valid + section_invalid,
+                        'valid': section_valid,
+                        'invalid': section_invalid
+                    }
+                    validation_stats['total_records'] += section_valid + section_invalid
+                    validation_stats['valid_records'] += section_valid
+                    validation_stats['invalid_records'] += section_invalid
+                
+                # Validate ProjectInventory (depends on projects and inventory)
+                if 'project_inventory.csv' in zf.namelist():
+                    proj_inv_rows = read_csv_from_zip(zf, 'project_inventory.csv')
+                    section_valid = 0
+                    section_invalid = 0
+                    
+                    for row in proj_inv_rows:
+                        errors = []
+                        if not row.get('project_id') or row['project_id'] not in project_ids:
+                            errors.append(f"Missing project {row.get('project_id', 'unknown')}")
+                        if not row.get('inventory_item_id') or row['inventory_item_id'] not in inventory_ids:
+                            errors.append(f"Missing inventory item {row.get('inventory_item_id', 'unknown')}")
+                        
+                        if errors:
+                            validation_errors.append({
+                                'type': 'projectinventory',
+                                'id': f"{row.get('project_id', 'unknown')}_{row.get('inventory_item_id', 'unknown')}",
+                                'error': ', '.join(errors)
+                            })
+                            section_invalid += 1
+                        else:
+                            section_valid += 1
+                    
+                    validation_stats['sections']['project_inventory'] = {
+                        'total': section_valid + section_invalid,
+                        'valid': section_valid,
+                        'invalid': section_invalid
+                    }
+                    validation_stats['total_records'] += section_valid + section_invalid
+                    validation_stats['valid_records'] += section_valid
+                    validation_stats['invalid_records'] += section_invalid
+                
+                # Validate ProjectPrinters (depends on projects and printers)
+                if 'project_printers.csv' in zf.namelist():
+                    proj_printer_rows = read_csv_from_zip(zf, 'project_printers.csv')
+                    section_valid = 0
+                    section_invalid = 0
+                    
+                    for row in proj_printer_rows:
+                        errors = []
+                        if not row.get('project_id') or row['project_id'] not in project_ids:
+                            errors.append(f"Missing project {row.get('project_id', 'unknown')}")
+                        if not row.get('printer_id') or row['printer_id'] not in printer_ids:
+                            errors.append(f"Missing printer {row.get('printer_id', 'unknown')}")
+                        
+                        if errors:
+                            validation_errors.append({
+                                'type': 'projectprinter',
+                                'id': f"{row.get('project_id', 'unknown')}_{row.get('printer_id', 'unknown')}",
+                                'error': ', '.join(errors)
+                            })
+                            section_invalid += 1
+                        else:
+                            section_valid += 1
+                    
+                    validation_stats['sections']['project_printers'] = {
+                        'total': section_valid + section_invalid,
+                        'valid': section_valid,
+                        'invalid': section_invalid
+                    }
+                    validation_stats['total_records'] += section_valid + section_invalid
+                    validation_stats['valid_records'] += section_valid
+                    validation_stats['invalid_records'] += section_invalid
+                
+                # Validate TrackerFiles (depends on trackers)
+                if 'tracker_files.csv' in zf.namelist():
+                    tfile_rows = read_csv_from_zip(zf, 'tracker_files.csv')
+                    section_valid = 0
+                    section_invalid = 0
+                    
+                    for row in tfile_rows:
+                        if not row.get('tracker_id') or row['tracker_id'] not in tracker_ids:
+                            validation_errors.append({
+                                'type': 'trackerfile',
+                                'id': row.get('id', 'unknown'),
+                                'error': f"Missing tracker {row.get('tracker_id', 'unknown')}"
+                            })
+                            section_invalid += 1
+                        else:
+                            section_valid += 1
+                    
+                    validation_stats['sections']['tracker_files'] = {
+                        'total': section_valid + section_invalid,
+                        'valid': section_valid,
+                        'invalid': section_invalid
+                    }
+                    validation_stats['total_records'] += section_valid + section_invalid
+                    validation_stats['valid_records'] += section_valid
+                    validation_stats['invalid_records'] += section_invalid
+            
+            # Group errors by type for better display
+            errors_by_type = {}
+            for error in validation_errors:
+                error_type = error['type']
+                if error_type not in errors_by_type:
+                    errors_by_type[error_type] = []
+                errors_by_type[error_type].append(error)
+            
+            # Limit errors shown per type (show first 10 of each type)
+            errors_summary = {}
+            for error_type, errors in errors_by_type.items():
+                errors_summary[error_type] = {
+                    'count': len(errors),
+                    'samples': errors[:10],  # First 10 errors
+                    'has_more': len(errors) > 10
+                }
+            
+            return Response({
+                'valid': len(validation_errors) == 0,
+                'stats': validation_stats,
+                'errors_by_type': errors_summary,
+                'total_errors': len(validation_errors)
+            }, status=status.HTTP_200_OK)
+            
+        except Exception as e:
+            logger.error(f"Validation failed: {e}", exc_info=True)
+            return Response({'error': f'Validation failed: {str(e)}'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
 class ImportDataView(APIView):
     permission_classes = [AllowAny]
     def post(self, request, *args, **kwargs):
@@ -1006,6 +1460,9 @@ class ImportDataView(APIView):
                     if os.path.isdir(item_path):
                         shutil.rmtree(item_path)
 
+            # Track import errors
+            import_errors = []
+            
             # Extract all files from ZIP to media directory
             with zipfile.ZipFile(backup_file, 'r') as zf:
                 for member in zf.namelist():
@@ -1015,6 +1472,10 @@ class ImportDataView(APIView):
                     
                     # Skip CSV files - we'll read them directly from ZIP, not extract to disk
                     if member.endswith('.csv'):
+                        continue
+                    
+                    # Skip EXPORT_ERRORS.txt if present in the backup
+                    if member == 'EXPORT_ERRORS.txt':
                         continue
                     
                     # Extract media files from recognized folders
@@ -1030,226 +1491,327 @@ class ImportDataView(APIView):
                         header = next(reader)
                         return [dict(zip(header, row)) for row in reader]
 
-                # Import Brands
-                if 'inventory.csv' in zf.namelist():
-                    inventory_rows = read_csv_from_zip(zf, 'inventory.csv')
-                    for row in inventory_rows:
-                        if row['brand']:
-                            Brand.objects.get_or_create(name=row['brand'])
-                        if row['part_type']:
-                            PartType.objects.get_or_create(name=row['part_type'])
-                        if row['location']:
-                            Location.objects.get_or_create(name=row['location'])
+                # Import Brands, PartTypes, Locations from inventory.csv
+                try:
+                    if 'inventory.csv' in zf.namelist():
+                        inventory_rows = read_csv_from_zip(zf, 'inventory.csv')
+                        for row in inventory_rows:
+                            try:
+                                if row.get('brand'):
+                                    Brand.objects.get_or_create(name=row['brand'])
+                                if row.get('part_type'):
+                                    PartType.objects.get_or_create(name=row['part_type'])
+                                if row.get('location'):
+                                    Location.objects.get_or_create(name=row['location'])
+                            except Exception as e:
+                                logger.error(f"Failed to import lookup data from inventory row {row.get('id', 'unknown')}: {e}", exc_info=True)
+                                import_errors.append(f"lookup_inventory_{row.get('id', 'unknown')}")
+                except Exception as e:
+                    logger.error(f"Failed to import lookup data from inventory section: {e}", exc_info=True)
+                    import_errors.append("lookup_inventory_section")
 
-                # Import Printers
-                if 'printers.csv' in zf.namelist():
-                    printer_rows = read_csv_from_zip(zf, 'printers.csv')
-                    for row in printer_rows:
-                        if row['manufacturer']:
-                            Brand.objects.get_or_create(name=row['manufacturer'])
-
-                # Import Locations, PartTypes, Brands (from other CSVs if needed)
-                # (Already handled above)
+                # Import Brands from printers.csv
+                try:
+                    if 'printers.csv' in zf.namelist():
+                        printer_rows = read_csv_from_zip(zf, 'printers.csv')
+                        for row in printer_rows:
+                            try:
+                                if row.get('manufacturer'):
+                                    Brand.objects.get_or_create(name=row['manufacturer'])
+                            except Exception as e:
+                                logger.error(f"Failed to import brand from printer row {row.get('id', 'unknown')}: {e}", exc_info=True)
+                                import_errors.append(f"brand_printer_{row.get('id', 'unknown')}")
+                except Exception as e:
+                    logger.error(f"Failed to import brands from printers section: {e}", exc_info=True)
+                    import_errors.append("brand_printers_section")
 
                 # Import Printer objects
-                if 'printers.csv' in zf.namelist():
-                    printer_rows = read_csv_from_zip(zf, 'printers.csv')
-                    for row in printer_rows:
-                        manufacturer = Brand.objects.filter(name=row['manufacturer']).first() if row['manufacturer'] else None
-                        printer = Printer(
-                            id=row['id'],
-                            title=row['title'],
-                            manufacturer=manufacturer,
-                            serial_number=row.get('serial_number') or None,
-                            purchase_date=parse_date(row.get('purchase_date')),
-                            status=row.get('status', ''),
-                            notes=row.get('notes', ''),
-                            purchase_price=row.get('purchase_price', None) or None,
-                            build_size_x=row.get('build_size_x', None) or None,
-                            build_size_y=row.get('build_size_y', None) or None,
-                            build_size_z=row.get('build_size_z', None) or None,
-                            photo=f"printer_photos/{row['photo']}" if row.get('photo') else None,
-                            last_maintained_date=parse_date(row.get('last_maintained_date')),
-                            maintenance_reminder_date=parse_date(row.get('maintenance_reminder_date')),
-                            last_carbon_replacement_date=parse_date(row.get('last_carbon_replacement_date')),
-                            carbon_reminder_date=parse_date(row.get('carbon_reminder_date')),
-                            maintenance_notes=row.get('maintenance_notes', ''),
-                            moonraker_url=row.get('moonraker_url', None)
-                        )
-                        printer.save()
+                try:
+                    if 'printers.csv' in zf.namelist():
+                        printer_rows = read_csv_from_zip(zf, 'printers.csv')
+                        for row in printer_rows:
+                            try:
+                                manufacturer = Brand.objects.filter(name=row.get('manufacturer')).first() if row.get('manufacturer') else None
+                                printer = Printer(
+                                    id=row['id'],
+                                    title=row['title'],
+                                    manufacturer=manufacturer,
+                                    serial_number=row.get('serial_number') or None,
+                                    purchase_date=parse_date(row.get('purchase_date')),
+                                    status=row.get('status', ''),
+                                    notes=row.get('notes', ''),
+                                    purchase_price=row.get('purchase_price', None) or None,
+                                    build_size_x=row.get('build_size_x', None) or None,
+                                    build_size_y=row.get('build_size_y', None) or None,
+                                    build_size_z=row.get('build_size_z', None) or None,
+                                    photo=f"printer_photos/{row['photo']}" if row.get('photo') else None,
+                                    last_maintained_date=parse_date(row.get('last_maintained_date')),
+                                    maintenance_reminder_date=parse_date(row.get('maintenance_reminder_date')),
+                                    last_carbon_replacement_date=parse_date(row.get('last_carbon_replacement_date')),
+                                    carbon_reminder_date=parse_date(row.get('carbon_reminder_date')),
+                                    maintenance_notes=row.get('maintenance_notes', ''),
+                                    moonraker_url=row.get('moonraker_url', None)
+                                )
+                                printer.save()
+                            except Exception as e:
+                                logger.error(f"Failed to import printer {row.get('id', 'unknown')}: {e}", exc_info=True)
+                                import_errors.append(f"printer_{row.get('id', 'unknown')}")
+                except Exception as e:
+                    logger.error(f"Failed to import printers section: {e}", exc_info=True)
+                    import_errors.append("printers_section")
 
                 # Import Inventory Items
-                if 'inventory.csv' in zf.namelist():
-                    inventory_rows = read_csv_from_zip(zf, 'inventory.csv')
-                    for row in inventory_rows:
-                        brand = Brand.objects.filter(name=row['brand']).first() if row['brand'] else None
-                        part_type = PartType.objects.filter(name=row['part_type']).first() if row['part_type'] else None
-                        location = Location.objects.filter(name=row['location']).first() if row['location'] else None
-                        vendor_name = row.get('vendor', '')
-                        vendor = Vendor.objects.filter(name=vendor_name).first() if vendor_name else None
-                        item = InventoryItem(
-                            id=row['id'],
-                            title=row['title'],
-                            brand=brand,
-                            part_type=part_type,
-                            location=location,
-                            quantity=int(row['quantity']) if row['quantity'] else 0,
-                            cost=float(row['cost']) if row['cost'] else None,
-                            notes=row.get('notes', ''),
-                            photo=f"inventory_photos/{row['photo']}" if row.get('photo') else None,
-                            is_consumable=row.get('is_consumable', 'false').lower() == 'true',
-                            low_stock_threshold=int(row.get('low_stock_threshold', 0)) if row.get('low_stock_threshold') else None,
-                            vendor=vendor,
-                            vendor_link=row.get('vendor_link', '') or None,
-                            model=row.get('model', '') or None
-                        )
-                        item.save()
+                try:
+                    if 'inventory.csv' in zf.namelist():
+                        inventory_rows = read_csv_from_zip(zf, 'inventory.csv')
+                        for row in inventory_rows:
+                            try:
+                                brand = Brand.objects.filter(name=row.get('brand')).first() if row.get('brand') else None
+                                part_type = PartType.objects.filter(name=row.get('part_type')).first() if row.get('part_type') else None
+                                location = Location.objects.filter(name=row.get('location')).first() if row.get('location') else None
+                                vendor_name = row.get('vendor', '')
+                                vendor = Vendor.objects.filter(name=vendor_name).first() if vendor_name else None
+                                item = InventoryItem(
+                                    id=row['id'],
+                                    title=row['title'],
+                                    brand=brand,
+                                    part_type=part_type,
+                                    location=location,
+                                    quantity=int(row['quantity']) if row['quantity'] else 0,
+                                    cost=float(row['cost']) if row['cost'] else None,
+                                    notes=row.get('notes', ''),
+                                    photo=f"inventory_photos/{row['photo']}" if row.get('photo') else None,
+                                    is_consumable=row.get('is_consumable', 'false').lower() == 'true',
+                                    low_stock_threshold=int(row.get('low_stock_threshold', 0)) if row.get('low_stock_threshold') else None,
+                                    vendor=vendor,
+                                    vendor_link=row.get('vendor_link', '') or None,
+                                    model=row.get('model', '') or None
+                                )
+                                item.save()
+                            except Exception as e:
+                                logger.error(f"Failed to import inventory item {row.get('id', 'unknown')}: {e}", exc_info=True)
+                                import_errors.append(f"inventory_{row.get('id', 'unknown')}")
+                except Exception as e:
+                    logger.error(f"Failed to import inventory section: {e}", exc_info=True)
+                    import_errors.append("inventory_section")
 
                 # Import Projects
-                if 'projects.csv' in zf.namelist():
-                    project_rows = read_csv_from_zip(zf, 'projects.csv')
-                    for row in project_rows:
-                        project = Project(
-                            id=row['id'],
-                            project_name=row['project_name'],
-                            description=row.get('description', ''),
-                            status=row.get('status', ''),
-                            start_date=parse_date(row.get('start_date')),
-                            due_date=parse_date(row.get('due_date')),
-                            notes=row.get('notes', ''),
-                            photo=f"project_photos/{row['photo']}" if row.get('photo') else None
-                        )
-                        project.save()
+                try:
+                    if 'projects.csv' in zf.namelist():
+                        project_rows = read_csv_from_zip(zf, 'projects.csv')
+                        for row in project_rows:
+                            try:
+                                project = Project(
+                                    id=row['id'],
+                                    project_name=row['project_name'],
+                                    description=row.get('description', ''),
+                                    status=row.get('status', ''),
+                                    start_date=parse_date(row.get('start_date')),
+                                    due_date=parse_date(row.get('due_date')),
+                                    notes=row.get('notes', ''),
+                                    photo=f"project_photos/{row['photo']}" if row.get('photo') else None
+                                )
+                                project.save()
+                            except Exception as e:
+                                logger.error(f"Failed to import project {row.get('id', 'unknown')}: {e}", exc_info=True)
+                                import_errors.append(f"project_{row.get('id', 'unknown')}")
+                except Exception as e:
+                    logger.error(f"Failed to import projects section: {e}", exc_info=True)
+                    import_errors.append("projects_section")
 
                 # Import Mods
-                if 'mods.csv' in zf.namelist():
-                    mod_rows = read_csv_from_zip(zf, 'mods.csv')
-                    for row in mod_rows:
-                        Mod.objects.create(
-                            id=row['id'],
-                            printer_id=row['printer_id'],
-                            name=row['name'],
-                            link=row['link'],
-                            status=row['status']
-                        )
+                try:
+                    if 'mods.csv' in zf.namelist():
+                        mod_rows = read_csv_from_zip(zf, 'mods.csv')
+                        for row in mod_rows:
+                            try:
+                                Mod.objects.create(
+                                    id=row['id'],
+                                    printer_id=row['printer_id'],
+                                    name=row['name'],
+                                    link=row['link'],
+                                    status=row['status']
+                                )
+                            except Exception as e:
+                                logger.error(f"Failed to import mod {row.get('id', 'unknown')}: {e}", exc_info=True)
+                                import_errors.append(f"mod_{row.get('id', 'unknown')}")
+                except Exception as e:
+                    logger.error(f"Failed to import mods section: {e}", exc_info=True)
+                    import_errors.append("mods_section")
 
                 # Import ModFiles
-                if 'modfiles.csv' in zf.namelist():
-                    modfile_rows = read_csv_from_zip(zf, 'modfiles.csv')
-                    for row in modfile_rows:
-                        mf = ModFile(
-                            id=row['id'],
-                            mod_id=row['mod_id'],
-                            file=f"mod_files/{row['file']}" if row.get('file') else None
-                        )
-                        mf.save()
+                try:
+                    if 'modfiles.csv' in zf.namelist():
+                        modfile_rows = read_csv_from_zip(zf, 'modfiles.csv')
+                        for row in modfile_rows:
+                            try:
+                                mf = ModFile(
+                                    id=row['id'],
+                                    mod_id=row['mod_id'],
+                                    file=f"mod_files/{row['file']}" if row.get('file') else None
+                                )
+                                mf.save()
+                            except Exception as e:
+                                logger.error(f"Failed to import modfile {row.get('id', 'unknown')}: {e}", exc_info=True)
+                                import_errors.append(f"modfile_{row.get('id', 'unknown')}")
+                except Exception as e:
+                    logger.error(f"Failed to import modfiles section: {e}", exc_info=True)
+                    import_errors.append("modfiles_section")
 
                 # Import ProjectLinks
-                if 'project_links.csv' in zf.namelist():
-                    link_rows = read_csv_from_zip(zf, 'project_links.csv')
-                    for row in link_rows:
-                        ProjectLink.objects.create(
-                            id=row['id'],
-                            project_id=row['project_id'],
-                            name=row['name'],
-                            url=row['url']
-                        )
+                try:
+                    if 'project_links.csv' in zf.namelist():
+                        link_rows = read_csv_from_zip(zf, 'project_links.csv')
+                        for row in link_rows:
+                            try:
+                                ProjectLink.objects.create(
+                                    id=row['id'],
+                                    project_id=row['project_id'],
+                                    name=row['name'],
+                                    url=row['url']
+                                )
+                            except Exception as e:
+                                logger.error(f"Failed to import project link {row.get('id', 'unknown')}: {e}", exc_info=True)
+                                import_errors.append(f"projectlink_{row.get('id', 'unknown')}")
+                except Exception as e:
+                    logger.error(f"Failed to import project links section: {e}", exc_info=True)
+                    import_errors.append("projectlinks_section")
 
                 # Import ProjectFiles
-                if 'project_files.csv' in zf.namelist():
-                    file_rows = read_csv_from_zip(zf, 'project_files.csv')
-                    for row in file_rows:
-                        pf = ProjectFile(
-                            id=row['id'],
-                            project_id=row['project_id'],
-                            file=f"project_files/{row['file']}" if row.get('file') else None
-                        )
-                        pf.save()
+                try:
+                    if 'project_files.csv' in zf.namelist():
+                        file_rows = read_csv_from_zip(zf, 'project_files.csv')
+                        for row in file_rows:
+                            try:
+                                pf = ProjectFile(
+                                    id=row['id'],
+                                    project_id=row['project_id'],
+                                    file=f"project_files/{row['file']}" if row.get('file') else None
+                                )
+                                pf.save()
+                            except Exception as e:
+                                logger.error(f"Failed to import project file {row.get('id', 'unknown')}: {e}", exc_info=True)
+                                import_errors.append(f"projectfile_{row.get('id', 'unknown')}")
+                except Exception as e:
+                    logger.error(f"Failed to import project files section: {e}", exc_info=True)
+                    import_errors.append("projectfiles_section")
 
                 # Import ProjectInventory
-                if 'project_inventory.csv' in zf.namelist():
-                    proj_inv_rows = read_csv_from_zip(zf, 'project_inventory.csv')
-                    for row in proj_inv_rows:
-                        ProjectInventory.objects.create(
-                            project_id=row['project_id'],
-                            inventory_item_id=row['inventory_item_id'],
-                            quantity_used=int(row.get('quantity_used', 0)) or 0 # <-- FIX HERE
-                        )
+                try:
+                    if 'project_inventory.csv' in zf.namelist():
+                        proj_inv_rows = read_csv_from_zip(zf, 'project_inventory.csv')
+                        for row in proj_inv_rows:
+                            try:
+                                ProjectInventory.objects.create(
+                                    project_id=row['project_id'],
+                                    inventory_item_id=row['inventory_item_id'],
+                                    quantity_used=int(row.get('quantity_used', 0)) or 0
+                                )
+                            except Exception as e:
+                                logger.error(f"Failed to import project inventory {row.get('project_id', 'unknown')}_{row.get('inventory_item_id', 'unknown')}: {e}", exc_info=True)
+                                import_errors.append(f"projectinventory_{row.get('project_id', 'unknown')}_{row.get('inventory_item_id', 'unknown')}")
+                except Exception as e:
+                    logger.error(f"Failed to import project inventory section: {e}", exc_info=True)
+                    import_errors.append("projectinventory_section")
 
                 # Import ProjectPrinters
-                if 'project_printers.csv' in zf.namelist():
-                    proj_printer_rows = read_csv_from_zip(zf, 'project_printers.csv')
-                    for row in proj_printer_rows:
-                        ProjectPrinters.objects.create(
-                            project_id=row['project_id'],
-                            printer_id=row['printer_id']
-                        )
+                try:
+                    if 'project_printers.csv' in zf.namelist():
+                        proj_printer_rows = read_csv_from_zip(zf, 'project_printers.csv')
+                        for row in proj_printer_rows:
+                            try:
+                                ProjectPrinters.objects.create(
+                                    project_id=row['project_id'],
+                                    printer_id=row['printer_id']
+                                )
+                            except Exception as e:
+                                logger.error(f"Failed to import project printer {row.get('project_id', 'unknown')}_{row.get('printer_id', 'unknown')}: {e}", exc_info=True)
+                                import_errors.append(f"projectprinter_{row.get('project_id', 'unknown')}_{row.get('printer_id', 'unknown')}")
+                except Exception as e:
+                    logger.error(f"Failed to import project printers section: {e}", exc_info=True)
+                    import_errors.append("projectprinters_section")
 
                 # Import Print Trackers
-                if 'trackers.csv' in zf.namelist():
-                    tracker_rows = read_csv_from_zip(zf, 'trackers.csv')
-                    for row in tracker_rows:
-                        tracker = Tracker(
-                            id=row['id'],
-                            name=row['name'],
-                            project_id=row.get('project_id') or None,
-                            github_url=row.get('github_url', ''),
-                            storage_type=row.get('storage_type', 'links'),
-                            primary_color=row.get('primary_color', '#3B82F6'),
-                            accent_color=row.get('accent_color', '#EF4444'),
-                            total_quantity=int(row.get('total_quantity', 0)) or 0,
-                            printed_quantity_total=int(row.get('printed_quantity_total', 0)) or 0,
-                            progress_percentage=int(row.get('progress_percentage', 0)) or 0,
-                            created_date=row.get('created_date'),
-                            updated_date=row.get('updated_date'),
-                            storage_path=row.get('storage_path', ''),
-                            total_storage_used=int(row.get('total_storage_used', 0)) or 0,
-                            files_downloaded=row.get('files_downloaded', 'false').lower() == 'true'
-                        )
-                        tracker.save()
+                try:
+                    if 'trackers.csv' in zf.namelist():
+                        tracker_rows = read_csv_from_zip(zf, 'trackers.csv')
+                        for row in tracker_rows:
+                            try:
+                                tracker = Tracker(
+                                    id=row['id'],
+                                    name=row['name'],
+                                    project_id=row.get('project_id') or None,
+                                    github_url=row.get('github_url', ''),
+                                    storage_type=row.get('storage_type', 'links'),
+                                    primary_color=row.get('primary_color', '#3B82F6'),
+                                    accent_color=row.get('accent_color', '#EF4444'),
+                                    total_quantity=int(row.get('total_quantity', 0)) or 0,
+                                    printed_quantity_total=int(row.get('printed_quantity_total', 0)) or 0,
+                                    progress_percentage=int(row.get('progress_percentage', 0)) or 0,
+                                    created_date=row.get('created_date'),
+                                    updated_date=row.get('updated_date'),
+                                    storage_path=row.get('storage_path', ''),
+                                    total_storage_used=int(row.get('total_storage_used', 0)) or 0,
+                                    files_downloaded=row.get('files_downloaded', 'false').lower() == 'true'
+                                )
+                                tracker.save()
+                            except Exception as e:
+                                logger.error(f"Failed to import tracker {row.get('id', 'unknown')}: {e}", exc_info=True)
+                                import_errors.append(f"tracker_{row.get('id', 'unknown')}")
+                except Exception as e:
+                    logger.error(f"Failed to import trackers section: {e}", exc_info=True)
+                    import_errors.append("trackers_section")
 
                 # Import Tracker Files
-                if 'tracker_files.csv' in zf.namelist():
-                    trackerfile_rows = read_csv_from_zip(zf, 'tracker_files.csv')
-                    for row in trackerfile_rows:
-                        # Build the local file path if it exists
-                        local_file_path = None
-                        if row.get('local_file'):
-                            # Files are stored in trackers/{tracker_id}/files/{directory_path}/{filename}
-                            tracker_id = row['tracker_id']
-                            directory_path = row.get('directory_path', '')
-                            
-                            if directory_path:
-                                local_file_path = f"trackers/{tracker_id}/files/{directory_path}/{row['local_file']}"
-                            else:
-                                local_file_path = f"trackers/{tracker_id}/files/{row['local_file']}"
-                        
-                        tfile = TrackerFile(
-                            id=row['id'],
-                            tracker_id=row['tracker_id'],
-                            storage_type=row.get('storage_type', 'link'),
-                            filename=row['filename'],
-                            directory_path=row.get('directory_path', ''),
-                            github_url=row.get('github_url', ''),
-                            local_file=local_file_path,
-                            file_size=int(row.get('file_size', 0)) or 0,
-                            sha=row.get('sha', ''),
-                            color=row.get('color', ''),
-                            material=row.get('material', ''),
-                            quantity=int(row.get('quantity', 1)) or 1,
-                            is_selected=row.get('is_selected', 'true').lower() == 'true',
-                            status=row.get('status', 'not_started'),
-                            printed_quantity=int(row.get('printed_quantity', 0)) or 0,
-                            created_date=row.get('created_date'),
-                            updated_date=row.get('updated_date'),
-                            download_date=row.get('download_date') or None,
-                            download_status=row.get('download_status', 'pending'),
-                            download_error=row.get('download_error', ''),
-                            downloaded_at=row.get('downloaded_at') or None,
-                            file_checksum=row.get('file_checksum', ''),
-                            actual_file_size=int(row.get('actual_file_size', 0)) if row.get('actual_file_size') else None
-                        )
-                        tfile.save()
+                try:
+                    if 'tracker_files.csv' in zf.namelist():
+                        trackerfile_rows = read_csv_from_zip(zf, 'tracker_files.csv')
+                        for row in trackerfile_rows:
+                            try:
+                                # Build the local file path if it exists
+                                local_file_path = None
+                                if row.get('local_file'):
+                                    # Files are stored in trackers/{tracker_id}/files/{directory_path}/{filename}
+                                    tracker_id = row['tracker_id']
+                                    directory_path = row.get('directory_path', '')
+                                    
+                                    if directory_path:
+                                        local_file_path = f"trackers/{tracker_id}/files/{directory_path}/{row['local_file']}"
+                                    else:
+                                        local_file_path = f"trackers/{tracker_id}/files/{row['local_file']}"
+                                
+                                tfile = TrackerFile(
+                                    id=row['id'],
+                                    tracker_id=row['tracker_id'],
+                                    storage_type=row.get('storage_type', 'link'),
+                                    filename=row['filename'],
+                                    directory_path=row.get('directory_path', ''),
+                                    github_url=row.get('github_url', ''),
+                                    local_file=local_file_path,
+                                    file_size=int(row.get('file_size', 0)) or 0,
+                                    sha=row.get('sha', ''),
+                                    color=row.get('color', ''),
+                                    material=row.get('material', ''),
+                                    quantity=int(row.get('quantity', 1)) or 1,
+                                    is_selected=row.get('is_selected', 'true').lower() == 'true',
+                                    status=row.get('status', 'not_started'),
+                                    printed_quantity=int(row.get('printed_quantity', 0)) or 0,
+                                    created_date=row.get('created_date'),
+                                    updated_date=row.get('updated_date'),
+                                    download_date=row.get('download_date') or None,
+                                    download_status=row.get('download_status', 'pending'),
+                                    download_error=row.get('download_error', ''),
+                                    downloaded_at=row.get('downloaded_at') or None,
+                                    file_checksum=row.get('file_checksum', ''),
+                                    actual_file_size=int(row.get('actual_file_size', 0)) if row.get('actual_file_size') else None
+                                )
+                                tfile.save()
+                            except Exception as e:
+                                logger.error(f"Failed to import tracker file {row.get('id', 'unknown')}: {e}", exc_info=True)
+                                import_errors.append(f"trackerfile_{row.get('id', 'unknown')}")
+                except Exception as e:
+                    logger.error(f"Failed to import tracker files section: {e}", exc_info=True)
+                    import_errors.append("trackerfiles_section")
 
             # Reset database sequences to prevent duplicate key errors
             # Only reset sequences for PostgreSQL (SQLite doesn't need this)
@@ -1281,8 +1843,20 @@ class ImportDataView(APIView):
                         'error': str(seq_error)
                     }, status=status.HTTP_200_OK)
 
-            return Response({'success': 'Data restored successfully.'}, status=status.HTTP_200_OK)
+            # Check if there were import errors and log summary
+            if import_errors:
+                logger.warning(f"Import completed with {len(import_errors)} errors: {import_errors}")
+                return Response({
+                    'success': 'Data restored with some errors.',
+                    'errors_count': len(import_errors),
+                    'errors': import_errors,
+                    'message': f'Import completed but {len(import_errors)} items could not be imported. Check server logs for details.'
+                }, status=status.HTTP_200_OK)
+            else:
+                return Response({'success': 'Data restored successfully.'}, status=status.HTTP_200_OK)
+                
         except Exception as e:
+            logger.error(f"Import failed completely: {e}", exc_info=True)
             return Response({'error': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 class DeleteAllData(APIView):

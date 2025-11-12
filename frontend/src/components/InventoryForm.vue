@@ -450,10 +450,10 @@ onMounted(async () => {
       >
         Save + Next
       </button>
-      
+
       <!-- Always show Save button -->
       <button type="submit" class="btn btn-primary">Save</button>
-      
+
       <!-- Create mode: Show Save + Add Another button -->
       <button
         v-if="!isEditMode"
@@ -463,7 +463,7 @@ onMounted(async () => {
       >
         Save + Add Another
       </button>
-      
+
       <RouterLink :to="isEditMode ? `/item/${item.id}` : '/'" class="btn btn-secondary">
         Cancel
       </RouterLink>
