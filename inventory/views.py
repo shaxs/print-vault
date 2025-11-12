@@ -56,157 +56,272 @@ class ReadOnlyViewSet(mixins.RetrieveModelMixin,
 
 class ExportDataView(APIView):
     permission_classes = [AllowAny]
+    
     def get(self, request):
+        """
+        Export all Print Vault data to a ZIP archive with CSV files and media.
+        Uses defensive error handling to continue export even if individual sections fail.
+        """
         buffer = BytesIO()
+        export_errors = []  # Track which sections failed
+        
         with zipfile.ZipFile(buffer, 'w', zipfile.ZIP_DEFLATED) as zf:
             # Export Inventory Items
-            inv_buffer = StringIO()
-            inv_writer = csv.writer(inv_buffer)
-            inv_writer.writerow(['id', 'title', 'brand', 'part_type', 'location', 'quantity', 'cost', 'notes', 'photo', 'is_consumable', 'low_stock_threshold', 'vendor', 'vendor_link', 'model'])
-            for item in InventoryItem.objects.all():
-                inv_writer.writerow([
-                    item.id, item.title, item.brand.name if item.brand else '',
-                    item.part_type.name if item.part_type else '',
-                    item.location.name if item.location else '',
-                    item.quantity, item.cost, item.notes,
-                    os.path.basename(item.photo.name) if item.photo else '',
-                    item.is_consumable, item.low_stock_threshold,
-                    item.vendor.name if item.vendor else '',
-                    item.vendor_link or '',
-                    item.model or ''
-                ])
-            zf.writestr('inventory.csv', inv_buffer.getvalue())
+            try:
+                inv_buffer = StringIO()
+                inv_writer = csv.writer(inv_buffer)
+                inv_writer.writerow(['id', 'title', 'brand', 'part_type', 'location', 'quantity', 'cost', 'notes', 'photo', 'is_consumable', 'low_stock_threshold', 'vendor', 'vendor_link', 'model'])
+                for item in InventoryItem.objects.all():
+                    try:
+                        inv_writer.writerow([
+                            item.id, item.title, item.brand.name if item.brand else '',
+                            item.part_type.name if item.part_type else '',
+                            item.location.name if item.location else '',
+                            item.quantity, item.cost, item.notes,
+                            os.path.basename(item.photo.name) if item.photo else '',
+                            item.is_consumable, item.low_stock_threshold,
+                            item.vendor.name if item.vendor else '',
+                            item.vendor_link or '',
+                            item.model or ''
+                        ])
+                    except Exception as e:
+                        logger.error(f"Failed to export inventory item {item.id}: {e}", exc_info=True)
+                        export_errors.append(f"inventory_item_{item.id}")
+                zf.writestr('inventory.csv', inv_buffer.getvalue())
+            except Exception as e:
+                logger.error(f"Failed to export inventory section: {e}", exc_info=True)
+                export_errors.append("inventory_section")
 
             # Export Printers
-            printer_buffer = StringIO()
-            printer_writer = csv.writer(printer_buffer)
-            printer_writer.writerow(['id', 'title', 'manufacturer', 'serial_number', 'purchase_date', 'status', 'notes', 'purchase_price', 'photo', 'last_maintained_date', 'maintenance_reminder_date', 'last_carbon_replacement_date', 'carbon_reminder_date', 'maintenance_notes'])
-            for printer in Printer.objects.all():
-                printer_writer.writerow([
-                    printer.id, printer.title, printer.manufacturer.name if printer.manufacturer else '',
-                    printer.serial_number, printer.purchase_date, printer.status, printer.notes,
-                    printer.purchase_price, os.path.basename(printer.photo.name) if printer.photo else '',
-                    printer.last_maintained_date, printer.maintenance_reminder_date,
-                    printer.last_carbon_replacement_date, printer.carbon_reminder_date,
-                    printer.maintenance_notes
-                ])
-            zf.writestr('printers.csv', printer_buffer.getvalue())
+            try:
+                printer_buffer = StringIO()
+                printer_writer = csv.writer(printer_buffer)
+                printer_writer.writerow(['id', 'title', 'manufacturer', 'serial_number', 'purchase_date', 'status', 'notes', 'purchase_price', 'photo', 'last_maintained_date', 'maintenance_reminder_date', 'last_carbon_replacement_date', 'carbon_reminder_date', 'maintenance_notes'])
+                for printer in Printer.objects.all():
+                    try:
+                        printer_writer.writerow([
+                            printer.id, printer.title, printer.manufacturer.name if printer.manufacturer else '',
+                            printer.serial_number, printer.purchase_date, printer.status, printer.notes,
+                            printer.purchase_price, os.path.basename(printer.photo.name) if printer.photo else '',
+                            printer.last_maintained_date, printer.maintenance_reminder_date,
+                            printer.last_carbon_replacement_date, printer.carbon_reminder_date,
+                            printer.maintenance_notes
+                        ])
+                    except Exception as e:
+                        logger.error(f"Failed to export printer {printer.id}: {e}", exc_info=True)
+                        export_errors.append(f"printer_{printer.id}")
+                zf.writestr('printers.csv', printer_buffer.getvalue())
+            except Exception as e:
+                logger.error(f"Failed to export printers section: {e}", exc_info=True)
+                export_errors.append("printers_section")
             
             # Export Mods
-            mod_buffer = StringIO()
-            mod_writer = csv.writer(mod_buffer)
-            mod_writer.writerow(['id', 'printer_id', 'name', 'link', 'status'])
-            for mod in Mod.objects.all():
-                mod_writer.writerow([mod.id, mod.printer.id, mod.name, mod.link, mod.status])
-            zf.writestr('mods.csv', mod_buffer.getvalue())
+            try:
+                mod_buffer = StringIO()
+                mod_writer = csv.writer(mod_buffer)
+                mod_writer.writerow(['id', 'printer_id', 'name', 'link', 'status'])
+                for mod in Mod.objects.all():
+                    try:
+                        mod_writer.writerow([mod.id, mod.printer.id, mod.name, mod.link, mod.status])
+                    except Exception as e:
+                        logger.error(f"Failed to export mod {mod.id}: {e}", exc_info=True)
+                        export_errors.append(f"mod_{mod.id}")
+                zf.writestr('mods.csv', mod_buffer.getvalue())
+            except Exception as e:
+                logger.error(f"Failed to export mods section: {e}", exc_info=True)
+                export_errors.append("mods_section")
 
             # Export ModFiles
-            modfile_buffer = StringIO()
-            modfile_writer = csv.writer(modfile_buffer)
-            modfile_writer.writerow(['id', 'mod_id', 'file'])
-            for modfile in ModFile.objects.all():
-                modfile_writer.writerow([modfile.id, modfile.mod.id, os.path.basename(modfile.file.name) if modfile.file else ''])
-            zf.writestr('modfiles.csv', modfile_buffer.getvalue())
+            try:
+                modfile_buffer = StringIO()
+                modfile_writer = csv.writer(modfile_buffer)
+                modfile_writer.writerow(['id', 'mod_id', 'file'])
+                for modfile in ModFile.objects.all():
+                    try:
+                        modfile_writer.writerow([modfile.id, modfile.mod.id, os.path.basename(modfile.file.name) if modfile.file else ''])
+                    except Exception as e:
+                        logger.error(f"Failed to export modfile {modfile.id}: {e}", exc_info=True)
+                        export_errors.append(f"modfile_{modfile.id}")
+                zf.writestr('modfiles.csv', modfile_buffer.getvalue())
+            except Exception as e:
+                logger.error(f"Failed to export modfiles section: {e}", exc_info=True)
+                export_errors.append("modfiles_section")
 
             # Export Projects
-            project_buffer = StringIO()
-            project_writer = csv.writer(project_buffer)
-            project_writer.writerow(['id', 'project_name', 'description', 'status', 'start_date', 'due_date', 'notes', 'photo'])
-            for project in Project.objects.all():
-                project_writer.writerow([
-                    project.id, project.project_name, project.description, project.status,
-                    project.start_date, project.due_date, project.notes,
-                    os.path.basename(project.photo.name) if project.photo else ''
-                ])
-            zf.writestr('projects.csv', project_buffer.getvalue())
+            try:
+                project_buffer = StringIO()
+                project_writer = csv.writer(project_buffer)
+                project_writer.writerow(['id', 'project_name', 'description', 'status', 'start_date', 'due_date', 'notes', 'photo'])
+                for project in Project.objects.all():
+                    try:
+                        project_writer.writerow([
+                            project.id, project.project_name, project.description, project.status,
+                            project.start_date, project.due_date, project.notes,
+                            os.path.basename(project.photo.name) if project.photo else ''
+                        ])
+                    except Exception as e:
+                        logger.error(f"Failed to export project {project.id}: {e}", exc_info=True)
+                        export_errors.append(f"project_{project.id}")
+                zf.writestr('projects.csv', project_buffer.getvalue())
+            except Exception as e:
+                logger.error(f"Failed to export projects section: {e}", exc_info=True)
+                export_errors.append("projects_section")
 
             # Export ProjectLinks
-            projectlink_buffer = StringIO()
-            projectlink_writer = csv.writer(projectlink_buffer)
-            projectlink_writer.writerow(['id', 'project_id', 'name', 'url'])
-            for link in ProjectLink.objects.all():
-                projectlink_writer.writerow([link.id, link.project.id, link.name, link.url])
-            zf.writestr('project_links.csv', projectlink_buffer.getvalue())
+            try:
+                projectlink_buffer = StringIO()
+                projectlink_writer = csv.writer(projectlink_buffer)
+                projectlink_writer.writerow(['id', 'project_id', 'name', 'url'])
+                for link in ProjectLink.objects.all():
+                    try:
+                        projectlink_writer.writerow([link.id, link.project.id, link.name, link.url])
+                    except Exception as e:
+                        logger.error(f"Failed to export project link {link.id}: {e}", exc_info=True)
+                        export_errors.append(f"projectlink_{link.id}")
+                zf.writestr('project_links.csv', projectlink_buffer.getvalue())
+            except Exception as e:
+                logger.error(f"Failed to export project links section: {e}", exc_info=True)
+                export_errors.append("projectlinks_section")
 
             # Export ProjectFiles
-            projectfile_buffer = StringIO()
-            projectfile_writer = csv.writer(projectfile_buffer)
-            projectfile_writer.writerow(['id', 'project_id', 'file'])
-            for pfile in ProjectFile.objects.all():
-                projectfile_writer.writerow([pfile.id, pfile.project.id, os.path.basename(pfile.file.name) if pfile.file else ''])
-            zf.writestr('project_files.csv', projectfile_buffer.getvalue())
+            try:
+                projectfile_buffer = StringIO()
+                projectfile_writer = csv.writer(projectfile_buffer)
+                projectfile_writer.writerow(['id', 'project_id', 'file'])
+                for pfile in ProjectFile.objects.all():
+                    try:
+                        projectfile_writer.writerow([pfile.id, pfile.project.id, os.path.basename(pfile.file.name) if pfile.file else ''])
+                    except Exception as e:
+                        logger.error(f"Failed to export project file {pfile.id}: {e}", exc_info=True)
+                        export_errors.append(f"projectfile_{pfile.id}")
+                zf.writestr('project_files.csv', projectfile_buffer.getvalue())
+            except Exception as e:
+                logger.error(f"Failed to export project files section: {e}", exc_info=True)
+                export_errors.append("projectfiles_section")
 
             # Export ProjectInventory
-            projectinventory_buffer = StringIO()
-            projectinventory_writer = csv.writer(projectinventory_buffer)
-            projectinventory_writer.writerow(['project_id', 'inventory_item_id', 'quantity_used'])
-            for pi in ProjectInventory.objects.all():
-                projectinventory_writer.writerow([pi.project.id, pi.inventory_item.id, pi.quantity_used])
-            zf.writestr('project_inventory.csv', projectinventory_buffer.getvalue())
+            try:
+                projectinventory_buffer = StringIO()
+                projectinventory_writer = csv.writer(projectinventory_buffer)
+                projectinventory_writer.writerow(['project_id', 'inventory_item_id', 'quantity_used'])
+                for pi in ProjectInventory.objects.all():
+                    try:
+                        projectinventory_writer.writerow([pi.project.id, pi.inventory_item.id, pi.quantity_used])
+                    except Exception as e:
+                        logger.error(f"Failed to export project inventory {pi.id}: {e}", exc_info=True)
+                        export_errors.append(f"projectinventory_{pi.id}")
+                zf.writestr('project_inventory.csv', projectinventory_buffer.getvalue())
+            except Exception as e:
+                logger.error(f"Failed to export project inventory section: {e}", exc_info=True)
+                export_errors.append("projectinventory_section")
 
             # Export ProjectPrinters
-            projectprinters_buffer = StringIO()
-            projectprinters_writer = csv.writer(projectprinters_buffer)
-            projectprinters_writer.writerow(['project_id', 'printer_id'])
-            for pp in ProjectPrinters.objects.all():
-                projectprinters_writer.writerow([pp.project.id, pp.printer.id])
-            zf.writestr('project_printers.csv', projectprinters_buffer.getvalue())
+            try:
+                projectprinters_buffer = StringIO()
+                projectprinters_writer = csv.writer(projectprinters_buffer)
+                projectprinters_writer.writerow(['project_id', 'printer_id'])
+                for pp in ProjectPrinters.objects.all():
+                    try:
+                        projectprinters_writer.writerow([pp.project.id, pp.printer.id])
+                    except Exception as e:
+                        logger.error(f"Failed to export project printer {pp.id}: {e}", exc_info=True)
+                        export_errors.append(f"projectprinter_{pp.id}")
+                zf.writestr('project_printers.csv', projectprinters_buffer.getvalue())
+            except Exception as e:
+                logger.error(f"Failed to export project printers section: {e}", exc_info=True)
+                export_errors.append("projectprinters_section")
 
             # Export Print Trackers
-            tracker_buffer = StringIO()
-            tracker_writer = csv.writer(tracker_buffer)
-            tracker_writer.writerow([
-                'id', 'name', 'project_id', 'github_url', 'storage_type',
-                'primary_color', 'accent_color', 'total_quantity', 'printed_quantity_total',
-                'progress_percentage', 'created_date', 'updated_date', 'storage_path',
-                'total_storage_used', 'files_downloaded'
-            ])
-            for tracker in Tracker.objects.all():
+            try:
+                tracker_buffer = StringIO()
+                tracker_writer = csv.writer(tracker_buffer)
                 tracker_writer.writerow([
-                    tracker.id, tracker.name,
-                    tracker.project.id if tracker.project else '',
-                    tracker.github_url, tracker.storage_type,
-                    tracker.primary_color, tracker.accent_color,
-                    tracker.total_quantity, tracker.printed_quantity_total,
-                    tracker.progress_percentage, tracker.created_date, tracker.updated_date,
-                    tracker.storage_path, tracker.total_storage_used, tracker.files_downloaded
+                    'id', 'name', 'project_id', 'github_url', 'storage_type',
+                    'primary_color', 'accent_color', 'total_quantity', 'printed_quantity_total',
+                    'progress_percentage', 'created_date', 'updated_date', 'storage_path',
+                    'total_storage_used', 'files_downloaded'
                 ])
-            zf.writestr('trackers.csv', tracker_buffer.getvalue())
+                for tracker in Tracker.objects.all():
+                    try:
+                        tracker_writer.writerow([
+                            tracker.id, tracker.name,
+                            tracker.project.id if tracker.project else '',
+                            tracker.github_url, tracker.storage_type,
+                            tracker.primary_color, tracker.accent_color,
+                            tracker.total_quantity, tracker.printed_quantity_total,
+                            tracker.progress_percentage, tracker.created_date, tracker.updated_date,
+                            tracker.storage_path, tracker.total_storage_used, tracker.files_downloaded
+                        ])
+                    except Exception as e:
+                        logger.error(f"Failed to export tracker {tracker.id}: {e}", exc_info=True)
+                        export_errors.append(f"tracker_{tracker.id}")
+                zf.writestr('trackers.csv', tracker_buffer.getvalue())
+            except Exception as e:
+                logger.error(f"Failed to export trackers section: {e}", exc_info=True)
+                export_errors.append("trackers_section")
 
             # Export Tracker Files
-            trackerfile_buffer = StringIO()
-            trackerfile_writer = csv.writer(trackerfile_buffer)
-            trackerfile_writer.writerow([
-                'id', 'tracker_id', 'storage_type', 'filename', 'directory_path',
-                'github_url', 'local_file', 'file_size', 'sha', 'color', 'material',
-                'quantity', 'is_selected', 'status', 'printed_quantity',
-                'created_date', 'updated_date', 'download_date', 'download_status',
-                'download_error', 'downloaded_at', 'file_checksum', 'actual_file_size'
-            ])
-            for tfile in TrackerFile.objects.all():
+            try:
+                trackerfile_buffer = StringIO()
+                trackerfile_writer = csv.writer(trackerfile_buffer)
                 trackerfile_writer.writerow([
-                    tfile.id, tfile.tracker.id, tfile.storage_type,
-                    tfile.filename, tfile.directory_path, tfile.github_url,
-                    os.path.basename(tfile.local_file.name) if tfile.local_file else '',
-                    tfile.file_size, tfile.sha, tfile.color, tfile.material,
-                    tfile.quantity, tfile.is_selected, tfile.status, tfile.printed_quantity,
-                    tfile.created_date, tfile.updated_date, tfile.download_date,
-                    tfile.download_status, tfile.download_error, tfile.downloaded_at,
-                    tfile.file_checksum, tfile.actual_file_size
+                    'id', 'tracker_id', 'storage_type', 'filename', 'directory_path',
+                    'github_url', 'local_file', 'file_size', 'sha', 'color', 'material',
+                    'quantity', 'is_selected', 'status', 'printed_quantity',
+                    'created_date', 'updated_date', 'download_date', 'download_status',
+                    'download_error', 'downloaded_at', 'file_checksum', 'actual_file_size'
                 ])
-            zf.writestr('tracker_files.csv', trackerfile_buffer.getvalue())
+                for tfile in TrackerFile.objects.all():
+                    try:
+                        trackerfile_writer.writerow([
+                            tfile.id, tfile.tracker.id, tfile.storage_type,
+                            tfile.filename, tfile.directory_path, tfile.github_url,
+                            os.path.basename(tfile.local_file.name) if tfile.local_file else '',
+                            tfile.file_size, tfile.sha, tfile.color, tfile.material,
+                            tfile.quantity, tfile.is_selected, tfile.status, tfile.printed_quantity,
+                            tfile.created_date, tfile.updated_date, tfile.download_date,
+                            tfile.download_status, tfile.download_error, tfile.downloaded_at,
+                            tfile.file_checksum, tfile.actual_file_size
+                        ])
+                    except Exception as e:
+                        logger.error(f"Failed to export tracker file {tfile.id}: {e}", exc_info=True)
+                        export_errors.append(f"trackerfile_{tfile.id}")
+                zf.writestr('tracker_files.csv', trackerfile_buffer.getvalue())
+            except Exception as e:
+                logger.error(f"Failed to export tracker files section: {e}", exc_info=True)
+                export_errors.append("trackerfiles_section")
 
             # Add media files to zip
-            media_root = settings.MEDIA_ROOT
-            for root, dirs, files in os.walk(media_root):
-                for file in files:
-                    # Skip CSV files - they're already added via writestr() above
-                    if file.endswith('.csv'):
-                        continue
-                    
-                    file_path = os.path.join(root, file)
-                    arcname = os.path.relpath(file_path, media_root)
-                    zf.write(file_path, arcname)
+            try:
+                media_root = settings.MEDIA_ROOT
+                for root, dirs, files in os.walk(media_root):
+                    for file in files:
+                        # Skip CSV files - they're already added via writestr() above
+                        if file.endswith('.csv'):
+                            continue
+                        
+                        try:
+                            file_path = os.path.join(root, file)
+                            arcname = os.path.relpath(file_path, media_root)
+                            zf.write(file_path, arcname)
+                        except Exception as e:
+                            logger.error(f"Failed to add media file {file}: {e}", exc_info=True)
+                            export_errors.append(f"media_{file}")
+            except Exception as e:
+                logger.error(f"Failed to export media files: {e}", exc_info=True)
+                export_errors.append("media_section")
+            
+            # Add error report if any errors occurred
+            if export_errors:
+                error_buffer = StringIO()
+                error_buffer.write("# Print Vault Export Errors\n\n")
+                error_buffer.write(f"Export completed with {len(export_errors)} error(s).\n")
+                error_buffer.write("The following items could not be exported:\n\n")
+                for error in export_errors:
+                    error_buffer.write(f"- {error}\n")
+                error_buffer.write("\nCheck server logs for detailed error information.\n")
+                zf.writestr('EXPORT_ERRORS.txt', error_buffer.getvalue())
+                logger.warning(f"Export completed with {len(export_errors)} errors: {export_errors}")
 
         buffer.seek(0)
         response = HttpResponse(buffer, content_type='application/zip')

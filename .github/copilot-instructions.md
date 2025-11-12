@@ -17,6 +17,7 @@ Auto-loaded at the start of every Copilot Chat. Keep small. Attach canonical ins
 - Use `docker compose` (space) for production Docker commands (see TROUBLESHOOTING_GUIDE.md).
 - Test UI changes in BOTH light and dark modes before PR.
 - Include code + docs in the same feature branch/commit for API changes.
+- **Do NOT bump versions on every merge** — follow chat_docs/instructions/VERSION_UPDATE_CHECKLIST.md for release cycles.
 
 ## When to attach canonical docs (minimum attachments)
 
@@ -25,6 +26,7 @@ Auto-loaded at the start of every Copilot Chat. Keep small. Attach canonical ins
 - Documentation flow → `#file:chat_docs/instructions/DOCUMENTATION_STRATEGY.md`
 - Troubleshooting / ops → `#file:chat_docs/instructions/TROUBLESHOOTING_GUIDE.md`
 - Prompt engineering / token optimization → `#file:chat_docs/instructions/EFFICIENT_PROMPTING_GUIDE.md`
+- **Preparing release / version bump** → `#file:chat_docs/instructions/VERSION_UPDATE_CHECKLIST.md`
 
 ## Quick Decision Tree (attach then act)
 
@@ -36,7 +38,9 @@ Auto-loaded at the start of every Copilot Chat. Keep small. Attach canonical ins
 
 - If a required canonical file is not attached for specialized work, the AI MUST request it before proceeding:
   - Example: "Please attach `#file:chat_docs/instructions/DESIGN_SYSTEM.md` so I can follow canonical UI rules."
-- Do not attempt to run dev or OS commands. Provide explicit commands and ask the user to run them.
+- **Dev server commands** (Django backend, Vite frontend) run in external PowerShell — user must run these:
+  - `python manage.py migrate`, `python manage.py makemigrations`, `npm run dev`, server restarts
+- **All other commands** (git, docker, npm install, etc.) can be run by AI with user permission via run_in_terminal tool.
 - Always include 2–3 sentence rationale with generated code examples (user preference).
 
 ## Token Optimization Tips (short)
@@ -52,3 +56,5 @@ Auto-loaded at the start of every Copilot Chat. Keep small. Attach canonical ins
 - `chat_docs/instructions/DOCUMENTATION_STRATEGY.md`
 - `chat_docs/instructions/EFFICIENT_PROMPTING_GUIDE.md`
 - `chat_docs/instructions/TROUBLESHOOTING_GUIDE.md`
+- `chat_docs/instructions/VERSION_UPDATE_CHECKLIST.md` (AI checklist for version management)
+- `chat_docs/features/VERSIONING.md` (Human reference for versioning strategy)
