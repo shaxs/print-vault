@@ -176,6 +176,19 @@
           </div>
         </a>
       </div>
+
+      <!-- Troubleshooting Tip -->
+      <div class="troubleshooting-tip">
+        <span class="icon">🔧</span>
+        <div>
+          <strong>Need to share debug information?</strong>
+          <p>
+            Use the <strong>Copy Version Info</strong> button above to copy system details. For
+            backend errors or stack traces, run:
+          </p>
+          <code>docker compose logs backend --tail=100</code>
+        </div>
+      </div>
     </div>
 
     <!-- License Section -->
@@ -622,6 +635,47 @@ onMounted(() => {
   margin: 0;
   font-size: 0.9rem;
   color: var(--color-text-muted);
+}
+
+/* Troubleshooting Tip */
+.troubleshooting-tip {
+  display: flex;
+  align-items: flex-start;
+  gap: 16px;
+  padding: 16px;
+  margin-top: 16px;
+  background: var(--color-background-mute);
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+}
+
+.troubleshooting-tip .icon {
+  font-size: 1.5rem;
+  flex-shrink: 0;
+}
+
+.troubleshooting-tip strong {
+  display: block;
+  color: var(--color-heading);
+  margin-bottom: 8px;
+}
+
+.troubleshooting-tip p {
+  margin: 0 0 8px 0;
+  font-size: 0.9rem;
+  color: var(--color-text);
+}
+
+.troubleshooting-tip code {
+  display: block;
+  padding: 8px 12px;
+  background: var(--color-background-soft);
+  border: 1px solid var(--color-border);
+  border-radius: 4px;
+  font-family: 'Courier New', monospace;
+  font-size: 0.85rem;
+  color: var(--color-text);
+  user-select: all;
 }
 
 .license-link {
