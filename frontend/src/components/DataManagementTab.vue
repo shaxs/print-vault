@@ -177,6 +177,10 @@ const confirmRestore = async () => {
     } else {
       showInfoModal('Success', 'Data has been successfully restored.')
     }
+
+    // Clear file input and validation results after successful restore
+    restoreFile.value = null
+    validationResults.value = null
   } catch (error) {
     const errorMessage =
       error.response?.data?.error || 'An error occurred during the restore process.'
