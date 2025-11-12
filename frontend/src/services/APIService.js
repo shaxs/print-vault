@@ -139,6 +139,11 @@ export default {
   exportData() {
     return apiClient.get('export/data/', { responseType: 'blob' })
   },
+  validateBackup(formData) {
+    return apiClient.post('validate-backup/', formData, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    })
+  },
   restoreData(formData) {
     return apiClient.post('import-data/', formData, {
       headers: { 'Content-Type': 'multipart/form-data' },

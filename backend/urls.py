@@ -35,6 +35,7 @@ urlpatterns = [
     path('api/alerts/dismiss/', views.DismissAlertView.as_view(), name='dismiss-alert'),
     path('api/alerts/dismiss-all/', views.DismissAllAlertsView.as_view(), name='dismiss-all-alerts'),
     path('api/export/data/', views.ExportDataView.as_view(), name='export-data'),
+    path('api/validate-backup/', views.ValidateBackupView.as_view(), name='validate-backup'),
     path('api/import-data/', views.ImportDataView.as_view(), name='import-data'),
     path('api/delete-all-data/', views.DeleteAllData.as_view(), name='delete-all'),
 ]

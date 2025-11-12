@@ -11,11 +11,16 @@ const deleteCheckbox = ref(false)
 
 const restoreFile = ref(null)
 const isRestoring = ref(false)
+const isValidating = ref(false)
 const isExporting = ref(false)
 const isInitialRestoreModalVisible = ref(false)
+const isValidationWarningModalVisible = ref(false)
 const isFinalRestoreModalVisible = ref(false)
 const restoreConfirmationText = ref('')
 const restoreCheckbox = ref(false)
+
+// Validation state
+const validationResults = ref(null)
 
 const isInfoModalVisible = ref(false)
 const infoModalTitle = ref('')
@@ -92,15 +97,51 @@ const handleFinalDelete = async () => {
 const handleRestoreUpload = (event) => {
   restoreFile.value = event.target.files[0]
 }
-const initiateRestore = () => {
+const initiateRestore = async () => {
   if (!restoreFile.value) {
     showInfoModal('Missing File', 'A backup ZIP file is required to restore data.', true)
     return
   }
-  isInitialRestoreModalVisible.value = true
+
+  // Step 1: Validate the backup file
+  isValidating.value = true
+  try {
+    const formData = new FormData()
+    formData.append('backup_file', restoreFile.value)
+
+    const response = await APIService.validateBackup(formData)
+    validationResults.value = response.data
+
+    // If validation found errors, show warning modal
+    if (!response.data.valid && response.data.total_errors > 0) {
+      isValidationWarningModalVisible.value = true
+    } else {
+      // No errors, proceed directly to initial confirmation
+      isInitialRestoreModalVisible.value = true
+    }
+  } catch (error) {
+    console.error('Validation failed:', error)
+    showInfoModal(
+      'Validation Failed',
+      'Could not validate backup file. ' + (error.response?.data?.error || error.message),
+      true,
+    )
+  } finally {
+    isValidating.value = false
+  }
 }
 const proceedToFinalRestore = () => {
   isInitialRestoreModalVisible.value = false
+  isFinalRestoreModalVisible.value = true
+}
+const cancelValidationWarning = () => {
+  isValidationWarningModalVisible.value = false
+  validationResults.value = null
+  restoreFile.value = null
+}
+const proceedWithPartialImport = () => {
+  isValidationWarningModalVisible.value = false
+  // Go directly to final confirmation (skip initial modal since we already warned)
   isFinalRestoreModalVisible.value = true
 }
 const cancelFinalRestore = () => {
@@ -121,17 +162,17 @@ const confirmRestore = async () => {
 
     const response = await APIService.restoreData(formData)
     cancelFinalRestore()
-    
+
     // Check if there were partial import errors
     if (response.data.errors_count && response.data.errors_count > 0) {
       console.warn('Import completed with errors:', response.data.errors)
       console.warn('Error details:', response.data.message)
-      
+
       const errorList = response.data.errors.join(', ')
       showInfoModal(
         'Partial Success',
         `Data restored but ${response.data.errors_count} items could not be imported:\n\n${errorList}\n\nCheck browser console and server logs for detailed error information.`,
-        true // warning style
+        true, // warning style
       )
     } else {
       showInfoModal('Success', 'Data has been successfully restored.')
@@ -176,7 +217,10 @@ const confirmRestore = async () => {
               required
             />
           </div>
-          <button type="submit" class="btn btn-primary btn-sm">Restore from Backup</button>
+          <button type="submit" :disabled="isValidating" class="btn btn-primary btn-sm">
+            <span v-if="isValidating">Validating Backup...</span>
+            <span v-else>Restore from Backup</span>
+          </button>
         </form>
       </div>
     </div>
@@ -216,6 +260,58 @@ const confirmRestore = async () => {
         </button>
       </template>
     </BaseModal>
+
+    <!-- Validation Warning Modal -->
+    <BaseModal
+      :show="isValidationWarningModalVisible"
+      title="⚠️ Import Validation Warning"
+      @close="cancelValidationWarning"
+      class="validation-warning-modal"
+    >
+      <div v-if="validationResults" class="validation-results">
+        <p class="validation-summary">
+          <strong
+            >{{ validationResults.stats.valid_records }} of
+            {{ validationResults.stats.total_records }} records can be imported
+            successfully.</strong
+          >
+        </p>
+        <p class="validation-warning">
+          {{ validationResults.total_errors }} record(s) have errors and will be skipped:
+        </p>
+
+        <div class="errors-list">
+          <div
+            v-for="(errorGroup, type) in validationResults.errors_by_type"
+            :key="type"
+            class="error-group"
+          >
+            <h4>{{ type }} ({{ errorGroup.count }} errors)</h4>
+            <ul>
+              <li v-for="(error, idx) in errorGroup.samples" :key="idx">
+                ID: {{ error.id }} - {{ error.error }}
+              </li>
+            </ul>
+            <p v-if="errorGroup.has_more" class="more-errors">
+              ... and {{ errorGroup.count - 10 }} more {{ type }} errors
+            </p>
+          </div>
+        </div>
+
+        <p class="import-warning">
+          <strong>⚠️ Warning:</strong> Proceeding will import all valid data but skip the records
+          listed above. This may result in incomplete data relationships.
+        </p>
+      </div>
+
+      <template #footer>
+        <button @click="proceedWithPartialImport" class="btn btn-warning btn-sm">
+          Proceed with Partial Import
+        </button>
+        <button @click="cancelValidationWarning" class="btn btn-secondary btn-sm">Cancel</button>
+      </template>
+    </BaseModal>
+
     <BaseModal
       :show="isFinalRestoreModalVisible"
       title="Final Restore Confirmation"
@@ -391,5 +487,75 @@ const confirmRestore = async () => {
   .data-actions {
     grid-template-columns: 1fr;
   }
+}
+
+/* Validation Warning Modal Styles */
+.validation-results {
+  /* Remove outer scrolling - let the errors-list handle it */
+  overflow: visible;
+}
+
+.validation-summary {
+  font-size: 1.1rem;
+  margin-bottom: 1rem;
+  color: var(--color-text);
+}
+
+.validation-warning {
+  color: var(--color-orange);
+  font-weight: bold;
+  margin-bottom: 1rem;
+}
+
+.errors-list {
+  background: var(--color-background-mute);
+  border: 1px solid var(--color-border);
+  border-radius: 4px;
+  padding: 1rem;
+  margin: 1rem 0;
+  max-height: 400px;
+  overflow-y: auto;
+}
+
+.error-group {
+  margin-bottom: 1.5rem;
+}
+
+.error-group h4 {
+  color: var(--color-heading);
+  font-size: 1rem;
+  margin-bottom: 0.5rem;
+  text-transform: capitalize;
+}
+
+.error-group ul {
+  list-style: none;
+  padding-left: 0;
+  margin: 0;
+}
+
+.error-group li {
+  padding: 0.25rem 0;
+  color: var(--color-text);
+  font-size: 0.9rem;
+  font-family: monospace;
+}
+
+.more-errors {
+  color: var(--color-text-muted);
+  font-style: italic;
+  margin-top: 0.5rem;
+}
+
+.import-warning {
+  margin-top: 1rem;
+  padding: 1rem;
+  background: rgba(255, 165, 0, 0.1);
+  border-left: 4px solid var(--color-orange);
+  border-radius: 4px;
+}
+
+.import-warning strong {
+  color: var(--color-orange);
 }
 </style>

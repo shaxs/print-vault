@@ -1093,6 +1093,341 @@ def parse_date(date_string):
         return None
 
 
+class ValidateBackupView(APIView):
+    """
+    Validate a backup ZIP file before importing.
+    Returns a report of validation errors without modifying the database.
+    """
+    permission_classes = [AllowAny]
+    
+    def post(self, request, *args, **kwargs):
+        backup_file = request.FILES.get('backup_file')
+        if not backup_file:
+            return Response({'error': 'No backup file provided.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            validation_errors = []
+            validation_stats = {
+                'total_records': 0,
+                'valid_records': 0,
+                'invalid_records': 0,
+                'sections': {}
+            }
+            
+            with zipfile.ZipFile(backup_file, 'r') as zf:
+                def read_csv_from_zip(zipfile_obj, filename):
+                    with zipfile_obj.open(filename, 'r') as f:
+                        reader = csv.reader(StringIO(f.read().decode('utf-8')))
+                        header = next(reader)
+                        return [dict(zip(header, row)) for row in reader]
+                
+                # Validate Projects (base dependency)
+                if 'projects.csv' in zf.namelist():
+                    project_rows = read_csv_from_zip(zf, 'projects.csv')
+                    project_ids = set()
+                    section_valid = 0
+                    section_invalid = 0
+                    
+                    for row in project_rows:
+                        try:
+                            # Basic validation - check required fields
+                            if not row.get('id') or not row.get('project_name'):
+                                validation_errors.append({
+                                    'type': 'project',
+                                    'id': row.get('id', 'unknown'),
+                                    'error': 'Missing required fields'
+                                })
+                                section_invalid += 1
+                            else:
+                                project_ids.add(row['id'])
+                                section_valid += 1
+                        except Exception as e:
+                            validation_errors.append({
+                                'type': 'project',
+                                'id': row.get('id', 'unknown'),
+                                'error': str(e)
+                            })
+                            section_invalid += 1
+                    
+                    validation_stats['sections']['projects'] = {
+                        'total': section_valid + section_invalid,
+                        'valid': section_valid,
+                        'invalid': section_invalid
+                    }
+                    validation_stats['total_records'] += section_valid + section_invalid
+                    validation_stats['valid_records'] += section_valid
+                    validation_stats['invalid_records'] += section_invalid
+                else:
+                    project_ids = set()
+                
+                # Validate Printers (base dependency)
+                if 'printers.csv' in zf.namelist():
+                    printer_rows = read_csv_from_zip(zf, 'printers.csv')
+                    printer_ids = set()
+                    section_valid = 0
+                    section_invalid = 0
+                    
+                    for row in printer_rows:
+                        if not row.get('id') or not row.get('title'):
+                            validation_errors.append({
+                                'type': 'printer',
+                                'id': row.get('id', 'unknown'),
+                                'error': 'Missing required fields'
+                            })
+                            section_invalid += 1
+                        else:
+                            printer_ids.add(row['id'])
+                            section_valid += 1
+                    
+                    validation_stats['sections']['printers'] = {
+                        'total': section_valid + section_invalid,
+                        'valid': section_valid,
+                        'invalid': section_invalid
+                    }
+                    validation_stats['total_records'] += section_valid + section_invalid
+                    validation_stats['valid_records'] += section_valid
+                    validation_stats['invalid_records'] += section_invalid
+                else:
+                    printer_ids = set()
+                
+                # Validate Inventory Items (base dependency)
+                if 'inventory.csv' in zf.namelist():
+                    inventory_rows = read_csv_from_zip(zf, 'inventory.csv')
+                    inventory_ids = set()
+                    section_valid = 0
+                    section_invalid = 0
+                    
+                    for row in inventory_rows:
+                        if not row.get('id') or not row.get('title'):
+                            validation_errors.append({
+                                'type': 'inventory',
+                                'id': row.get('id', 'unknown'),
+                                'error': 'Missing required fields'
+                            })
+                            section_invalid += 1
+                        else:
+                            inventory_ids.add(row['id'])
+                            section_valid += 1
+                    
+                    validation_stats['sections']['inventory'] = {
+                        'total': section_valid + section_invalid,
+                        'valid': section_valid,
+                        'invalid': section_invalid
+                    }
+                    validation_stats['total_records'] += section_valid + section_invalid
+                    validation_stats['valid_records'] += section_valid
+                    validation_stats['invalid_records'] += section_invalid
+                else:
+                    inventory_ids = set()
+                
+                # Validate Trackers (base dependency)
+                if 'trackers.csv' in zf.namelist():
+                    tracker_rows = read_csv_from_zip(zf, 'trackers.csv')
+                    tracker_ids = set()
+                    section_valid = 0
+                    section_invalid = 0
+                    
+                    for row in tracker_rows:
+                        if not row.get('id') or not row.get('name'):
+                            validation_errors.append({
+                                'type': 'tracker',
+                                'id': row.get('id', 'unknown'),
+                                'error': 'Missing required fields'
+                            })
+                            section_invalid += 1
+                        elif row.get('project_id') and row['project_id'] not in project_ids:
+                            validation_errors.append({
+                                'type': 'tracker',
+                                'id': row['id'],
+                                'error': f"Missing project {row['project_id']}"
+                            })
+                            section_invalid += 1
+                        else:
+                            tracker_ids.add(row['id'])
+                            section_valid += 1
+                    
+                    validation_stats['sections']['trackers'] = {
+                        'total': section_valid + section_invalid,
+                        'valid': section_valid,
+                        'invalid': section_invalid
+                    }
+                    validation_stats['total_records'] += section_valid + section_invalid
+                    validation_stats['valid_records'] += section_valid
+                    validation_stats['invalid_records'] += section_invalid
+                else:
+                    tracker_ids = set()
+                
+                # Validate ProjectLinks (depends on projects)
+                if 'project_links.csv' in zf.namelist():
+                    link_rows = read_csv_from_zip(zf, 'project_links.csv')
+                    section_valid = 0
+                    section_invalid = 0
+                    
+                    for row in link_rows:
+                        if not row.get('project_id') or row['project_id'] not in project_ids:
+                            validation_errors.append({
+                                'type': 'projectlink',
+                                'id': row.get('id', 'unknown'),
+                                'error': f"Missing project {row.get('project_id', 'unknown')}"
+                            })
+                            section_invalid += 1
+                        else:
+                            section_valid += 1
+                    
+                    validation_stats['sections']['project_links'] = {
+                        'total': section_valid + section_invalid,
+                        'valid': section_valid,
+                        'invalid': section_invalid
+                    }
+                    validation_stats['total_records'] += section_valid + section_invalid
+                    validation_stats['valid_records'] += section_valid
+                    validation_stats['invalid_records'] += section_invalid
+                
+                # Validate ProjectFiles (depends on projects)
+                if 'project_files.csv' in zf.namelist():
+                    file_rows = read_csv_from_zip(zf, 'project_files.csv')
+                    section_valid = 0
+                    section_invalid = 0
+                    
+                    for row in file_rows:
+                        if not row.get('project_id') or row['project_id'] not in project_ids:
+                            validation_errors.append({
+                                'type': 'projectfile',
+                                'id': row.get('id', 'unknown'),
+                                'error': f"Missing project {row.get('project_id', 'unknown')}"
+                            })
+                            section_invalid += 1
+                        else:
+                            section_valid += 1
+                    
+                    validation_stats['sections']['project_files'] = {
+                        'total': section_valid + section_invalid,
+                        'valid': section_valid,
+                        'invalid': section_invalid
+                    }
+                    validation_stats['total_records'] += section_valid + section_invalid
+                    validation_stats['valid_records'] += section_valid
+                    validation_stats['invalid_records'] += section_invalid
+                
+                # Validate ProjectInventory (depends on projects and inventory)
+                if 'project_inventory.csv' in zf.namelist():
+                    proj_inv_rows = read_csv_from_zip(zf, 'project_inventory.csv')
+                    section_valid = 0
+                    section_invalid = 0
+                    
+                    for row in proj_inv_rows:
+                        errors = []
+                        if not row.get('project_id') or row['project_id'] not in project_ids:
+                            errors.append(f"Missing project {row.get('project_id', 'unknown')}")
+                        if not row.get('inventory_item_id') or row['inventory_item_id'] not in inventory_ids:
+                            errors.append(f"Missing inventory item {row.get('inventory_item_id', 'unknown')}")
+                        
+                        if errors:
+                            validation_errors.append({
+                                'type': 'projectinventory',
+                                'id': f"{row.get('project_id', 'unknown')}_{row.get('inventory_item_id', 'unknown')}",
+                                'error': ', '.join(errors)
+                            })
+                            section_invalid += 1
+                        else:
+                            section_valid += 1
+                    
+                    validation_stats['sections']['project_inventory'] = {
+                        'total': section_valid + section_invalid,
+                        'valid': section_valid,
+                        'invalid': section_invalid
+                    }
+                    validation_stats['total_records'] += section_valid + section_invalid
+                    validation_stats['valid_records'] += section_valid
+                    validation_stats['invalid_records'] += section_invalid
+                
+                # Validate ProjectPrinters (depends on projects and printers)
+                if 'project_printers.csv' in zf.namelist():
+                    proj_printer_rows = read_csv_from_zip(zf, 'project_printers.csv')
+                    section_valid = 0
+                    section_invalid = 0
+                    
+                    for row in proj_printer_rows:
+                        errors = []
+                        if not row.get('project_id') or row['project_id'] not in project_ids:
+                            errors.append(f"Missing project {row.get('project_id', 'unknown')}")
+                        if not row.get('printer_id') or row['printer_id'] not in printer_ids:
+                            errors.append(f"Missing printer {row.get('printer_id', 'unknown')}")
+                        
+                        if errors:
+                            validation_errors.append({
+                                'type': 'projectprinter',
+                                'id': f"{row.get('project_id', 'unknown')}_{row.get('printer_id', 'unknown')}",
+                                'error': ', '.join(errors)
+                            })
+                            section_invalid += 1
+                        else:
+                            section_valid += 1
+                    
+                    validation_stats['sections']['project_printers'] = {
+                        'total': section_valid + section_invalid,
+                        'valid': section_valid,
+                        'invalid': section_invalid
+                    }
+                    validation_stats['total_records'] += section_valid + section_invalid
+                    validation_stats['valid_records'] += section_valid
+                    validation_stats['invalid_records'] += section_invalid
+                
+                # Validate TrackerFiles (depends on trackers)
+                if 'tracker_files.csv' in zf.namelist():
+                    tfile_rows = read_csv_from_zip(zf, 'tracker_files.csv')
+                    section_valid = 0
+                    section_invalid = 0
+                    
+                    for row in tfile_rows:
+                        if not row.get('tracker_id') or row['tracker_id'] not in tracker_ids:
+                            validation_errors.append({
+                                'type': 'trackerfile',
+                                'id': row.get('id', 'unknown'),
+                                'error': f"Missing tracker {row.get('tracker_id', 'unknown')}"
+                            })
+                            section_invalid += 1
+                        else:
+                            section_valid += 1
+                    
+                    validation_stats['sections']['tracker_files'] = {
+                        'total': section_valid + section_invalid,
+                        'valid': section_valid,
+                        'invalid': section_invalid
+                    }
+                    validation_stats['total_records'] += section_valid + section_invalid
+                    validation_stats['valid_records'] += section_valid
+                    validation_stats['invalid_records'] += section_invalid
+            
+            # Group errors by type for better display
+            errors_by_type = {}
+            for error in validation_errors:
+                error_type = error['type']
+                if error_type not in errors_by_type:
+                    errors_by_type[error_type] = []
+                errors_by_type[error_type].append(error)
+            
+            # Limit errors shown per type (show first 10 of each type)
+            errors_summary = {}
+            for error_type, errors in errors_by_type.items():
+                errors_summary[error_type] = {
+                    'count': len(errors),
+                    'samples': errors[:10],  # First 10 errors
+                    'has_more': len(errors) > 10
+                }
+            
+            return Response({
+                'valid': len(validation_errors) == 0,
+                'stats': validation_stats,
+                'errors_by_type': errors_summary,
+                'total_errors': len(validation_errors)
+            }, status=status.HTTP_200_OK)
+            
+        except Exception as e:
+            logger.error(f"Validation failed: {e}", exc_info=True)
+            return Response({'error': f'Validation failed: {str(e)}'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
 class ImportDataView(APIView):
     permission_classes = [AllowAny]
     def post(self, request, *args, **kwargs):
