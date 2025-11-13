@@ -350,17 +350,55 @@ Python: ${versionInfo.value.python_version || 'Unknown'}
 Django: ${versionInfo.value.django_version || 'Unknown'}
 Build Time: ${formatDateTime(versionInfo.value.build_time)}${migrationInfo}`
 
-  navigator.clipboard
-    .writeText(info)
-    .then(() => {
+  // Check if Clipboard API is available (requires HTTPS or localhost)
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    // Modern Clipboard API (secure contexts only)
+    navigator.clipboard
+      .writeText(info)
+      .then(() => {
+        copied.value = true
+        setTimeout(() => {
+          copied.value = false
+        }, 2000)
+      })
+      .catch((err) => {
+        console.error('Failed to copy with Clipboard API:', err)
+        // Fallback to legacy method
+        fallbackCopy(info)
+      })
+  } else {
+    // Fallback for insecure contexts (HTTP)
+    fallbackCopy(info)
+  }
+}
+
+const fallbackCopy = (text) => {
+  // Legacy copy method using textarea and execCommand
+  // Works in insecure contexts (HTTP) where Clipboard API is unavailable
+  const textarea = document.createElement('textarea')
+  textarea.value = text
+  textarea.style.position = 'fixed'
+  textarea.style.opacity = '0'
+  document.body.appendChild(textarea)
+  textarea.select()
+  
+  try {
+    const successful = document.execCommand('copy')
+    if (successful) {
       copied.value = true
       setTimeout(() => {
         copied.value = false
       }, 2000)
-    })
-    .catch((err) => {
-      console.error('Failed to copy:', err)
-    })
+    } else {
+      console.error('Failed to copy using fallback method')
+      alert('Failed to copy to clipboard. Please copy manually.')
+    }
+  } catch (err) {
+    console.error('Fallback copy failed:', err)
+    alert('Copy to clipboard is not supported in this browser/context.')
+  } finally {
+    document.body.removeChild(textarea)
+  }
 }
 
 onMounted(() => {

@@ -15,8 +15,13 @@ VERSION = "1.0.0-beta.2"
 
 def get_git_commit():
     """Get the short git commit hash."""
+    # First try environment variable (set during Docker build)
+    env_commit = os.environ.get('GIT_COMMIT')
+    if env_commit and env_commit != 'unknown':
+        return env_commit
+    
+    # Fallback to git command (for dev environment)
     try:
-        # Try to get git commit hash
         result = subprocess.run(
             ['git', 'rev-parse', '--short', 'HEAD'],
             capture_output=True,
@@ -34,6 +39,12 @@ def get_git_commit():
 
 def get_git_branch():
     """Get the current git branch."""
+    # First try environment variable (set during Docker build)
+    env_branch = os.environ.get('GIT_BRANCH')
+    if env_branch and env_branch != 'unknown':
+        return env_branch
+    
+    # Fallback to git command (for dev environment)
     try:
         result = subprocess.run(
             ['git', 'rev-parse', '--abbrev-ref', 'HEAD'],
