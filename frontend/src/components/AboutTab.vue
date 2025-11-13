@@ -325,8 +325,40 @@ const formatDateTime = (isoString) => {
   }
 }
 
+const getBrowserInfo = () => {
+  const ua = navigator.userAgent
+  let browserName = 'Unknown'
+  let browserVersion = 'Unknown'
+  let os = 'Unknown'
+
+  // Detect browser
+  if (ua.indexOf('Firefox') > -1) {
+    browserName = 'Firefox'
+    browserVersion = ua.match(/Firefox\/([0-9.]+)/)?.[1] || 'Unknown'
+  } else if (ua.indexOf('Edg') > -1) {
+    browserName = 'Edge'
+    browserVersion = ua.match(/Edg\/([0-9.]+)/)?.[1] || 'Unknown'
+  } else if (ua.indexOf('Chrome') > -1) {
+    browserName = 'Chrome'
+    browserVersion = ua.match(/Chrome\/([0-9.]+)/)?.[1] || 'Unknown'
+  } else if (ua.indexOf('Safari') > -1) {
+    browserName = 'Safari'
+    browserVersion = ua.match(/Version\/([0-9.]+)/)?.[1] || 'Unknown'
+  }
+
+  // Detect OS
+  if (ua.indexOf('Win') > -1) os = 'Windows'
+  else if (ua.indexOf('Mac') > -1) os = 'macOS'
+  else if (ua.indexOf('Linux') > -1) os = 'Linux'
+  else if (ua.indexOf('Android') > -1) os = 'Android'
+  else if (ua.indexOf('iPhone') > -1 || ua.indexOf('iPad') > -1) os = 'iOS'
+
+  return { browserName, browserVersion, os }
+}
+
 const copyVersionInfo = () => {
   const mismatchNote = versionMismatch.value ? '\n⚠️ VERSION MISMATCH DETECTED' : ''
+  const browserInfo = getBrowserInfo()
 
   // Build migration info string
   let migrationInfo = ''
@@ -342,13 +374,20 @@ ${mig.all_applied ? mig.all_applied.join('\n') : 'None'}`
   }
 
   const info = `Print Vault Version Information${mismatchNote}
+
+=== Application Versions ===
 Frontend Version: ${frontendVersion.value}
 Backend Version: ${versionInfo.value.version || 'Unknown'}
-Commit: ${versionInfo.value.commit || 'unknown'}
-Branch: ${versionInfo.value.branch || 'unknown'}
+Git Commit: ${versionInfo.value.commit || 'unknown'}
+Git Branch: ${versionInfo.value.branch || 'unknown'}
 Python: ${versionInfo.value.python_version || 'Unknown'}
 Django: ${versionInfo.value.django_version || 'Unknown'}
-Build Time: ${formatDateTime(versionInfo.value.build_time)}${migrationInfo}`
+Build Time: ${formatDateTime(versionInfo.value.build_time)}
+
+=== Client Environment ===
+Browser: ${browserInfo.browserName} ${browserInfo.browserVersion}
+Operating System: ${browserInfo.os}
+User Agent: ${navigator.userAgent}${migrationInfo}`
 
   // Check if Clipboard API is available (requires HTTPS or localhost)
   if (navigator.clipboard && navigator.clipboard.writeText) {
@@ -381,7 +420,7 @@ const fallbackCopy = (text) => {
   textarea.style.opacity = '0'
   document.body.appendChild(textarea)
   textarea.select()
-  
+
   try {
     const successful = document.execCommand('copy')
     if (successful) {
