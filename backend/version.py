@@ -15,8 +15,19 @@ VERSION = "1.0.0-beta.2"
 
 def get_git_commit():
     """Get the short git commit hash."""
+    # First try reading from build-time captured file (Docker production)
+    git_commit_file = os.path.join(os.path.dirname(os.path.dirname(__file__)), '.git_commit')
+    if os.path.exists(git_commit_file):
+        try:
+            with open(git_commit_file, 'r') as f:
+                commit = f.read().strip()
+                if commit and commit != 'unknown':
+                    return commit
+        except Exception:
+            pass
+    
+    # Fallback to git command (for dev environment)
     try:
-        # Try to get git commit hash
         result = subprocess.run(
             ['git', 'rev-parse', '--short', 'HEAD'],
             capture_output=True,
@@ -34,6 +45,18 @@ def get_git_commit():
 
 def get_git_branch():
     """Get the current git branch."""
+    # First try reading from build-time captured file (Docker production)
+    git_branch_file = os.path.join(os.path.dirname(os.path.dirname(__file__)), '.git_branch')
+    if os.path.exists(git_branch_file):
+        try:
+            with open(git_branch_file, 'r') as f:
+                branch = f.read().strip()
+                if branch and branch != 'unknown':
+                    return branch
+        except Exception:
+            pass
+    
+    # Fallback to git command (for dev environment)
     try:
         result = subprocess.run(
             ['git', 'rev-parse', '--abbrev-ref', 'HEAD'],
