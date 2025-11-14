@@ -1,8 +1,8 @@
 # Print Vault
 
-[![Project Status: WIP – Initial development is in progress, but there has not yet been a stable, usable release suitable for the public.](https://www.repostatus.org/badges/latest/wip.svg)](https://www.repostatus.org/#wip)
-![Test Suite](https://github.com/shaxs/printvault/workflows/Test%20Suite/badge.svg)
-[![Coverage](https://img.shields.io/badge/coverage-87%25-brightgreen)](https://github.com/shaxs/printvault)
+[![Project Status: Active – The project has reached a stable, usable state and is being actively developed.](https://www.repostatus.org/badges/latest/active.svg)](https://www.repostatus.org/#active)
+![Test Suite](https://github.com/shaxs/print-vault/workflows/Test%20Suite/badge.svg)
+[![Coverage](https://img.shields.io/badge/coverage-95%25-brightgreen)](https://github.com/shaxs/print-vault)
 
 > The Self-Hosted Vault for Your 3D Printing Ecosystem.
 
