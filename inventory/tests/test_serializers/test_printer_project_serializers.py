@@ -23,7 +23,6 @@ from inventory.serializers import PrinterSerializer, ProjectSerializer
 from inventory.tests.factories import (
     PrinterFactory,
     BrandFactory,
-    MaterialFactory,
     ProjectFactory,
     InventoryItemFactory,
     TrackerFactory
@@ -87,7 +86,7 @@ class TestPrinterSerializer:
             context={'request': request}
         )
         assert serializer.is_valid()
-        updated = serializer.save()
+        updated = serializer.save()  # Variable used in assertion below
         
         assert updated.manufacturer.name == 'New Brand'
 
@@ -221,7 +220,7 @@ class TestProjectSerializer:
             context={'request': request}
         )
         assert serializer.is_valid()
-        updated = serializer.save()
+        updated = serializer.save()  # Variable used in assertions below
         
         # Old associations removed, new ones added
         assert old_item not in updated.associated_inventory_items.all()
@@ -247,7 +246,7 @@ class TestProjectSerializer:
             context={'request': request}
         )
         assert serializer.is_valid()
-        updated = serializer.save()
+        updated = serializer.save()  # Triggers tracker relationship updates tested below
         
         old_tracker.refresh_from_db()
         new_tracker.refresh_from_db()

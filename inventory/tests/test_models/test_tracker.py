@@ -4,9 +4,7 @@ Tests for Tracker and TrackerFile models.
 Tests GitHub integration, computed properties, progress calculations, and status workflows.
 """
 import pytest
-from decimal import Decimal
-from django.core.exceptions import ValidationError
-from inventory.models import Tracker, TrackerFile, Project
+from inventory.models import Tracker
 from inventory.tests.factories import TrackerFactory, TrackerFileFactory, ProjectFactory
 
 
@@ -351,12 +349,12 @@ class TestTrackerStorage:
         
         assert tracker.storage_path == "media/trackers/voron_0_2/"
     
-    def test_total_storage_used(self):
+    def test_total_storage_used_calculation(self):
         """Test total storage calculation."""
         tracker = TrackerFactory(total_storage_used=0)
         
-        file1 = TrackerFileFactory(tracker=tracker, file_size=1024 * 500)  # 500 KB
-        file2 = TrackerFileFactory(tracker=tracker, file_size=1024 * 1024 * 2)  # 2 MB
+        TrackerFileFactory(tracker=tracker, file_size=1024 * 500)  # 500 KB
+        TrackerFileFactory(tracker=tracker, file_size=1024 * 1024 * 2)  # 2 MB
         
         # In real usage, this would be updated via signals or service
         total_size = sum(f.file_size for f in tracker.files.all())

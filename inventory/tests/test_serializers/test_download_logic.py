@@ -6,9 +6,7 @@ and FileDownloadService integration.
 """
 
 import pytest
-from unittest.mock import Mock, patch, MagicMock
-from datetime import datetime
-from django.utils import timezone
+from unittest.mock import patch
 
 from inventory.tests.factories import TrackerFactory, TrackerFileFactory
 

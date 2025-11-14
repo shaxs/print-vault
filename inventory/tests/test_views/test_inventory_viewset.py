@@ -5,16 +5,14 @@ Tests CRUD operations, filtering, search, ordering, and low stock functionality.
 Uses pytest-django and factory-boy for efficient test setup.
 """
 import pytest
-from django.urls import reverse
 from rest_framework import status
 from rest_framework.test import APIClient
-from inventory.models import InventoryItem, Brand, PartType, Location, Vendor, Project
+from inventory.models import InventoryItem
 from inventory.tests.factories import (
     InventoryItemFactory, 
     BrandFactory, 
     PartTypeFactory, 
     LocationFactory,
-    VendorFactory,
     ProjectFactory
 )
 

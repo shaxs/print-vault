@@ -19,8 +19,7 @@ Coverage targets:
 import pytest
 from inventory.serializers import TrackerFileSerializer, TrackerSerializer
 from inventory.tests.factories import (
-    TrackerFactory, TrackerFileFactory, ProjectFactory,
-    InventoryItemFactory, PrinterFactory
+    TrackerFactory, TrackerFileFactory, ProjectFactory
 )
 
 
