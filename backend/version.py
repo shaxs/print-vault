@@ -11,7 +11,7 @@ import django
 logger = logging.getLogger(__name__)
 
 # Semantic version - update this manually on releases
-VERSION = "1.0.0-beta.2"
+VERSION = "1.0.0"
 
 def get_git_commit():
     """Get the short git commit hash."""
