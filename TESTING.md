@@ -164,6 +164,48 @@ pytest --cov=inventory --cov-report=xml
 - **Critical Modules**: Inventory, Tracker - aim for 90%+
 - **Acceptable Lower**: Admin, migrations, config files - can be lower
 
+**Maintaining Coverage as Application Grows:**
+
+When adding new features, always include tests in the same PR/commit:
+
+1. **New Models**: Create corresponding test file in `inventory/tests/test_models/test_[model].py`
+
+   - Test all model methods, properties, relationships
+   - Use factory-boy for efficient test data generation
+   - Aim for 85%+ coverage on new models
+
+2. **New ViewSets/APIs**: Create tests in `inventory/tests/test_views/test_[viewset].py`
+
+   - Cover all CRUD operations (Create, Read, Update, Delete)
+   - Test filtering, search, ordering, pagination
+   - Validate serializer behavior and error handling
+   - Include permission/authentication tests
+
+3. **New Components**: Create test file in `frontend/src/tests/[component].spec.js`
+
+   - Test rendering with different props
+   - Validate emitted events
+   - Check accessibility (a11y) requirements
+   - Test light/dark mode compatibility
+
+4. **New Services**: Create tests in corresponding test file
+
+   - Mock external dependencies (APIs, file system)
+   - Test error handling and edge cases
+   - Validate retry logic and timeouts
+
+5. **CI Coverage Enforcement**:
+
+   - CI checks coverage on `inventory/models.py` and `inventory/filters.py` (70%+ required)
+   - As modules mature, expand `--include` in `.github/workflows/test.yml` to enforce coverage on additional files
+   - Update coverage thresholds incrementally (don't jump from 70% to 90% at once)
+
+6. **Code Review Checklist**:
+   - Does PR include tests for new code? ✅
+   - Do tests follow AAA pattern (Arrange-Act-Assert)? ✅
+   - Are test names descriptive (docstrings explain purpose)? ✅
+   - Does coverage report show new code is tested? ✅
+
 **Reading HTML Reports:**
 
 1. Open `htmlcov/index.html` in browser
@@ -365,6 +407,7 @@ The CI/CD pipeline runs three jobs in parallel:
 
 - **Environment**: Ubuntu Latest, Python 3.11
 - **Steps**:
+
   1. Checkout code
   2. Set up Python with pip caching
   3. Install dependencies from `requirements-dev.txt`
@@ -380,6 +423,7 @@ The CI/CD pipeline runs three jobs in parallel:
 - **Environment**: Ubuntu Latest, Node.js 20.x
 - **Working Directory**: `./frontend`
 - **Steps**:
+
   1. Checkout code
   2. Set up Node.js with npm caching
   3. Install dependencies with `npm ci`
@@ -415,6 +459,7 @@ git push origin develop
 4. Failed tests show full pytest/vitest output
 
 **Quality Gates:**
+
 - Backend coverage minimum: 70% (enforced)
 - All tests must pass
 - Both backend and frontend jobs must succeed
@@ -593,7 +638,9 @@ frontend/src/tests/
 ## Test Implementation Progress
 
 ### Phase 1 ✅ (Completed)
+
 **Backend Model Tests**
+
 - **Tests**: 59 tests covering all models
 - **Coverage**: 75.93% → 87.39% models, 47.83% → 100% filters
 - **Runtime**: 1.21 seconds
@@ -608,7 +655,9 @@ frontend/src/tests/
   - `inventory/tests/test_models/test_printer.py` (11 tests)
 
 ### Phase 2 ✅ (Completed)
+
 **Frontend Component Tests - BaseModal**
+
 - **Tests**: 14 tests (13 passing, 1 skipped - watchEffect timing issue)
 - **Coverage**: 85.36% statements, 81.81% branches, 75% functions
 - **Runtime**: 494ms
@@ -623,11 +672,13 @@ frontend/src/tests/
   - Accessibility structure validation
 
 ### Phase 3 ✅ (Completed)
+
 **Critical Path Tests - Backend & Frontend**
 
 **Backend (Commit: 51b474e)**
+
 - **Tests**: 64 new tests (123 total)
-- **Coverage**: 
+- **Coverage**:
   - Models: 87.39% (exceeded 85% target)
   - Filters: 100% (exceeded 80% target)
   - Overall inventory module: 22.23%
@@ -635,27 +686,28 @@ frontend/src/tests/
 - **Files**:
   - `inventory/tests/factories.py` - Factory-boy patterns for all models
   - `inventory/tests/test_models/test_tracker.py` (30 tests):
-    * Tracker/TrackerFile model creation
-    * Computed properties (total_count, completed_count, etc.)
-    * Statistics and progress calculations
-    * GitHub URL handling
-    * Storage types and directory structures
+    - Tracker/TrackerFile model creation
+    - Computed properties (total_count, completed_count, etc.)
+    - Statistics and progress calculations
+    - GitHub URL handling
+    - Storage types and directory structures
   - `inventory/tests/test_views/test_inventory_viewset.py` (16 tests):
-    * CRUD operations (list, retrieve, create, update, delete)
-    * Filtering (brand, part_type, location)
-    * Search functionality
-    * Ordering
-    * Low stock endpoint
-    * Project associations
+    - CRUD operations (list, retrieve, create, update, delete)
+    - Filtering (brand, part_type, location)
+    - Search functionality
+    - Ordering
+    - Low stock endpoint
+    - Project associations
   - `inventory/tests/test_views/test_tracker_viewset.py` (18 tests):
-    * CRUD operations
-    * Filtering by project
-    * Search (name, GitHub URL)
-    * Serializer depth differences (list vs detail)
-    * TrackerFile sub-endpoints
-    * Cascade deletes
+    - CRUD operations
+    - Filtering by project
+    - Search (name, GitHub URL)
+    - Serializer depth differences (list vs detail)
+    - TrackerFile sub-endpoints
+    - Cascade deletes
 
 **Frontend (Commit: 67e6e8b)**
+
 - **Tests**: 35 new tests (49 total)
 - **Coverage**:
   - APIService: 56.48% (method existence validation)
@@ -674,6 +726,7 @@ frontend/src/tests/
   - GitHub Integration: 1 method (crawl)
 
 **Phase 3 Key Decisions:**
+
 - ✅ Used factory-boy + Faker for efficient test data generation (reduced boilerplate significantly)
 - ✅ Fixed pagination assumptions in ViewSet tests (API returns lists directly, not paginated results)
 - ✅ Simplified APIService tests to method existence checks (avoids complex axios mocking issues)
@@ -683,19 +736,22 @@ frontend/src/tests/
   - Phase 3 established testing patterns with simpler components first
 
 **Phase 3 Totals:**
+
 - **Backend**: 123 tests passing (3.17s runtime)
 - **Frontend**: 49 tests (48 passing + 1 skipped) (2.63s runtime)
 - **Combined**: 172 tests across full stack (5.80s total runtime)
 
 ### Phase 4 ✅ (Completed)
+
 **CI/CD Pipeline**
+
 - **Workflow**: `.github/workflows/test.yml` (Commit: 10fede4, 3651405, e81a0c9)
 - **Jobs**: 3 jobs running in parallel
   - Backend: Python 3.11, pytest with coverage (70%+ threshold enforced)
   - Frontend: Node 20.x, vitest with coverage
   - Test Summary: Aggregates results
 - **Triggers**: Push to main/develop/feature branches, PRs, manual dispatch
-- **Quality Gates**: 
+- **Quality Gates**:
   - Backend coverage minimum: 70% (fail-under enforced)
   - All tests must pass
   - Both jobs must succeed
@@ -709,7 +765,9 @@ frontend/src/tests/
 - **Status**: Ready for first workflow run (will trigger on next push to GitHub)
 
 ### Phase 5 (Planned)
+
 **Comprehensive Coverage - 80%+ Target**
+
 - Expand serializer tests (currently 50.29% coverage)
 - Service layer tests:
   - `github_service.py` (11.93% coverage)
