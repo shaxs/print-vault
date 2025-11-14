@@ -1,0 +1,20 @@
+# Development and Testing Dependencies
+# Install with: pip install -r requirements-dev.txt
+
+# First install production requirements
+-r requirements.txt
+
+# Testing frameworks
+pytest==8.3.4
+pytest-django==4.9.0
+pytest-cov==6.0.0
+coverage==7.6.9
+
+# Test data factories
+factory-boy==3.3.1
+Faker==38.0.0
+
+# Code quality tools (optional)
+# flake8==7.0.0
+# black==24.0.0
+# pylint==3.0.0
