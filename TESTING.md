@@ -349,22 +349,75 @@ inventory/
 
 ## CI/CD Integration
 
-### GitHub Actions (Planned - Phase 4)
+### GitHub Actions Workflow ✅
 
-Tests will run automatically on:
+Tests run automatically in GitHub Actions on:
 
-- Every push to main branch
-- Every pull request
-- Scheduled nightly builds
+- Push to `main`, `develop`, or `feature/**` branches
+- Pull requests targeting `main` or `develop`
+- Manual workflow dispatch
 
-**Workflow Steps:**
+**File**: `.github/workflows/test.yml`
 
-1. Set up Python environment
-2. Install dependencies
-3. Run migrations
-4. Run pytest with coverage
-5. Upload coverage reports
-6. Fail build if coverage < 80%
+The CI/CD pipeline runs three jobs in parallel:
+
+#### 1. Backend Tests (`backend-tests`)
+
+- **Environment**: Ubuntu Latest, Python 3.11
+- **Steps**:
+  1. Checkout code
+  2. Set up Python with pip caching
+  3. Install dependencies from `requirements-dev.txt`
+  4. Run `pytest --cov=inventory --cov=backend --cov-report=xml --cov-report=term-missing -v`
+  5. Check coverage threshold: `coverage report --fail-under=70`
+  6. Upload coverage to Codecov (optional, continue-on-error)
+
+- **Duration**: ~2-3 minutes
+- **Fail Conditions**: Tests fail OR coverage < 70%
+
+#### 2. Frontend Tests (`frontend-tests`)
+
+- **Environment**: Ubuntu Latest, Node.js 20.x
+- **Working Directory**: `./frontend`
+- **Steps**:
+  1. Checkout code
+  2. Set up Node.js with npm caching
+  3. Install dependencies with `npm ci`
+  4. Run `npm run test:coverage`
+  5. Upload coverage to Codecov (optional, continue-on-error)
+
+- **Duration**: ~1-2 minutes
+- **Fail Conditions**: Tests fail
+
+#### 3. Test Summary (`test-summary`)
+
+- **Depends On**: Both backend-tests and frontend-tests
+- **Purpose**: Aggregate results and provide clear pass/fail status
+- **Runs**: Always (even if prior jobs fail)
+
+**Triggering Workflows:**
+
+```bash
+# Automatic: push to feature branch
+git push origin feature/my-feature
+
+# Automatic: push to develop
+git push origin develop
+
+# Manual: Go to Actions tab → Test Suite → Run workflow
+```
+
+**Viewing Results:**
+
+1. Navigate to Actions tab in GitHub repository
+2. Click workflow run (shows commit message)
+3. View job logs (✅ passed, ❌ failed, 🟡 running)
+4. Failed tests show full pytest/vitest output
+
+**Quality Gates:**
+- Backend coverage minimum: 70% (enforced)
+- All tests must pass
+- Both backend and frontend jobs must succeed
 
 ### Local Pre-Commit Checks (Future Enhancement)
 
