@@ -115,7 +115,8 @@ class MaterialModelTest(TestCase):
         """Test creating a material with valid data"""
         material = Material.objects.create(name="Test Material XYZ")
         self.assertEqual(material.name, "Test Material XYZ")
-        self.assertEqual(str(material), "Test Material XYZ")
+        # Material __str__ includes (Generic) or brand name suffix
+        self.assertEqual(str(material), "Test Material XYZ (Generic)")
     
     def test_material_name_required(self):
         """Test that name field is required"""
