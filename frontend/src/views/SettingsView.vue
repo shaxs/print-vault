@@ -6,6 +6,7 @@ import PartTypesTab from '@/components/PartTypesTab.vue'
 import LocationsTab from '@/components/LocationsTab.vue'
 import MaterialsTab from '@/components/MaterialsTab.vue'
 import VendorsTab from '@/components/VendorsTab.vue'
+import FeaturesTab from '@/components/FeaturesTab.vue'
 import PreferencesTab from '@/components/PreferencesTab.vue'
 import DataManagementTab from '@/components/DataManagementTab.vue'
 import AboutTab from '@/components/AboutTab.vue'
@@ -30,6 +31,9 @@ const activeTab = ref('brands')
         <button @click="activeTab = 'materials'" :class="{ active: activeTab === 'materials' }">
           Materials
         </button>
+        <button @click="activeTab = 'features'" :class="{ active: activeTab === 'features' }">
+          Features
+        </button>
         <button @click="activeTab = 'vendors'" :class="{ active: activeTab === 'vendors' }">
           Vendors
         </button>
@@ -48,6 +52,7 @@ const activeTab = ref('brands')
         <PartTypesTab v-if="activeTab === 'part-types'" />
         <LocationsTab v-if="activeTab === 'locations'" />
         <MaterialsTab v-if="activeTab === 'materials'" />
+        <FeaturesTab v-if="activeTab === 'features'" />
         <VendorsTab v-if="activeTab === 'vendors'" />
         <PreferencesTab v-if="activeTab === 'preferences'" />
         <DataManagementTab v-if="activeTab === 'data'" />

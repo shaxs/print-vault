@@ -44,6 +44,10 @@ image-*.png
 AGENTS.md
 feedback.md
 
+# Dev startup scripts (local machine specific)
+start-dev.bat
+stop-dev.bat
+
 # Git info files (generated during Docker build)
 .git_commit
 .git_branch

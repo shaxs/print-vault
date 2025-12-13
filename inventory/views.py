@@ -17,7 +17,7 @@ from rest_framework.response import Response
 from rest_framework import status
 from rest_framework.views import APIView
 from django.conf import settings
-from django.db import connection
+from django.db import connection, models
 from django_filters.rest_framework import DjangoFilterBackend
 from django.db.models import F
 from rest_framework.decorators import action
@@ -25,15 +25,16 @@ from rest_framework.decorators import action
 logger = logging.getLogger(__name__)
 
 from .models import (
-    Brand, PartType, Location, Material, Vendor, Printer, Mod, ModFile,
+    Brand, PartType, Location, Material, MaterialPhoto, MaterialFeature, Vendor, Printer, Mod, ModFile,
     InventoryItem, Project, ProjectLink, ProjectFile, ProjectInventory, ProjectPrinters,
-    Tracker, TrackerFile, AlertDismissal
+    Tracker, TrackerFile, AlertDismissal, FilamentSpool
 )
 from .serializers import (
-    BrandSerializer, PartTypeSerializer, LocationSerializer, MaterialSerializer, VendorSerializer, PrinterSerializer, ModSerializer, ModFileSerializer,
+    BrandSerializer, PartTypeSerializer, LocationSerializer, MaterialSerializer, MaterialPhotoSerializer, MaterialFeatureSerializer, VendorSerializer, PrinterSerializer, ModSerializer, ModFileSerializer,
     InventoryItemSerializer, ProjectSerializer, ProjectLinkSerializer, ProjectFileSerializer,
     ProjectInventorySerializer, ProjectPrintersSerializer,
-    TrackerSerializer, TrackerFileSerializer, TrackerCreateSerializer, TrackerListSerializer
+    TrackerSerializer, TrackerFileSerializer, TrackerCreateSerializer, TrackerListSerializer,
+    FilamentSpoolSerializer
 )
 from .filters import InventoryItemFilter, PrinterFilter, ProjectFilter
 from .services.github_service import (
@@ -1910,10 +1911,481 @@ class LocationViewSet(viewsets.ModelViewSet):
     serializer_class = LocationSerializer
     permission_classes = [AllowAny]
 
+
+class MaterialFeatureViewSet(viewsets.ModelViewSet):
+    """
+    ViewSet for MaterialFeature model (Matte, Glitter, High Speed, etc.)
+    Features are reusable across all filament blueprints.
+    """
+    queryset = MaterialFeature.objects.all().order_by('name')
+    serializer_class = MaterialFeatureSerializer
+    permission_classes = [AllowAny]
+
+
 class MaterialViewSet(viewsets.ModelViewSet):
+    """
+    ViewSet for Material model supporting both generic materials and filament blueprints.
+    Provides filtering, search, and actions for managing favorites.
+    """
     queryset = Material.objects.all().order_by('name')
     serializer_class = MaterialSerializer
     permission_classes = [AllowAny]
+    filter_backends = [DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter]
+    search_fields = ['name', 'brand__name']
+    ordering_fields = ['name', 'created_at', 'is_favorite']
+    
+    def get_queryset(self):
+        """Filter by type (generic/blueprint), favorites, low stock"""
+        queryset = super().get_queryset()
+        
+        # Filter by type
+        material_type = self.request.query_params.get('type', None)
+        if material_type == 'generic':
+            queryset = queryset.filter(is_generic=True)
+        elif material_type == 'blueprint':
+            queryset = queryset.filter(is_generic=False)
+        
+        # Filter by favorites
+        favorites_only = self.request.query_params.get('favorites', None)
+        if favorites_only == 'true':
+            queryset = queryset.filter(is_favorite=True).order_by('favorite_order')
+        
+        # Filter by low stock
+        low_stock_only = self.request.query_params.get('low_stock', None)
+        if low_stock_only == 'true':
+            # This requires a query that checks the property, might be slow
+            # Better to do this in the view and filter in Python or use annotation
+            pass
+        
+        return queryset
+    
+    @action(detail=True, methods=['post'], url_path='toggle-favorite')
+    def toggle_favorite(self, request, pk=None):
+        """Toggle favorite status of a material blueprint"""
+        material = self.get_object()
+        
+        if material.is_generic:
+            return Response(
+                {"error": "Cannot favorite generic materials"},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        if material.is_favorite:
+            # Unfavorite
+            material.is_favorite = False
+            material.favorite_order = None
+            material.save()
+            return Response({"status": "unfavorited"})
+        else:
+            # Check if already 5 favorites
+            favorite_count = Material.objects.filter(is_favorite=True).exclude(pk=material.pk).count()
+            if favorite_count >= 5:
+                return Response(
+                    {"error": "Maximum 5 favorites allowed"},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+            
+            # Favorite - assign next order
+            max_order = Material.objects.filter(is_favorite=True).aggregate(
+                max_order=models.Max('favorite_order')
+            )['max_order'] or 0
+            material.is_favorite = True
+            material.favorite_order = max_order + 1
+            material.save()
+            return Response({"status": "favorited", "order": material.favorite_order})
+    
+    @action(detail=True, methods=['get'], url_path='spools')
+    def spools(self, request, pk=None):
+        """Get all spools using this material blueprint"""
+        material = self.get_object()
+        
+        if material.is_generic:
+            return Response(
+                {"error": "Generic materials don't have spools"},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        from .serializers import FilamentSpoolSerializer
+        spools = material.filamentspool_set.all()
+        serializer = FilamentSpoolSerializer(spools, many=True, context={'request': request})
+        return Response(serializer.data)
+    
+    @action(detail=True, methods=['get', 'post'], url_path='photos')
+    def photos(self, request, pk=None):
+        """
+        GET: List all additional photos for this material.
+        POST: Upload a new additional photo.
+        
+        Photos are saved immediately (not batched with form submit).
+        """
+        material = self.get_object()
+        
+        if request.method == 'GET':
+            photos = material.additional_photos.all()
+            serializer = MaterialPhotoSerializer(photos, many=True, context={'request': request})
+            return Response(serializer.data)
+        
+        elif request.method == 'POST':
+            if material.is_generic:
+                return Response(
+                    {"error": "Cannot add photos to generic materials"},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+            
+            # Handle file upload
+            if 'image' not in request.FILES:
+                return Response(
+                    {"error": "No image file provided"},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+            
+            data = {
+                'image': request.FILES['image'],
+                'caption': request.data.get('caption', ''),
+                'order': request.data.get('order', 0),
+                'material_id': material.id
+            }
+            
+            serializer = MaterialPhotoSerializer(data=data, context={'request': request})
+            if serializer.is_valid():
+                serializer.save()
+                return Response(serializer.data, status=status.HTTP_201_CREATED)
+            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+
+class MaterialPhotoViewSet(viewsets.GenericViewSet, mixins.DestroyModelMixin, mixins.UpdateModelMixin):
+    """
+    ViewSet for managing individual MaterialPhoto instances.
+    
+    Supports:
+    - DELETE: Remove a photo
+    - PATCH: Update caption or order
+    """
+    queryset = MaterialPhoto.objects.all()
+    serializer_class = MaterialPhotoSerializer
+    permission_classes = [AllowAny]
+
+
+class FilamentSpoolViewSet(viewsets.ModelViewSet):
+    """
+    ViewSet for FilamentSpool model.
+    Provides CRUD operations and actions for managing filament spools.
+    """
+    queryset = FilamentSpool.objects.all().order_by('-date_added')
+    serializer_class = FilamentSpoolSerializer
+    permission_classes = [AllowAny]
+    filter_backends = [DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter]
+    search_fields = ['color_name', 'filament_type__name', 'filament_type__brand__name']
+    ordering_fields = ['date_added', 'status', 'current_weight']
+    
+    def get_queryset(self):
+        """Filter by status, printer, project, color, brand, material, color_family"""
+        queryset = super().get_queryset()
+        
+        # Filter by status
+        status_filter = self.request.query_params.get('status', None)
+        if status_filter:
+            queryset = queryset.filter(status=status_filter)
+        
+        # Filter by printer
+        printer_id = self.request.query_params.get('printer', None)
+        if printer_id:
+            queryset = queryset.filter(assigned_printer_id=printer_id)
+        
+        # Filter by project
+        project_id = self.request.query_params.get('project', None)
+        if project_id:
+            queryset = queryset.filter(project_id=project_id)
+        
+        # Filter by color (fuzzy match)
+        color = self.request.query_params.get('color', None)
+        if color:
+            queryset = queryset.filter(color_name__icontains=color)
+        
+        # Filter by brand
+        brand_id = self.request.query_params.get('brand', None)
+        if brand_id:
+            queryset = queryset.filter(filament_type__brand_id=brand_id)
+        
+        # Filter by material (base_material)
+        material_id = self.request.query_params.get('material', None)
+        if material_id:
+            queryset = queryset.filter(filament_type__base_material_id=material_id)
+        
+        # Filter by color family
+        color_family = self.request.query_params.get('color_family', None)
+        if color_family:
+            queryset = queryset.filter(filament_type__color_family=color_family)
+        
+        # Filter by feature
+        feature_id = self.request.query_params.get('feature', None)
+        if feature_id:
+            queryset = queryset.filter(filament_type__features__id=feature_id)
+        
+        return queryset
+    
+    @action(detail=True, methods=['post'], url_path='split')
+    def split(self, request, pk=None):
+        """Split unopened spools into separate records"""
+        spool = self.get_object()
+        
+        if spool.is_opened:
+            return Response(
+                {"error": "Cannot split opened spools"},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        if spool.quantity <= 1:
+            return Response(
+                {"error": "Spool quantity must be > 1 to split"},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        split_count = request.data.get('split_count', 1)
+        if split_count < 1 or split_count >= spool.quantity:
+            return Response(
+                {"error": "Invalid split count"},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        # Decrease original quantity
+        spool.quantity -= split_count
+        spool.save()
+        
+        # Create new spool with split quantity, copying all relevant fields
+        new_spool = FilamentSpool.objects.create(
+            filament_type=spool.filament_type,
+            quantity=split_count,
+            is_opened=False,
+            initial_weight=spool.initial_weight,
+            current_weight=spool.current_weight,
+            location=spool.location,
+            status='new',
+            notes=spool.notes,
+            # Quick Add fields (copy if present)
+            standalone_name=spool.standalone_name,
+            standalone_brand=spool.standalone_brand,
+            standalone_material_type=spool.standalone_material_type,
+            standalone_colors=spool.standalone_colors,
+            standalone_color_family=spool.standalone_color_family,
+            standalone_photo=spool.standalone_photo,
+            standalone_nozzle_temp_min=spool.standalone_nozzle_temp_min,
+            standalone_nozzle_temp_max=spool.standalone_nozzle_temp_max,
+            standalone_bed_temp_min=spool.standalone_bed_temp_min,
+            standalone_bed_temp_max=spool.standalone_bed_temp_max,
+            standalone_density=spool.standalone_density,
+        )
+        
+        serializer = self.get_serializer(new_spool)
+        return Response(serializer.data, status=status.HTTP_201_CREATED)
+    
+    @action(detail=True, methods=['post'], url_path='open-spool')
+    def open_spool(self, request, pk=None):
+        """
+        Open spools from a batch of unopened spools.
+        
+        Request body (new format):
+          - spools_to_open: array of objects with:
+              - status: 'opened' or 'in_use'
+              - location_id: optional location ID
+              - printer_id: optional printer ID
+        
+        For each spool in spools_to_open:
+          - Creates a new spool record with the specified status/location/printer
+        
+        Original batch quantity is decremented by len(spools_to_open).
+        If all spools are opened, the original record is deleted.
+        """
+        from django.db import transaction
+        from django.utils import timezone
+        
+        spool = self.get_object()
+        spools_to_open = request.data.get('spools_to_open', [])
+        
+        # Validate
+        if not spools_to_open:
+            return Response(
+                {"error": "No spools specified to open"},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        if len(spools_to_open) > spool.quantity:
+            return Response(
+                {"error": f"Cannot open {len(spools_to_open)} spools from batch of {spool.quantity}"},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        # Can't open already opened/used spools
+        if spool.status not in ['new']:
+            return Response(
+                {"error": "Can only open spools with 'new' status"},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        created_spools = []
+        
+        with transaction.atomic():
+            for spool_config in spools_to_open:
+                new_status = spool_config.get('status', 'opened')
+                location_id = spool_config.get('location_id')
+                printer_id = spool_config.get('printer_id')
+                
+                # Get location/printer objects if IDs provided
+                location = None
+                printer = None
+                if location_id:
+                    try:
+                        location = Location.objects.get(id=location_id)
+                    except Location.DoesNotExist:
+                        pass
+                if printer_id:
+                    try:
+                        printer = Printer.objects.get(id=printer_id)
+                    except Printer.DoesNotExist:
+                        pass
+                
+                # Create new spool record
+                new_spool = FilamentSpool.objects.create(
+                    # Blueprint or Quick Add fields
+                    filament_type=spool.filament_type,
+                    standalone_name=spool.standalone_name,
+                    standalone_brand=spool.standalone_brand,
+                    standalone_material_type=spool.standalone_material_type,
+                    standalone_colors=spool.standalone_colors,
+                    standalone_color_family=spool.standalone_color_family,
+                    standalone_photo=spool.standalone_photo,
+                    standalone_nozzle_temp_min=spool.standalone_nozzle_temp_min,
+                    standalone_nozzle_temp_max=spool.standalone_nozzle_temp_max,
+                    standalone_bed_temp_min=spool.standalone_bed_temp_min,
+                    standalone_bed_temp_max=spool.standalone_bed_temp_max,
+                    standalone_density=spool.standalone_density,
+                    # Spool-specific
+                    quantity=1,
+                    is_opened=True,
+                    initial_weight=spool.initial_weight,
+                    current_weight=spool.initial_weight,  # Fresh weight for opened spool
+                    location=location,
+                    assigned_printer=printer,
+                    status=new_status,
+                    date_opened=timezone.now(),
+                    notes=spool.notes,  # Copy notes
+                    price_paid=spool.price_paid,  # Copy price if set
+                )
+                created_spools.append(new_spool)
+            
+            # Update original batch
+            remaining = spool.quantity - len(spools_to_open)
+            if remaining <= 0:
+                # All spools opened, delete the original record
+                original_id = spool.id
+                spool.delete()
+                original_spool_data = None
+            else:
+                # Decrement original batch
+                spool.quantity = remaining
+                spool.save()
+                original_spool_data = FilamentSpoolSerializer(spool).data
+        
+        return Response({
+            'opened_spools': [FilamentSpoolSerializer(s).data for s in created_spools],
+            'original_spool': original_spool_data,
+            'message': f'Opened {len(created_spools)} spool(s). {remaining if remaining > 0 else 0} unopened spools remaining.'
+        }, status=status.HTTP_201_CREATED)
+    
+    @action(detail=True, methods=['post'], url_path='update-weight')
+    def update_weight(self, request, pk=None):
+        """Quick weight update for opened spools"""
+        spool = self.get_object()
+        
+        if not spool.is_opened:
+            return Response(
+                {"error": "Can only update weight on opened spools"},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        new_weight = request.data.get('current_weight')
+        if new_weight is None:
+            return Response(
+                {"error": "current_weight is required"},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        try:
+            new_weight = int(new_weight)
+            if new_weight < 0 or new_weight > spool.initial_weight:
+                raise ValueError
+        except (ValueError, TypeError):
+            return Response(
+                {"error": "Invalid weight value"},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        spool.current_weight = new_weight
+        
+        # Auto-update status
+        if new_weight == 0:
+            spool.status = 'empty'
+            spool.date_emptied = timezone.now()
+        elif new_weight < spool.initial_weight * 0.2:  # Less than 20%
+            spool.status = 'low'
+        else:
+            spool.status = 'active'
+        
+        spool.save()
+        
+        serializer = self.get_serializer(spool)
+        return Response(serializer.data)
+    
+    @action(detail=True, methods=['post'], url_path='mark-empty')
+    def mark_empty(self, request, pk=None):
+        """Mark spool as empty"""
+        spool = self.get_object()
+        spool.mark_empty()
+        serializer = self.get_serializer(spool)
+        return Response(serializer.data)
+    
+    @action(detail=True, methods=['post'], url_path='archive')
+    def archive(self, request, pk=None):
+        """Archive an empty spool"""
+        spool = self.get_object()
+        
+        try:
+            spool.archive()
+            serializer = self.get_serializer(spool)
+            return Response(serializer.data)
+        except Exception as e:
+            return Response(
+                {"error": str(e)},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+    
+    @action(detail=False, methods=['post'], url_path='bulk-archive')
+    def bulk_archive(self, request):
+        """Archive multiple empty spools"""
+        spool_ids = request.data.get('spool_ids', [])
+        
+        if not spool_ids:
+            return Response(
+                {"error": "spool_ids is required"},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        spools = FilamentSpool.objects.filter(id__in=spool_ids, status='empty')
+        archived_count = 0
+        errors = []
+        
+        for spool in spools:
+            try:
+                spool.archive()
+                archived_count += 1
+            except Exception as e:
+                errors.append(f"Spool {spool.id}: {str(e)}")
+        
+        return Response({
+            "archived_count": archived_count,
+            "errors": errors
+        })
+
 
 class VendorViewSet(viewsets.ModelViewSet):
     queryset = Vendor.objects.all().order_by('name')

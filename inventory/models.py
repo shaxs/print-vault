@@ -41,14 +41,626 @@ class Location(models.Model):
     def __str__(self):
         return self.name
 
+
+class MaterialFeature(models.Model):
+    """
+    Reusable features for Material blueprints (Matte, Glitter, High Speed, Carbon Filled, etc.)
+    Once created, becomes available as an option across all filament blueprints.
+    """
+    name = models.CharField(max_length=100, unique=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    
+    class Meta:
+        verbose_name = "Material Feature"
+        verbose_name_plural = "Material Features"
+        ordering = ['name']
+    
+    def __str__(self):
+        return self.name
+
+
 class Material(models.Model):
-    name = models.CharField(max_length=255, unique=True, null=False)
+    """
+    Unified model for both generic materials (PLA, PETG) and 
+    specific filament blueprints (brand + material + specs).
+    Generic materials are used for categorization, while blueprints
+    represent specific products you can purchase and track.
+    """
+    
+    # Core identification
+    name = models.CharField(max_length=255, null=False)
+    is_generic = models.BooleanField(
+        default=True,
+        help_text="True for generic types (PLA, PETG), False for specific products"
+    )
+    
+    # Blueprint-specific fields (null for generics)
+    brand = models.ForeignKey(
+        'Brand',
+        on_delete=models.CASCADE,
+        null=True,
+        blank=True,
+        help_text="Manufacturer (e.g., Sunlu, eSun)"
+    )
+    base_material = models.ForeignKey(
+        'self',
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        limit_choices_to={'is_generic': True},
+        related_name='blueprints',
+        help_text="Generic material type (PLA, PETG, etc.)"
+    )
+    
+    # Features (Matte, Glitter, High Speed, Carbon Filled, etc.)
+    features = models.ManyToManyField(
+        'MaterialFeature',
+        blank=True,
+        related_name='materials',
+        help_text="Special features of this filament (e.g., Matte, High Speed, Carbon Filled)"
+    )
+    
+    # Specifications
+    diameter = models.DecimalField(
+        max_digits=4,
+        decimal_places=2,
+        null=True,
+        blank=True,
+        help_text="Filament diameter in mm (typically 1.75 or 2.85)"
+    )
+    spool_weight = models.IntegerField(
+        null=True,
+        blank=True,
+        help_text="Typical spool weight in grams (e.g., 1000 for 1kg)"
+    )
+    empty_spool_weight = models.IntegerField(
+        null=True,
+        blank=True,
+        help_text="Weight of the empty spool in grams (used for accurate remaining filament calculations)"
+    )
+    
+    # Visual
+    photo = models.ImageField(
+        upload_to='filament_photos/',
+        blank=True,
+        null=True,
+        help_text="Product photo, shown for all spools using this blueprint"
+    )
+    
+    # Purchasing
+    vendor = models.ForeignKey(
+        'Vendor',
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True
+    )
+    vendor_link = models.URLField(
+        blank=True,
+        help_text="Direct link to product page for reordering"
+    )
+    price_per_spool = models.DecimalField(
+        max_digits=8,
+        decimal_places=2,
+        null=True,
+        blank=True,
+        help_text="Price in USD (or user's currency)"
+    )
+    
+    # Favorites system
+    is_favorite = models.BooleanField(
+        default=False,
+        help_text="Mark as favorite (max 5)"
+    )
+    favorite_order = models.IntegerField(
+        null=True,
+        blank=True,
+        help_text="Display order in favorites list (1-5)"
+    )
+    
+    # Color information (blueprint-specific, supports unlimited colors for gradients)
+    colors = models.JSONField(
+        default=list,
+        blank=True,
+        help_text="Array of hex color codes: ['#1a1a1a', '#c0c0c0', ...]. Material name provides color identity."
+    )
+    color_family = models.CharField(
+        max_length=50,
+        blank=True,
+        null=True,
+        choices=[
+            ('red', 'Red'),
+            ('orange', 'Orange'),
+            ('yellow', 'Yellow'),
+            ('green', 'Green'),
+            ('blue', 'Blue'),
+            ('purple', 'Purple'),
+            ('pink', 'Pink'),
+            ('brown', 'Brown'),
+            ('black', 'Black'),
+            ('white', 'White'),
+            ('gray', 'Gray'),
+            ('clear', 'Clear/Natural'),
+            ('multi', 'Multi-Color'),
+        ],
+        help_text="Primary color family for filtering (helps with searching)"
+    )
+    
+    # Print settings (Spoolman-compatible temperature ranges)
+    nozzle_temp_min = models.IntegerField(
+        null=True,
+        blank=True,
+        help_text="Minimum recommended nozzle temperature (°C)"
+    )
+    nozzle_temp_max = models.IntegerField(
+        null=True,
+        blank=True,
+        help_text="Maximum recommended nozzle temperature (°C)"
+    )
+    bed_temp_min = models.IntegerField(
+        null=True,
+        blank=True,
+        help_text="Minimum recommended bed temperature (°C)"
+    )
+    bed_temp_max = models.IntegerField(
+        null=True,
+        blank=True,
+        help_text="Maximum recommended bed temperature (°C)"
+    )
+    
+    # Material properties
+    density = models.DecimalField(
+        max_digits=4,
+        decimal_places=2,
+        null=True,
+        blank=True,
+        help_text="Material density in g/cm³ (e.g., 1.24 for PLA) - used for volume calculations"
+    )
+    
+    # Special properties
+    tds_value = models.IntegerField(
+        null=True,
+        blank=True,
+        help_text="Translucency (TDS) value for HueForge lithophanes"
+    )
+    low_stock_threshold = models.IntegerField(
+        null=True,
+        blank=True,
+        help_text="Alert when total grams falls below this value"
+    )
+    
+    # Notes
+    notes = models.TextField(
+        blank=True,
+        default='',
+        help_text="User notes/comments about this material (printing tips, quirks, etc.)"
+    )
+    
+    # Metadata
+    created_at = models.DateTimeField(auto_now_add=True, null=True, blank=True)
+    updated_at = models.DateTimeField(auto_now=True, null=True, blank=True)
+    
     class Meta:
         verbose_name = "Material"
         verbose_name_plural = "Materials"
         ordering = ['name']
+        indexes = [
+            models.Index(fields=['is_generic']),
+            models.Index(fields=['is_favorite']),
+        ]
+        constraints = [
+            models.UniqueConstraint(
+                fields=['name', 'brand'],
+                condition=models.Q(is_generic=False),
+                name='unique_material_brand_for_blueprints'
+            ),
+            models.UniqueConstraint(
+                fields=['name'],
+                condition=models.Q(is_generic=True),
+                name='unique_name_for_generic_materials'
+            ),
+        ]
+    
     def __str__(self):
+        if self.is_generic:
+            return f"{self.name} (Generic)"
+        if self.brand:
+            return f"{self.brand.name} - {self.name}"
         return self.name
+    
+    def clean(self):
+        """Validation rules"""
+        from django.core.exceptions import ValidationError
+        
+        # Enforce max 5 favorites
+        if self.is_favorite:
+            existing_favorites = Material.objects.filter(
+                is_favorite=True
+            ).exclude(pk=self.pk).count()
+            
+            if existing_favorites >= 5:
+                raise ValidationError("Cannot have more than 5 favorite filament types")
+        
+        # Blueprint-specific validation
+        if not self.is_generic:
+            if not self.brand:
+                raise ValidationError("Blueprints must have a brand")
+            if not self.base_material:
+                raise ValidationError("Blueprints must link to a generic material")
+    
+    @property
+    def total_available_grams(self):
+        """
+        Calculate total grams available across all active spools.
+        Used for low stock alerts.
+        """
+        from django.db.models import Sum
+        
+        total = self.filamentspool_set.filter(
+            status__in=['new', 'opened', 'in_use']
+        ).aggregate(total=Sum('current_weight'))['total']
+        
+        return total or 0
+    
+    @property
+    def is_low_stock(self):
+        """Check if current inventory is below threshold"""
+        if not self.low_stock_threshold:
+            return False
+        return self.total_available_grams <= self.low_stock_threshold
+    
+    @property
+    def total_spool_count(self):
+        """Count of all spools (including quantity field)"""
+        from django.db.models import Sum
+        
+        total = self.filamentspool_set.filter(
+            status__in=['new', 'opened', 'in_use']
+        ).aggregate(total=Sum('quantity'))['total']
+        
+        return total or 0
+    
+    @property
+    def total_inventory_value(self):
+        """Calculate total value of inventory for this material"""
+        if not self.price_per_spool or not self.spool_weight:
+            return None
+        
+        cost_per_gram = self.price_per_spool / self.spool_weight
+        return cost_per_gram * self.total_available_grams
+
+
+class MaterialPhoto(models.Model):
+    """
+    Additional photos for a Material blueprint.
+    Each Material can have unlimited additional photos beyond the main photo.
+    Photos are saved immediately on upload (not batched with form submit).
+    """
+    material = models.ForeignKey(
+        'Material',
+        on_delete=models.CASCADE,
+        related_name='additional_photos',
+        help_text="The material blueprint this photo belongs to"
+    )
+    image = models.ImageField(
+        upload_to='material_additional_photos/',
+        help_text="Additional photo for the material"
+    )
+    caption = models.CharField(
+        max_length=255,
+        blank=True,
+        null=True,
+        help_text="Optional caption for this photo"
+    )
+    order = models.PositiveIntegerField(
+        default=0,
+        help_text="Display order (lower numbers shown first)"
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['order', 'created_at']
+        verbose_name = 'Material Photo'
+        verbose_name_plural = 'Material Photos'
+
+    def __str__(self):
+        caption_text = self.caption or "No caption"
+        return f"{self.material.name} - {caption_text}"
+
+
+class FilamentSpool(models.Model):
+    """
+    Represents a physical filament spool or group of unopened spools.
+    Tracks location, weight, and consumption.
+    
+    Supports two modes:
+    1. Blueprint-based: filament_type links to a Material blueprint (standard workflow)
+    2. Quick Add: filament_type is null, standalone fields store spool info (for one-offs)
+    """
+    
+    STATUS_CHOICES = [
+        ('new', 'New/Unopened'),
+        ('opened', 'Opened'),
+        ('in_use', 'In Use (On Printer)'),
+        ('low', 'Low Stock'),
+        ('empty', 'Empty'),
+        ('archived', 'Archived'),
+    ]
+    
+    # Link to blueprint (nullable for Quick Add spools)
+    filament_type = models.ForeignKey(
+        'Material',
+        on_delete=models.CASCADE,
+        null=True,
+        blank=True,
+        limit_choices_to={'is_generic': False},
+        help_text="Which filament blueprint (product) is this? Null for Quick Add spools."
+    )
+    
+    # ============ Quick Add / Standalone Fields ============
+    # These are used when filament_type is null (one-off spools without a blueprint)
+    standalone_name = models.CharField(
+        max_length=255,
+        blank=True,
+        null=True,
+        help_text="Custom name for Quick Add spools (e.g., 'Convention Metallic Blue')"
+    )
+    standalone_brand = models.ForeignKey(
+        'Brand',
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='standalone_spools',
+        help_text="Brand for Quick Add spools (uses same brands as blueprints)"
+    )
+    standalone_material_type = models.ForeignKey(
+        'Material',
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='standalone_spools',
+        limit_choices_to={'is_generic': True},
+        help_text="Generic material type for Quick Add spools (PLA, PETG, etc.)"
+    )
+    standalone_colors = models.JSONField(
+        default=list,
+        blank=True,
+        help_text="Array of hex color codes for Quick Add spools: ['#1a1a1a', '#c0c0c0', ...]. Supports gradients/multi-color filaments."
+    )
+    standalone_color_family = models.CharField(
+        max_length=50,
+        blank=True,
+        null=True,
+        choices=[
+            ('red', 'Red'),
+            ('orange', 'Orange'),
+            ('yellow', 'Yellow'),
+            ('green', 'Green'),
+            ('blue', 'Blue'),
+            ('purple', 'Purple'),
+            ('pink', 'Pink'),
+            ('brown', 'Brown'),
+            ('black', 'Black'),
+            ('white', 'White'),
+            ('gray', 'Gray'),
+            ('clear', 'Clear/Natural'),
+            ('multi', 'Multi-Color'),
+        ],
+        help_text="Color family for filtering Quick Add spools"
+    )
+    standalone_photo = models.ImageField(
+        upload_to='filament_photos/',
+        blank=True,
+        null=True,
+        help_text="Photo for Quick Add spools"
+    )
+    # Print settings for Quick Add spools
+    standalone_nozzle_temp_min = models.IntegerField(null=True, blank=True)
+    standalone_nozzle_temp_max = models.IntegerField(null=True, blank=True)
+    standalone_bed_temp_min = models.IntegerField(null=True, blank=True)
+    standalone_bed_temp_max = models.IntegerField(null=True, blank=True)
+    standalone_density = models.DecimalField(
+        max_digits=4, decimal_places=2, null=True, blank=True
+    )
+    # ============ End Quick Add Fields ============
+    
+    # Quantity tracking for unopened spools
+    quantity = models.IntegerField(
+        default=1,
+        help_text="Number of identical unopened spools (default: 1)"
+    )
+    is_opened = models.BooleanField(
+        default=False,
+        help_text="True if spool is opened/in use (locks quantity to 1)"
+    )
+    
+    # Weight tracking (for opened spools)
+    initial_weight = models.IntegerField(
+        help_text="Starting weight in grams"
+    )
+    current_weight = models.IntegerField(
+        help_text="Current weight in grams (updated as filament is used)"
+    )
+    
+    # Location assignment
+    location = models.ForeignKey(
+        'Location',
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        help_text="Storage location (e.g., 'Storage Rack A')"
+    )
+    assigned_printer = models.ForeignKey(
+        'Printer',
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        help_text="Printer this spool is currently loaded on"
+    )
+    
+    # Project assignment (optional)
+    project = models.ForeignKey(
+        'Project',
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='filaments_used',
+        help_text="Assign to specific project (optional)"
+    )
+    
+    # Status
+    status = models.CharField(
+        max_length=20,
+        choices=STATUS_CHOICES,
+        default='new'
+    )
+    
+    # Date tracking
+    date_added = models.DateTimeField(auto_now_add=True)
+    date_opened = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text="When spool was first opened/used"
+    )
+    date_emptied = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text="When spool was marked empty"
+    )
+    date_archived = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text="When spool was archived"
+    )
+    
+    # Notes
+    notes = models.TextField(
+        blank=True,
+        help_text="User notes about this spool"
+    )
+    
+    # Price tracking (can override blueprint price for sales/deals)
+    price_paid = models.DecimalField(
+        max_digits=8,
+        decimal_places=2,
+        null=True,
+        blank=True,
+        help_text="Actual price paid for this spool (overrides blueprint list price if set)"
+    )
+    
+    # Future: NFC tag support
+    nfc_tag_id = models.CharField(
+        max_length=255,
+        blank=True,
+        null=True,
+        unique=True,
+        help_text="NFC tag identifier (optional)"
+    )
+    
+    class Meta:
+        verbose_name = "Filament Spool"
+        verbose_name_plural = "Filament Spools"
+        ordering = ['-date_added']
+        indexes = [
+            models.Index(fields=['status']),
+            models.Index(fields=['assigned_printer']),
+            models.Index(fields=['project']),
+        ]
+    
+    def __str__(self):
+        if self.is_quick_add:
+            return f"{self.standalone_name or 'Quick Add Spool'} (Spool #{self.pk})"
+        return f"{self.filament_type} (Spool #{self.pk})"
+    
+    @property
+    def is_quick_add(self):
+        """Returns True if this is a Quick Add spool (no blueprint attached)"""
+        return self.filament_type is None
+    
+    @property
+    def display_name(self):
+        """Returns the display name for the spool"""
+        if self.is_quick_add:
+            return self.standalone_name or 'Quick Add Spool'
+        return str(self.filament_type)
+    
+    def clean(self):
+        """Validation rules"""
+        from django.core.exceptions import ValidationError
+        
+        # Quick Add spools must have a name and material type
+        if self.is_quick_add:
+            if not self.standalone_name:
+                raise ValidationError("Quick Add spools must have a name")
+            if not self.standalone_material_type:
+                raise ValidationError("Quick Add spools must have a material type")
+        
+        # If opened, quantity must be 1
+        if self.is_opened and self.quantity > 1:
+            raise ValidationError("Opened spools must have quantity = 1")
+        
+        # If unopened, current_weight should equal initial_weight
+        if not self.is_opened and self.current_weight != self.initial_weight:
+            self.current_weight = self.initial_weight
+        
+        # Can't assign to both storage location AND printer
+        if self.location and self.assigned_printer:
+            raise ValidationError("Spool can be in storage OR on printer, not both")
+    
+    @property
+    def weight_remaining_percent(self):
+        """Calculate percentage of filament remaining"""
+        if self.initial_weight == 0:
+            return 0
+        return (self.current_weight / self.initial_weight) * 100
+    
+    @property
+    def weight_used_grams(self):
+        """Calculate how much filament has been consumed"""
+        return self.initial_weight - self.current_weight
+    
+    @property
+    def estimated_value(self):
+        """Calculate current value based on remaining weight"""
+        # Quick Add spools don't have price tracking
+        if self.is_quick_add:
+            return None
+        if not self.filament_type.price_per_spool or not self.filament_type.spool_weight:
+            return None
+        
+        cost_per_gram = self.filament_type.price_per_spool / self.filament_type.spool_weight
+        return cost_per_gram * self.current_weight
+    
+    def mark_opened(self):
+        """Mark spool as opened (called when assigned to printer or first use)"""
+        from django.utils import timezone
+        if not self.is_opened:
+            self.is_opened = True
+            self.date_opened = timezone.now()
+            if self.status == 'new':
+                self.status = 'opened'
+            self.save()
+    
+    def mark_empty(self):
+        """Mark spool as empty"""
+        from django.utils import timezone
+        self.status = 'empty'
+        self.current_weight = 0
+        self.date_emptied = timezone.now()
+        # Clear printer assignment
+        self.assigned_printer = None
+        self.save()
+    
+    def archive(self):
+        """Move spool to archived status"""
+        from django.core.exceptions import ValidationError
+        from django.utils import timezone
+        if self.status != 'empty':
+            raise ValidationError("Only empty spools can be archived")
+        
+        self.status = 'archived'
+        self.date_archived = timezone.now()
+        self.save()
+
 
 class Vendor(models.Model):
     name = models.CharField(max_length=255, unique=True, null=False)
@@ -229,6 +841,37 @@ class Tracker(models.Model):
         related_name='trackers',
         help_text='Optional: Associate this tracker with a project'
     )
+    
+    # Filament tracking (NEW)
+    primary_filament = models.ForeignKey(
+        'FilamentSpool',
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='primary_prints',
+        help_text="Primary filament used for this print"
+    )
+    secondary_filament = models.ForeignKey(
+        'FilamentSpool',
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='secondary_prints',
+        help_text="Secondary filament (for multi-material prints)"
+    )
+    
+    # Consumption tracking
+    primary_filament_used_grams = models.IntegerField(
+        null=True,
+        blank=True,
+        help_text="Estimated or measured grams of primary filament used"
+    )
+    secondary_filament_used_grams = models.IntegerField(
+        null=True,
+        blank=True,
+        help_text="Estimated or measured grams of secondary filament used"
+    )
+    
     # Using TextField instead of URLField to avoid automatic URL encoding
     github_url = models.TextField(
         blank=True,
@@ -351,6 +994,27 @@ class Tracker(models.Model):
     def pending_quantity(self):
         """Quantity of parts not yet printed (total - printed)."""
         return self.total_quantity - self.printed_quantity_total
+    
+    @property
+    def filament_cost(self):
+        """Calculate total filament cost for this print"""
+        cost = 0
+        
+        # Primary filament cost
+        if self.primary_filament and self.primary_filament_used_grams:
+            ft = self.primary_filament.filament_type
+            if ft.price_per_spool and ft.spool_weight:
+                cost_per_gram = ft.price_per_spool / ft.spool_weight
+                cost += cost_per_gram * self.primary_filament_used_grams
+        
+        # Secondary filament cost
+        if self.secondary_filament and self.secondary_filament_used_grams:
+            ft = self.secondary_filament.filament_type
+            if ft.price_per_spool and ft.spool_weight:
+                cost_per_gram = ft.price_per_spool / ft.spool_weight
+                cost += cost_per_gram * self.secondary_filament_used_grams
+        
+        return cost if cost > 0 else None
 
 
 class TrackerFile(models.Model):

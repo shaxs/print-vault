@@ -210,8 +210,8 @@ export default {
     return apiClient.delete(`locations/${id}/`)
   },
 
-  getMaterials() {
-    return apiClient.get('materials/')
+  getMaterials(params) {
+    return apiClient.get('materials/', { params })
   },
   createMaterial(data) {
     return apiClient.post('materials/', data)
@@ -234,6 +234,20 @@ export default {
   },
   deleteVendor(id) {
     return apiClient.delete(`vendors/${id}/`)
+  },
+
+  // Material Features
+  getMaterialFeatures() {
+    return apiClient.get('material-features/')
+  },
+  createMaterialFeature(data) {
+    return apiClient.post('material-features/', data)
+  },
+  updateMaterialFeature(id, data) {
+    return apiClient.patch(`material-features/${id}/`, data)
+  },
+  deleteMaterialFeature(id) {
+    return apiClient.delete(`material-features/${id}/`)
   },
 
   // Trackers
@@ -339,5 +353,26 @@ export default {
   },
   checkForUpdates() {
     return apiClient.get('version/check-update/')
+  },
+
+  // Filament Management (Spools)
+  getFilamentSpools(params) {
+    return apiClient.get('filament-spools/', { params })
+  },
+  getFilamentSpool(id) {
+    return apiClient.get(`filament-spools/${id}/`)
+  },
+  createFilamentSpool(formData) {
+    return apiClient.post('filament-spools/', formData, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    })
+  },
+  updateFilamentSpool(id, formData) {
+    return apiClient.put(`filament-spools/${id}/`, formData, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    })
+  },
+  deleteFilamentSpool(id) {
+    return apiClient.delete(`filament-spools/${id}/`)
   },
 }

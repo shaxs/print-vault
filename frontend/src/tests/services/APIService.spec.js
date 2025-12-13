@@ -163,4 +163,26 @@ describe('APIService', () => {
       expect(typeof APIService.deleteMod).toBe('function')
     })
   })
+
+  describe('Filament Spools', () => {
+    it('should have getFilamentSpools method', () => {
+      expect(typeof APIService.getFilamentSpools).toBe('function')
+    })
+
+    it('should have getFilamentSpool method', () => {
+      expect(typeof APIService.getFilamentSpool).toBe('function')
+    })
+
+    it('should have createFilamentSpool method', () => {
+      expect(typeof APIService.createFilamentSpool).toBe('function')
+    })
+
+    it('should have updateFilamentSpool method', () => {
+      expect(typeof APIService.updateFilamentSpool).toBe('function')
+    })
+
+    it('should have deleteFilamentSpool method', () => {
+      expect(typeof APIService.deleteFilamentSpool).toBe('function')
+    })
+  })
 })

@@ -51,6 +51,7 @@ onMounted(fetchNotifications)
         </RouterLink>
       </div>
       <RouterLink to="/inventory" @click="closeMobileMenu">Inventory</RouterLink>
+      <RouterLink to="/filaments" @click="closeMobileMenu">Filament</RouterLink>
       <RouterLink to="/printers" @click="closeMobileMenu">Printers</RouterLink>
       <RouterLink to="/projects" @click="closeMobileMenu">Projects</RouterLink>
       <RouterLink to="/trackers" @click="closeMobileMenu">Print Trackers</RouterLink>

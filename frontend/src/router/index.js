@@ -94,6 +94,53 @@ const router = createRouter({
       redirect: '/trackers/create',
     },
 
+    // Filament Management Routes
+    {
+      path: '/filaments',
+      name: 'filament-management',
+      component: () => import('../views/FilamentManagementView.vue'),
+    },
+    {
+      path: '/filaments/cards',
+      name: 'filament-cards',
+      component: () => import('../views/FilamentCardsView.vue'),
+    },
+    {
+      path: '/filaments/materials',
+      name: 'material-library',
+      component: () => import('../views/MaterialLibraryView.vue'),
+    },
+    {
+      path: '/filaments/materials/create',
+      name: 'material-create',
+      component: () => import('../views/MaterialCreateView.vue'),
+    },
+    {
+      path: '/filaments/materials/:id',
+      name: 'material-detail',
+      component: () => import('../views/MaterialDetailView.vue'),
+    },
+    {
+      path: '/filaments/materials/:id/edit',
+      name: 'material-edit',
+      component: () => import('../views/MaterialEditView.vue'),
+    },
+    {
+      path: '/filaments/create',
+      name: 'filament-spool-create',
+      component: () => import('../views/FilamentSpoolCreateView.vue'),
+    },
+    {
+      path: '/filaments/:id',
+      name: 'filament-spool-detail',
+      component: () => import('../views/FilamentSpoolDetailView.vue'),
+    },
+    {
+      path: '/filaments/:id/edit',
+      name: 'filament-spool-edit',
+      component: () => import('../views/FilamentSpoolEditView.vue'),
+    },
+
     // Settings Route
     { path: '/settings', name: 'settings', component: SettingsView },
   ],
