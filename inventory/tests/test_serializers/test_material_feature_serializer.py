@@ -64,11 +64,10 @@ class TestMaterialFeatureSerializer:
     
     def test_serialize_multiple_features(self):
         """Test serializing multiple MaterialFeature instances."""
-        features = [
-            MaterialFeature.objects.create(name="Matte"),
-            MaterialFeature.objects.create(name="Silk"),
-            MaterialFeature.objects.create(name="High Speed")
-        ]
+        # Create features (returned list not needed, we query fresh for ordering)
+        MaterialFeature.objects.create(name="Matte")
+        MaterialFeature.objects.create(name="Silk")
+        MaterialFeature.objects.create(name="High Speed")
         # Query to get ordered features
         ordered_features = MaterialFeature.objects.all()
         serializer = MaterialFeatureSerializer(ordered_features, many=True)

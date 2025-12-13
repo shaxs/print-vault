@@ -7,10 +7,8 @@ Uses pytest-django and factory-boy for efficient test setup.
 import pytest
 from rest_framework import status
 from rest_framework.test import APIClient
-from inventory.models import MaterialFeature, Material, FilamentSpool
+from inventory.models import MaterialFeature, Material
 from inventory.tests.factories import (
-    MaterialFeatureFactory,
-    FilamentBlueprintMaterialFactory,
     FilamentSpoolFactory,
     BrandFactory
 )

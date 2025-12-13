@@ -13,8 +13,6 @@
  * - Card layout structure
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { mount, flushPromises } from '@vue/test-utils'
-import { createRouter, createWebHistory } from 'vue-router'
 import axios from 'axios'
 
 // Mock axios
@@ -99,16 +97,6 @@ const mockQuickAddSpool = {
   price_paid: '15.00',
   nfc_tag_id: 'NFC-001',
 }
-
-// Create a mock router
-const mockRouter = createRouter({
-  history: createWebHistory(),
-  routes: [
-    { path: '/filaments/:id', name: 'filament-detail', component: { template: '<div />' } },
-    { path: '/filaments/:id/edit', name: 'filament-edit', component: { template: '<div />' } },
-    { path: '/filaments', name: 'filaments', component: { template: '<div />' } },
-  ],
-})
 
 // Import the component - we need to mock it since we can't import .vue files directly in tests
 // This would typically be done with proper vue-loader setup

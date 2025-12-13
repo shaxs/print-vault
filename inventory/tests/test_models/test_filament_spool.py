@@ -15,8 +15,6 @@ Tests cover:
 from decimal import Decimal
 from datetime import datetime
 from django.test import TestCase
-from django.core.exceptions import ValidationError
-from django.utils import timezone
 from inventory.models import FilamentSpool, Material, Brand, Location, Printer, Project
 
 

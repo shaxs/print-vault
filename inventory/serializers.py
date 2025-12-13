@@ -81,7 +81,7 @@ class MaterialSerializer(serializers.ModelSerializer):
     
     def get_additional_photos(self, obj):
         """Return serialized additional photos"""
-        from .serializers import MaterialPhotoSerializer
+        # MaterialPhotoSerializer is defined below, use late binding
         photos = obj.additional_photos.all()
         return MaterialPhotoSerializer(photos, many=True, context=self.context).data
     
@@ -98,7 +98,7 @@ class MaterialSerializer(serializers.ModelSerializer):
                     id=base_material_id, is_generic=True
                 )
             except Material.DoesNotExist:
-                pass
+                pass  # Invalid base_material_id is ignored; field remains None
         
         # Create the material first
         material = Material.objects.create(**validated_data)
@@ -122,7 +122,7 @@ class MaterialSerializer(serializers.ModelSerializer):
                         feature = MaterialFeature.objects.get(id=int(feature_data))
                         features.append(feature)
                     except (MaterialFeature.DoesNotExist, ValueError):
-                        pass
+                        pass  # Skip invalid feature IDs; only valid features are added
             material.features.set(features)
         
         return material
@@ -144,7 +144,7 @@ class MaterialSerializer(serializers.ModelSerializer):
                         id=base_material_id, is_generic=True
                     )
                 except Material.DoesNotExist:
-                    pass
+                    pass  # Invalid base_material_id is ignored; field unchanged
             else:
                 instance.base_material = None
         
@@ -167,7 +167,7 @@ class MaterialSerializer(serializers.ModelSerializer):
                         feature = MaterialFeature.objects.get(id=int(feature_data))
                         features.append(feature)
                     except (MaterialFeature.DoesNotExist, ValueError):
-                        pass
+                        pass  # Skip invalid feature IDs; only valid features are added
             instance.features.set(features)
         
         return super().update(instance, validated_data)
@@ -393,7 +393,7 @@ class FilamentSpoolSerializer(serializers.ModelSerializer):
             try:
                 validated_data['assigned_printer'] = Printer.objects.get(id=printer_id)
             except Printer.DoesNotExist:
-                pass
+                pass  # Invalid printer_id is ignored; field remains None
         
         # Handle project FK
         project_id = request_data.get('project_id')
@@ -401,7 +401,7 @@ class FilamentSpoolSerializer(serializers.ModelSerializer):
             try:
                 validated_data['project'] = Project.objects.get(id=project_id)
             except Project.DoesNotExist:
-                pass
+                pass  # Invalid project_id is ignored; field remains None
         
         return FilamentSpool.objects.create(**validated_data)
     

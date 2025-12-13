@@ -99,7 +99,6 @@ class FilamentBlueprintMaterialFactory(DjangoModelFactory):
     name = factory.Sequence(lambda n: f"Filament Blueprint {n}")
     is_generic = False
     brand = factory.SubFactory(BrandFactory)
-    base_material = factory.LazyAttribute(lambda _: None)  # Set via trait
     diameter = "1.75"
     spool_weight = 1000
     vendor = factory.SubFactory(VendorFactory)
@@ -225,7 +224,6 @@ class QuickAddSpoolFactory(DjangoModelFactory):
     # Standalone fields (Quick Add)
     standalone_name = factory.Sequence(lambda n: f"Quick Add Spool {n}")
     standalone_brand = factory.SubFactory(BrandFactory)
-    standalone_material_type = factory.LazyAttribute(lambda _: None)
     standalone_colors = factory.LazyAttribute(
         lambda _: [fake.hex_color() for _ in range(fuzzy.FuzzyInteger(1, 3).fuzz())]
     )

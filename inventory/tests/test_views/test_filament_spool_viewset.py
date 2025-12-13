@@ -14,7 +14,6 @@ from inventory.tests.factories import (
     FilamentSpoolFactory,
     QuickAddSpoolFactory,
     FilamentBlueprintMaterialFactory,
-    GenericMaterialFactory,
     BrandFactory,
     LocationFactory,
     PrinterFactory,
@@ -389,7 +388,6 @@ class TestFilamentSpoolOpenSpool:
         spool = sample_blueprint_spools['spool_new']
         original_quantity = spool.quantity
         location1 = sample_blueprint_spools['locations'][0]
-        location2 = sample_blueprint_spools['locations'][1]
         printer = sample_blueprint_spools['printer']
         
         url = f'/api/filament-spools/{spool.pk}/open-spool/'

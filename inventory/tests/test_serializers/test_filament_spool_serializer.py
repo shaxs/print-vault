@@ -20,17 +20,14 @@ Coverage targets:
 
 import pytest
 from decimal import Decimal
-from rest_framework.test import APIRequestFactory
-from inventory.models import Material, FilamentSpool
+from inventory.models import Material
 from inventory.serializers import FilamentSpoolSerializer
 from inventory.tests.factories import (
     FilamentSpoolFactory,
     QuickAddSpoolFactory,
-    FilamentBlueprintMaterialFactory,
     BrandFactory,
     LocationFactory,
-    PrinterFactory,
-    ProjectFactory
+    PrinterFactory
 )
 
 

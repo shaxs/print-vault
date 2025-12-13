@@ -2237,12 +2237,12 @@ class FilamentSpoolViewSet(viewsets.ModelViewSet):
                     try:
                         location = Location.objects.get(id=location_id)
                     except Location.DoesNotExist:
-                        pass
+                        pass  # Invalid location_id is ignored; field remains None
                 if printer_id:
                     try:
                         printer = Printer.objects.get(id=printer_id)
                     except Printer.DoesNotExist:
-                        pass
+                        pass  # Invalid printer_id is ignored; field remains None
                 
                 # Create new spool record
                 new_spool = FilamentSpool.objects.create(
@@ -2277,7 +2277,6 @@ class FilamentSpoolViewSet(viewsets.ModelViewSet):
             remaining = spool.quantity - len(spools_to_open)
             if remaining <= 0:
                 # All spools opened, delete the original record
-                original_id = spool.id
                 spool.delete()
                 original_spool_data = None
             else:
