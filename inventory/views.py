@@ -2122,6 +2122,17 @@ class FilamentSpoolViewSet(viewsets.ModelViewSet):
         if feature_id:
             queryset = queryset.filter(filament_type__features__id=feature_id)
         
+        # Filter by archived status (is_archived=false excludes archived spools)
+        is_archived = self.request.query_params.get('is_archived', None)
+        if is_archived is not None:
+            is_archived_bool = is_archived.lower() in ('true', '1', 'yes')
+            if is_archived_bool:
+                # Show only archived
+                queryset = queryset.filter(status='archived')
+            else:
+                # Exclude archived
+                queryset = queryset.exclude(status='archived')
+        
         return queryset
     
     @action(detail=True, methods=['post'], url_path='split')

@@ -10,6 +10,7 @@ const searchText = ref('')
 const isLoading = ref(false)
 const isFilterModalVisible = ref(false)
 const isColumnModalVisible = ref(false)
+const showArchived = ref(false)
 
 // Active filters that are applied
 const activeFilters = reactive({
@@ -97,6 +98,8 @@ const loadSpools = async () => {
     if (activeFilters.material) params.material = activeFilters.material
     if (activeFilters.color_family) params.color_family = activeFilters.color_family
     if (activeFilters.feature) params.feature = activeFilters.feature
+    // Exclude archived by default unless showArchived is checked
+    if (!showArchived.value) params.is_archived = false
 
     const response = await APIService.getFilamentSpools(params)
     spools.value = response.data.results || response.data
@@ -204,6 +207,13 @@ onMounted(() => {
     <div class="filter-indicator" v-if="isFilterActive">
       <span>Filters are active.</span>
       <button @click="clearFilters">Clear Filters</button>
+    </div>
+
+    <div class="table-controls">
+      <label class="archive-toggle">
+        <input type="checkbox" v-model="showArchived" @change="loadSpools" />
+        Show archived spools
+      </label>
     </div>
 
     <div v-if="isLoading" class="loading">Loading...</div>
@@ -333,6 +343,28 @@ main {
 
 .filter-indicator button:hover {
   color: var(--color-heading);
+}
+
+.table-controls {
+  display: flex;
+  justify-content: flex-end;
+  margin-bottom: 15px;
+}
+
+.archive-toggle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  color: var(--color-text);
+  font-size: 0.9rem;
+}
+
+.archive-toggle input[type='checkbox'] {
+  width: 16px;
+  height: 16px;
+  cursor: pointer;
+  accent-color: var(--color-primary);
 }
 
 .modal-overlay {
