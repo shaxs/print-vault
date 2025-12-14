@@ -135,7 +135,12 @@ const getStatusClass = (status) => {
 }
 
 const filamentUsedPercent = () => {
-  if (!spool.value || !spool.value.weight_remaining_percent) return 0
+  if (
+    !spool.value ||
+    spool.value.weight_remaining_percent === null ||
+    spool.value.weight_remaining_percent === undefined
+  )
+    return 0
   return 100 - spool.value.weight_remaining_percent
 }
 

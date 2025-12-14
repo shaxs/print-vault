@@ -1,5 +1,5 @@
 <script setup>
-import { ref, onMounted, watch, nextTick } from 'vue'
+import { ref, onMounted, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import APIService from '../services/APIService'
 import axios from 'axios'
@@ -14,6 +14,7 @@ const material = ref({
   is_generic: false,
   brand: null,
   base_material: null,
+  features: [], // Material features (Matte, High Speed, etc.)
   diameter: '1.75',
   spool_weight: 1000,
   empty_spool_weight: null,
@@ -37,10 +38,20 @@ const lowStockEnabled = ref(false) // Enable/disable low stock alerts
 
 const photoFile = ref(null)
 const photoPreview = ref(null)
+const isPhotoModalVisible = ref(false) // Lightbox for main photo
+
+// Additional Photos (staged locally until save)
+const additionalPhotos = ref([]) // Array of { file: File, preview: string, caption: string }
+const additionalPhotoFile = ref(null)
+const additionalPhotoInput = ref(null)
+const newPhotoCaption = ref('')
+const isAdditionalPhotoModalVisible = ref(false) // Lightbox for additional photos
+const selectedAdditionalPhoto = ref(null) // Currently viewed additional photo
 
 const brands = ref([])
 const baseMaterials = ref([])
 const vendors = ref([])
+const features = ref([]) // All available features for dropdown
 
 const diameterOptions = [
   { value: '1.75', label: '1.75mm' },
@@ -73,14 +84,16 @@ watch(
 
 const loadOptions = async () => {
   try {
-    const [brandsRes, materialsRes, vendorsRes] = await Promise.all([
+    const [brandsRes, materialsRes, vendorsRes, featuresRes] = await Promise.all([
       axios.get('/api/brands/'),
       axios.get('/api/materials/?type=generic'),
       axios.get('/api/vendors/'),
+      axios.get('/api/material-features/'),
     ])
     brands.value = brandsRes.data.results || brandsRes.data
     baseMaterials.value = materialsRes.data.results || materialsRes.data
     vendors.value = vendorsRes.data.results || vendorsRes.data
+    features.value = featuresRes.data.results || featuresRes.data
   } catch (error) {
     console.error('Failed to load options:', error)
   }
@@ -112,6 +125,16 @@ const saveMaterial = async (redirectToSpool = false) => {
 
       if (material.value.base_material) {
         formData.append('base_material_id', material.value.base_material.id)
+      }
+
+      // Send features as JSON array
+      if (material.value.features && material.value.features.length > 0) {
+        const featureData = material.value.features.map((f) =>
+          typeof f === 'object' ? { name: f.name } : f,
+        )
+        formData.append('features', JSON.stringify(featureData))
+      } else {
+        formData.append('features', JSON.stringify([]))
       }
 
       if (material.value.diameter) formData.append('diameter', material.value.diameter)
@@ -162,10 +185,30 @@ const saveMaterial = async (redirectToSpool = false) => {
     }
 
     const response = await APIService.createMaterial(formData)
+    const materialId = response.data?.id
 
-    if (redirectToSpool && response.data?.id) {
+    // Upload additional photos if any were staged
+    if (materialId && additionalPhotos.value.length > 0) {
+      for (const photo of additionalPhotos.value) {
+        try {
+          const photoFormData = new FormData()
+          photoFormData.append('image', photo.file)
+          if (photo.caption) {
+            photoFormData.append('caption', photo.caption)
+          }
+          await axios.post(`/api/materials/${materialId}/photos/`, photoFormData, {
+            headers: { 'Content-Type': 'multipart/form-data' },
+          })
+        } catch (photoError) {
+          console.error('Failed to upload additional photo:', photoError)
+          // Continue with other photos even if one fails
+        }
+      }
+    }
+
+    if (redirectToSpool && materialId) {
       // Redirect to spool creation with the new material pre-selected
-      router.push(`/filaments/create?materialId=${response.data.id}`)
+      router.push(`/filaments/create?materialId=${materialId}`)
     } else {
       router.push('/filaments?tab=blueprints')
     }
@@ -214,6 +257,24 @@ const addVendor = (searchTerm) => {
   }
 }
 
+const addFeature = async (searchTerm) => {
+  if (searchTerm) {
+    try {
+      // Create the feature on the backend
+      const response = await axios.post('/api/material-features/', { name: searchTerm })
+      const newFeature = response.data
+      features.value.push(newFeature)
+      material.value.features.push(newFeature)
+    } catch (error) {
+      console.error('Failed to create feature:', error)
+      // Still add locally as fallback
+      const newFeature = { id: null, name: searchTerm }
+      features.value.push(newFeature)
+      material.value.features.push(newFeature)
+    }
+  }
+}
+
 const addColor = () => {
   material.value.colors.push('#000000')
 }
@@ -223,6 +284,43 @@ const removeColor = (index) => {
   if (material.value.colors.length > 2 && index >= 2) {
     material.value.colors.splice(index, 1)
   }
+}
+
+// Additional Photo handling
+const handleAdditionalPhotoUpload = (event) => {
+  const file = event.target.files[0]
+  if (file) {
+    additionalPhotoFile.value = file
+  }
+}
+
+const addAdditionalPhoto = () => {
+  if (!additionalPhotoFile.value) return
+
+  const preview = URL.createObjectURL(additionalPhotoFile.value)
+  additionalPhotos.value.push({
+    file: additionalPhotoFile.value,
+    preview: preview,
+    caption: newPhotoCaption.value || '',
+  })
+
+  // Reset inputs
+  additionalPhotoFile.value = null
+  newPhotoCaption.value = ''
+  if (additionalPhotoInput.value) {
+    additionalPhotoInput.value.value = ''
+  }
+}
+
+const removeAdditionalPhoto = (index) => {
+  // Revoke the object URL to free memory
+  URL.revokeObjectURL(additionalPhotos.value[index].preview)
+  additionalPhotos.value.splice(index, 1)
+}
+
+const openAdditionalPhotoModal = (photo) => {
+  selectedAdditionalPhoto.value = photo
+  isAdditionalPhotoModalVisible.value = true
 }
 
 watch(colorMode, (newMode) => {
@@ -252,6 +350,16 @@ const saveAndClone = async () => {
 
       if (material.value.base_material) {
         formData.append('base_material_id', material.value.base_material.id)
+      }
+
+      // Send features as JSON array
+      if (material.value.features && material.value.features.length > 0) {
+        const featureData = material.value.features.map((f) =>
+          typeof f === 'object' ? { name: f.name } : f,
+        )
+        formData.append('features', JSON.stringify(featureData))
+      } else {
+        formData.append('features', JSON.stringify([]))
       }
 
       if (material.value.diameter) formData.append('diameter', material.value.diameter)
@@ -298,7 +406,26 @@ const saveAndClone = async () => {
       }
     }
 
-    await APIService.createMaterial(formData)
+    const response = await APIService.createMaterial(formData)
+    const materialId = response.data?.id
+
+    // Upload additional photos if any were staged
+    if (materialId && additionalPhotos.value.length > 0) {
+      for (const photo of additionalPhotos.value) {
+        try {
+          const photoFormData = new FormData()
+          photoFormData.append('image', photo.file)
+          if (photo.caption) {
+            photoFormData.append('caption', photo.caption)
+          }
+          await axios.post(`/api/materials/${materialId}/photos/`, photoFormData, {
+            headers: { 'Content-Type': 'multipart/form-data' },
+          })
+        } catch (photoError) {
+          console.error('Failed to upload additional photo:', photoError)
+        }
+      }
+    }
 
     // Prepare cloned data - EXCLUDE: photo, name, colors, color_family, vendor, vendor_link, tds_value
     const clonedData = {
@@ -326,9 +453,10 @@ const saveAndClone = async () => {
     // Instead, manually load cloned data to reset the form with cloned values.
     loadClonedData()
 
-    // Clear the photo since it shouldn't be cloned
+    // Clear the photo and additional photos since they shouldn't be cloned
     photoFile.value = null
     photoPreview.value = null
+    additionalPhotos.value = []
 
     // Scroll to top so user sees fresh form
     setTimeout(() => {
@@ -416,7 +544,7 @@ onMounted(() => {
       :showColumnButton="false"
     />
 
-    <form @submit.prevent="saveMaterial" class="material-form">
+    <form @submit.prevent="saveMaterial(false)" class="material-form">
       <div class="form-section">
         <h2>Material Type</h2>
         <div class="form-group">
@@ -471,9 +599,87 @@ onMounted(() => {
         </div>
 
         <div v-if="!material.is_generic" class="form-group">
-          <label for="photo">Photo</label>
+          <label for="features">Features</label>
+          <Multiselect
+            v-model="material.features"
+            :options="features"
+            :multiple="true"
+            label="name"
+            track-by="id"
+            placeholder="Select or type to add features (e.g., Matte, High Speed)"
+            :taggable="true"
+            @tag="addFeature"
+          />
+        </div>
+
+        <div v-if="!material.is_generic" class="form-group">
+          <label for="photo">Main Photo</label>
           <input type="file" id="photo" @change="handleFileUpload" accept="image/*" />
-          <img v-if="photoPreview" :src="photoPreview" alt="Preview" class="photo-preview" />
+          <img
+            v-if="photoPreview"
+            :src="photoPreview"
+            alt="Preview"
+            class="photo-preview clickable"
+            @click="isPhotoModalVisible = true"
+          />
+        </div>
+
+        <!-- Additional Photos Section -->
+        <div v-if="!material.is_generic" class="form-group additional-photos-section">
+          <label>Additional Photos</label>
+
+          <!-- Staged Additional Photos -->
+          <div v-if="additionalPhotos.length > 0" class="additional-photos-grid">
+            <div
+              v-for="(photo, index) in additionalPhotos"
+              :key="index"
+              class="additional-photo-item"
+            >
+              <img
+                :src="photo.preview"
+                :alt="photo.caption || 'Additional photo'"
+                class="additional-photo-thumb clickable"
+                @click="openAdditionalPhotoModal(photo)"
+              />
+              <div class="photo-overlay">
+                <span class="photo-caption-display">{{ photo.caption || 'No caption' }}</span>
+                <button
+                  type="button"
+                  class="delete-photo-btn"
+                  @click="removeAdditionalPhoto(index)"
+                  title="Remove photo"
+                >
+                  ×
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <!-- Add New Photo -->
+          <div class="add-photo-inline">
+            <input
+              type="file"
+              id="additional-photo"
+              @change="handleAdditionalPhotoUpload"
+              accept="image/*"
+              ref="additionalPhotoInput"
+            />
+            <input
+              type="text"
+              v-model="newPhotoCaption"
+              placeholder="Optional caption"
+              class="caption-input"
+            />
+            <button
+              type="button"
+              class="btn btn-secondary btn-sm"
+              @click="addAdditionalPhoto"
+              :disabled="!additionalPhotoFile"
+            >
+              Add Photo
+            </button>
+          </div>
+          <p class="help-text">Add multiple photos to show different angles or details</p>
         </div>
       </div>
 
@@ -753,6 +959,34 @@ onMounted(() => {
         <button type="submit" class="btn-save">Save Material</button>
       </div>
     </form>
+
+    <!-- Photo Lightbox Modal -->
+    <div v-if="isPhotoModalVisible" class="modal-overlay" @click="isPhotoModalVisible = false">
+      <div class="modal-content" @click.stop>
+        <button @click="isPhotoModalVisible = false" class="close-button">&times;</button>
+        <img :src="photoPreview" :alt="material.name || 'Material'" class="modal-image" />
+      </div>
+    </div>
+
+    <!-- Additional Photo Lightbox Modal -->
+    <div
+      v-if="isAdditionalPhotoModalVisible"
+      class="modal-overlay"
+      @click="isAdditionalPhotoModalVisible = false"
+    >
+      <div class="modal-content" @click.stop>
+        <button @click="isAdditionalPhotoModalVisible = false" class="close-button">&times;</button>
+        <img
+          v-if="selectedAdditionalPhoto"
+          :src="selectedAdditionalPhoto.preview"
+          :alt="selectedAdditionalPhoto.caption || 'Additional photo'"
+          class="modal-image"
+        />
+        <p v-if="selectedAdditionalPhoto && selectedAdditionalPhoto.caption" class="modal-caption">
+          {{ selectedAdditionalPhoto.caption }}
+        </p>
+      </div>
+    </div>
   </div>
 </template>
 
@@ -955,5 +1189,166 @@ onMounted(() => {
 .btn-secondary:hover {
   background-color: var(--color-background-soft);
   border-color: var(--color-border-hover);
+}
+
+/* Additional Photos Section */
+.additional-photos-section {
+  margin-top: 1rem;
+}
+
+.additional-photos-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1rem;
+  margin-bottom: 1rem;
+}
+
+.additional-photo-item {
+  position: relative;
+  width: 120px;
+}
+
+.additional-photo-thumb {
+  width: 120px;
+  height: 90px;
+  object-fit: cover;
+  border-radius: 8px;
+  border: 1px solid var(--color-border);
+}
+
+.photo-overlay {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-top: 0.25rem;
+}
+
+.photo-caption-display {
+  font-size: 0.75rem;
+  color: var(--color-text-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex: 1;
+}
+
+.delete-photo-btn {
+  background: var(--color-danger, #dc3545);
+  color: white;
+  border: none;
+  border-radius: 50%;
+  width: 20px;
+  height: 20px;
+  font-size: 14px;
+  line-height: 1;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  margin-left: 0.5rem;
+}
+
+.delete-photo-btn:hover {
+  background: #c82333;
+}
+
+.add-photo-inline {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.add-photo-inline input[type='file'] {
+  flex: 1;
+  min-width: 150px;
+}
+
+.caption-input {
+  flex: 1;
+  min-width: 150px;
+  padding: 0.5rem;
+  border: 1px solid var(--color-border);
+  border-radius: 4px;
+  background-color: var(--color-background);
+  color: var(--color-text);
+}
+
+.btn-sm {
+  padding: 0.5rem 1rem;
+  font-size: 0.875rem;
+}
+
+/* Clickable images */
+.clickable {
+  cursor: pointer;
+  transition:
+    opacity 0.2s ease,
+    transform 0.2s ease;
+}
+
+.clickable:hover {
+  opacity: 0.9;
+  transform: scale(1.02);
+}
+
+/* Lightbox Modal */
+.modal-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background-color: rgba(0, 0, 0, 0.8);
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  z-index: 1000;
+}
+
+.modal-content {
+  position: relative;
+  max-width: 90%;
+  max-height: 90%;
+  background-color: var(--color-background);
+  border-radius: 8px;
+  padding: 1rem;
+}
+
+.modal-image {
+  max-width: 100%;
+  max-height: 80vh;
+  display: block;
+  border-radius: 4px;
+}
+
+.modal-caption {
+  text-align: center;
+  margin-top: 1rem;
+  color: var(--color-text);
+  font-size: 0.875rem;
+}
+
+.close-button {
+  position: absolute;
+  top: 0.5rem;
+  right: 0.5rem;
+  background: var(--color-background-mute);
+  border: none;
+  color: var(--color-text);
+  font-size: 1.5rem;
+  width: 2rem;
+  height: 2rem;
+  border-radius: 50%;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  line-height: 1;
+}
+
+.close-button:hover {
+  background: var(--color-background-soft);
 }
 </style>
