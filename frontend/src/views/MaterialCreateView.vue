@@ -528,8 +528,9 @@ const loadClonedData = () => {
   }
 }
 
-onMounted(() => {
-  loadOptions()
+onMounted(async () => {
+  await loadOptions()
+  // Check sessionStorage for cloned data (from edit page's Save & Clone or detail page's Clone)
   loadClonedData()
 })
 </script>

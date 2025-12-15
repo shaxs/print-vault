@@ -75,6 +75,36 @@ const openPhotoInModal = (photoUrl, caption = '') => {
   isPhotoModalVisible.value = true
 }
 
+// Clone material - stores data in sessionStorage and navigates to create page
+const cloneMaterial = () => {
+  if (!material.value) return
+
+  // Prepare cloned data - EXCLUDE: photo, name, colors, color_family, vendor, vendor_link, tds_value
+  // Same fields as edit page's saveAndClone function
+  // Note: brand and base_material are passed as full objects (not just IDs) to match edit page behavior
+  const clonedData = {
+    is_generic: material.value.is_generic,
+    brand: material.value.brand || null,
+    base_material: material.value.base_material || null,
+    diameter: material.value.diameter,
+    spool_weight: material.value.spool_weight,
+    empty_spool_weight: material.value.empty_spool_weight,
+    price_per_spool: material.value.price_per_spool,
+    low_stock_threshold: material.value.low_stock_threshold,
+    nozzle_temp_min: material.value.nozzle_temp_min,
+    nozzle_temp_max: material.value.nozzle_temp_max,
+    bed_temp_min: material.value.bed_temp_min,
+    bed_temp_max: material.value.bed_temp_max,
+    density: material.value.density,
+    notes: material.value.notes,
+    lowStockEnabled: material.value.low_stock_threshold > 0,
+  }
+
+  // Store in sessionStorage and navigate (same as edit page)
+  sessionStorage.setItem('materialCloneData', JSON.stringify(clonedData))
+  router.push('/filaments/materials/create')
+}
+
 onMounted(() => {
   loadMaterial()
 })
@@ -101,6 +131,13 @@ onMounted(() => {
           <button @click="router.push('/filaments?tab=blueprints')" class="btn btn-secondary">
             ← Back to Blueprints
           </button>
+          <button
+            @click="router.push(`/filaments/create?materialId=${material.id}`)"
+            class="btn btn-create-spool"
+          >
+            Create Spool
+          </button>
+          <button @click="cloneMaterial" class="btn btn-clone">Clone</button>
           <button
             @click="router.push(`/filaments/materials/${material.id}/edit`)"
             class="btn btn-primary"
@@ -453,6 +490,28 @@ onMounted(() => {
   .actions .btn {
     flex: 1;
   }
+}
+
+/* Create Spool button - Green (matches Save and Add Spool on edit page) */
+.btn-create-spool {
+  background-color: var(--color-green, #198754);
+  color: white;
+  border: 1px solid var(--color-green, #198754);
+}
+
+.btn-create-spool:hover {
+  background-color: #157347;
+}
+
+/* Clone button - Purple (matches Save and Clone on edit page) */
+.btn-clone {
+  background-color: var(--color-purple, #6f42c1);
+  color: white;
+  border: 1px solid var(--color-purple, #6f42c1);
+}
+
+.btn-clone:hover {
+  background-color: #5a32a3;
 }
 
 /* Detail Grid - Two Column Layout */
