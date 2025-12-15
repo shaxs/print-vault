@@ -13,6 +13,12 @@ const dashboardData = ref({
   featured_trackers: [],
   active_projects: [],
 })
+const filamentData = ref({
+  low_stock_materials: [],
+  active_spools: [],
+  total_spool_count: 0,
+  favorite_materials: [],
+})
 const notificationsExpanded = ref(false)
 const showAllAlerts = ref(false)
 const loading = ref(true)
@@ -92,8 +98,20 @@ const loadDashboard = async () => {
   try {
     loading.value = true
     error.value = null
-    const response = await APIService.getDashboard()
-    dashboardData.value = response.data
+    const [dashboardRes, lowStockRes, activeSpoolsRes, favoritesRes] = await Promise.all([
+      APIService.getDashboard(),
+      APIService.getMaterials({ low_stock: true, type: 'blueprint' }),
+      APIService.getFilamentSpools({ status: 'in_use' }),
+      APIService.getMaterials({ favorites: true }),
+    ])
+    dashboardData.value = dashboardRes.data
+    filamentData.value = {
+      low_stock_materials: (lowStockRes.data.results || lowStockRes.data).slice(0, 5),
+      active_spools: (activeSpoolsRes.data.results || activeSpoolsRes.data).slice(0, 5),
+      total_spool_count:
+        activeSpoolsRes.data.count || (activeSpoolsRes.data.results || activeSpoolsRes.data).length,
+      favorite_materials: (favoritesRes.data.results || favoritesRes.data).slice(0, 5),
+    }
   } catch (err) {
     console.error('Failed to load dashboard:', err)
     error.value = 'Failed to load dashboard data. Please try again.'
@@ -421,6 +439,85 @@ onMounted(() => {
         <div v-else class="empty-state">
           <p>No active projects.</p>
           <button @click="createProject" class="btn btn-sm btn-primary">Create One?</button>
+        </div>
+      </div>
+
+      <!-- Filament Management -->
+      <div class="filament-overview">
+        <div class="section-header">
+          <h3 class="section-title">Filament Management</h3>
+          <button @click="router.push('/filaments')" class="btn btn-sm btn-secondary">
+            View All Spools
+          </button>
+        </div>
+
+        <div class="filament-grid">
+          <!-- Low Stock Materials -->
+          <div class="filament-card">
+            <h4 class="card-subtitle">⚠️ Low Stock Materials</h4>
+            <div v-if="filamentData.low_stock_materials.length > 0" class="material-list">
+              <div
+                v-for="material in filamentData.low_stock_materials"
+                :key="material.id"
+                class="material-item"
+              >
+                <div class="material-info">
+                  <span class="material-name">{{ material.brand?.name }} {{ material.name }}</span>
+                  <span class="material-stock">{{ material.total_spool_count }} spool(s)</span>
+                </div>
+              </div>
+            </div>
+            <div v-else class="empty-state-small">All materials well-stocked!</div>
+          </div>
+
+          <!-- Active Spools -->
+          <div class="filament-card">
+            <h4 class="card-subtitle">🖨️ In Use ({{ filamentData.total_spool_count }})</h4>
+            <div v-if="filamentData.active_spools.length > 0" class="spool-list">
+              <div v-for="spool in filamentData.active_spools" :key="spool.id" class="spool-item">
+                <div class="spool-colors">
+                  <div
+                    v-for="(colorHex, idx) in spool.filament_type?.colors || []"
+                    :key="idx"
+                    class="spool-color"
+                    :style="{ backgroundColor: colorHex || '#ccc' }"
+                  ></div>
+                  <div
+                    v-if="!spool.filament_type?.colors || spool.filament_type.colors.length === 0"
+                    class="spool-color"
+                    style="background-color: #ccc"
+                  ></div>
+                </div>
+                <div class="spool-info">
+                  <span class="spool-name">{{ spool.filament_type?.name || 'Unknown' }}</span>
+                  <span class="spool-printer">{{ spool.assigned_printer?.name }}</span>
+                </div>
+              </div>
+            </div>
+            <div v-else class="empty-state-small">No spools in use</div>
+          </div>
+
+          <!-- Favorite Materials -->
+          <div class="filament-card">
+            <h4 class="card-subtitle">⭐ Favorites</h4>
+            <div v-if="filamentData.favorite_materials.length > 0" class="material-list">
+              <div
+                v-for="material in filamentData.favorite_materials"
+                :key="material.id"
+                class="material-item"
+              >
+                <div class="material-info">
+                  <span class="material-name">{{ material.brand?.name }} {{ material.name }}</span>
+                  <span class="material-stock">{{ material.total_spool_count }} spool(s)</span>
+                </div>
+              </div>
+            </div>
+            <div v-else class="empty-state-small">
+              <button @click="router.push('/filaments/materials')" class="btn-link-small">
+                Add favorites
+              </button>
+            </div>
+          </div>
         </div>
       </div>
     </div>
@@ -1054,5 +1151,100 @@ onMounted(() => {
   margin: 0;
   font-style: italic;
   line-height: 1.5;
+}
+
+/* Filament Overview */
+.filament-overview {
+  margin-top: 2rem;
+}
+
+.filament-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+  gap: 1.5rem;
+}
+
+.filament-card {
+  background: var(--color-background-soft);
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  padding: 1.25rem;
+}
+
+.card-subtitle {
+  margin: 0 0 1rem 0;
+  font-size: 1rem;
+  font-weight: 600;
+  color: var(--color-heading);
+  border-bottom: 1px solid var(--color-border);
+  padding-bottom: 0.5rem;
+}
+
+.material-list,
+.spool-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.material-item,
+.spool-item {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.material-info,
+.spool-info {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.material-name,
+.spool-name {
+  font-size: 0.9rem;
+  color: var(--color-text);
+  font-weight: 500;
+}
+
+.material-stock,
+.spool-printer {
+  font-size: 0.8rem;
+  color: var(--color-text-muted);
+}
+
+.spool-colors {
+  display: flex;
+  gap: 0.25rem;
+}
+
+.spool-color {
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  border: 2px solid var(--color-border);
+  flex-shrink: 0;
+}
+
+.empty-state-small {
+  text-align: center;
+  padding: 1.5rem;
+  color: var(--color-text-muted);
+  font-size: 0.9rem;
+}
+
+.btn-link-small {
+  background: none;
+  border: none;
+  color: var(--color-blue);
+  cursor: pointer;
+  font-size: 0.9rem;
+  text-decoration: underline;
+}
+
+.btn-link-small:hover {
+  color: #0b5ed7;
 }
 </style>

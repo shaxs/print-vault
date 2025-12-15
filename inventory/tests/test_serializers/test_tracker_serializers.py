@@ -92,7 +92,11 @@ class TestTrackerSerializer:
             'show_on_dashboard', 'notes', 'files', 'total_count', 'completed_count',
             'in_progress_count', 'not_started_count', 'progress_percentage',
             'total_quantity', 'printed_quantity_total', 'pending_quantity',
-            'storage_path', 'total_storage_used', 'files_downloaded'
+            'storage_path', 'total_storage_used', 'files_downloaded',
+            # Filament tracking fields added for print cost estimation
+            'primary_filament', 'primary_filament_info', 'primary_filament_used_grams',
+            'secondary_filament', 'secondary_filament_info', 'secondary_filament_used_grams',
+            'filament_cost'
         }
         assert set(serializer.data.keys()) == expected_fields
 

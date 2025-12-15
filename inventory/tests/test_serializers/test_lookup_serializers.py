@@ -138,9 +138,13 @@ class TestMaterialSerializer:
         material = MaterialFactory()
         serializer = MaterialSerializer(material)
         
+        # Core fields
         assert 'id' in serializer.data
         assert 'name' in serializer.data
-        assert len(serializer.data) == 2
+        # Features relationship added in filament management feature
+        assert 'features' in serializer.data
+        # MaterialSerializer has many fields for blueprint management
+        assert len(serializer.data) == 33
 
     def test_serialize_single_material(self):
         """Test serializing a single Material instance."""

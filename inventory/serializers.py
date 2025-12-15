@@ -3,9 +3,9 @@ import json
 from rest_framework import serializers
 from django.utils import timezone
 from .models import (
-    Brand, PartType, Location, Material, Vendor, Printer, Mod, ModFile,
+    Brand, PartType, Location, Material, MaterialPhoto, MaterialFeature, Vendor, Printer, Mod, ModFile,
     InventoryItem, Project, ProjectLink, ProjectFile, ProjectInventory, ProjectPrinters,
-    Tracker, TrackerFile
+    Tracker, TrackerFile, FilamentSpool
 )
 from .services.storage_manager import StorageManager, InsufficientStorageError, StoragePermissionError
 from .services.file_download_service import (
@@ -30,15 +30,438 @@ class LocationSerializer(serializers.ModelSerializer):
         model = Location
         fields = ['id', 'name']
 
+
+class MaterialFeatureSerializer(serializers.ModelSerializer):
+    """Serializer for reusable filament features (Matte, High Speed, etc.)"""
+    class Meta:
+        model = MaterialFeature
+        fields = ['id', 'name']
+
+
 class MaterialSerializer(serializers.ModelSerializer):
+    brand = BrandSerializer(read_only=True)
+    base_material = serializers.SerializerMethodField()
+    vendor = serializers.SerializerMethodField()
+    features = MaterialFeatureSerializer(many=True, read_only=True)
+    total_available_grams = serializers.ReadOnlyField()
+    is_low_stock = serializers.ReadOnlyField()
+    total_spool_count = serializers.ReadOnlyField()
+    total_inventory_value = serializers.ReadOnlyField()
+    additional_photos_count = serializers.SerializerMethodField()
+    additional_photos = serializers.SerializerMethodField()
+    
     class Meta:
         model = Material
-        fields = ['id', 'name']
+        fields = [
+            'id', 'name', 'is_generic', 'brand', 'base_material', 'features',
+            'diameter', 'spool_weight', 'empty_spool_weight', 'photo', 'vendor', 'vendor_link',
+            'price_per_spool', 'is_favorite', 'favorite_order', 'tds_value',
+            'low_stock_threshold', 'total_available_grams', 'is_low_stock',
+            'total_spool_count', 'total_inventory_value',
+            'colors', 'color_family',  # Color information
+            'nozzle_temp_min', 'nozzle_temp_max', 'bed_temp_min', 'bed_temp_max',
+            'density', 'notes',
+            'additional_photos_count', 'additional_photos',  # Additional photos
+            'created_at', 'updated_at'
+        ]
+    
+    def get_base_material(self, obj):
+        if obj.base_material:
+            return {'id': obj.base_material.id, 'name': obj.base_material.name}
+        return None
+    
+    def get_vendor(self, obj):
+        if obj.vendor:
+            return {'id': obj.vendor.id, 'name': obj.vendor.name}
+        return None
+    
+    def get_additional_photos_count(self, obj):
+        """Return count of additional photos"""
+        return obj.additional_photos.count()
+    
+    def get_additional_photos(self, obj):
+        """Return serialized additional photos"""
+        # MaterialPhotoSerializer is defined below, use late binding
+        photos = obj.additional_photos.all()
+        return MaterialPhotoSerializer(photos, many=True, context=self.context).data
+    
+    def create(self, validated_data):
+        request_data = self.context['request'].data
+        validated_data['brand'] = get_or_create_nested(Brand, request_data.get('brand'))
+        validated_data['vendor'] = get_or_create_nested(Vendor, request_data.get('vendor'))
+        
+        # Handle base_material FK
+        base_material_id = request_data.get('base_material_id')
+        if base_material_id:
+            try:
+                validated_data['base_material'] = Material.objects.get(
+                    id=base_material_id, is_generic=True
+                )
+            except Material.DoesNotExist:
+                pass  # Invalid base_material_id is ignored; field remains None
+        
+        # Create the material first
+        material = Material.objects.create(**validated_data)
+        
+        # Handle features (ManyToMany must be set after create)
+        features_data = request_data.get('features', [])
+        # Parse JSON string if sent via FormData
+        if isinstance(features_data, str):
+            try:
+                features_data = json.loads(features_data)
+            except (json.JSONDecodeError, TypeError):
+                features_data = []
+        if features_data:
+            features = []
+            for feature_data in features_data:
+                if isinstance(feature_data, dict) and 'name' in feature_data:
+                    feature, _ = MaterialFeature.objects.get_or_create(name=feature_data['name'])
+                    features.append(feature)
+                elif isinstance(feature_data, (int, str)):
+                    try:
+                        feature = MaterialFeature.objects.get(id=int(feature_data))
+                        features.append(feature)
+                    except (MaterialFeature.DoesNotExist, ValueError):
+                        pass  # Skip invalid feature IDs; only valid features are added
+            material.features.set(features)
+        
+        return material
+    
+    def update(self, instance, validated_data):
+        request_data = self.context['request'].data
+        
+        if 'brand' in request_data:
+            instance.brand = get_or_create_nested(Brand, request_data.get('brand'))
+        if 'vendor' in request_data:
+            instance.vendor = get_or_create_nested(Vendor, request_data.get('vendor'))
+        
+        # Handle base_material FK
+        if 'base_material_id' in request_data:
+            base_material_id = request_data.get('base_material_id')
+            if base_material_id:
+                try:
+                    instance.base_material = Material.objects.get(
+                        id=base_material_id, is_generic=True
+                    )
+                except Material.DoesNotExist:
+                    pass  # Invalid base_material_id is ignored; field unchanged
+            else:
+                instance.base_material = None
+        
+        # Handle features (ManyToMany)
+        if 'features' in request_data:
+            features_data = request_data.get('features', [])
+            # Parse JSON string if sent via FormData
+            if isinstance(features_data, str):
+                try:
+                    features_data = json.loads(features_data)
+                except (json.JSONDecodeError, TypeError):
+                    features_data = []
+            features = []
+            for feature_data in features_data:
+                if isinstance(feature_data, dict) and 'name' in feature_data:
+                    feature, _ = MaterialFeature.objects.get_or_create(name=feature_data['name'])
+                    features.append(feature)
+                elif isinstance(feature_data, (int, str)):
+                    try:
+                        feature = MaterialFeature.objects.get(id=int(feature_data))
+                        features.append(feature)
+                    except (MaterialFeature.DoesNotExist, ValueError):
+                        pass  # Skip invalid feature IDs; only valid features are added
+            instance.features.set(features)
+        
+        return super().update(instance, validated_data)
+
+
+class MaterialPhotoSerializer(serializers.ModelSerializer):
+    """Serializer for additional Material photos.
+    
+    Photos are saved immediately on upload (not batched with form submit).
+    Supports creating photos with material_id for direct association.
+    """
+    material_id = serializers.IntegerField(write_only=True, required=False)
+    
+    class Meta:
+        model = MaterialPhoto
+        fields = ['id', 'material', 'material_id', 'image', 'caption', 'order', 'created_at']
+        read_only_fields = ['id', 'material', 'created_at']
+    
+    def create(self, validated_data):
+        """Create a MaterialPhoto with material from material_id."""
+        material_id = validated_data.pop('material_id', None)
+        if material_id:
+            validated_data['material'] = Material.objects.get(id=material_id)
+        return super().create(validated_data)
+
 
 class VendorSerializer(serializers.ModelSerializer):
     class Meta:
         model = Vendor
         fields = ['id', 'name']
+
+
+class FilamentSpoolSerializer(serializers.ModelSerializer):
+    """Serializer for FilamentSpool model with nested relationships.
+    
+    Supports two modes:
+    1. Blueprint-based: filament_type links to a Material blueprint
+    2. Quick Add: filament_type is null, uses standalone_* fields
+    """
+    filament_type = serializers.SerializerMethodField()
+    location = LocationSerializer(read_only=True)
+    assigned_printer = serializers.SerializerMethodField()
+    project = serializers.SerializerMethodField()
+    weight_remaining_percent = serializers.ReadOnlyField()
+    weight_used_grams = serializers.ReadOnlyField()
+    estimated_value = serializers.ReadOnlyField()
+    is_quick_add = serializers.ReadOnlyField()
+    display_name = serializers.ReadOnlyField()
+    # Quick Add fields for reads
+    standalone_name = serializers.CharField(required=False, allow_null=True, allow_blank=True)
+    standalone_brand = serializers.SerializerMethodField()
+    standalone_material_type = serializers.SerializerMethodField()
+    standalone_colors = serializers.JSONField(required=False, default=list)
+    standalone_color_family = serializers.CharField(required=False, allow_null=True, allow_blank=True)
+    standalone_photo = serializers.SerializerMethodField()
+    standalone_nozzle_temp_min = serializers.IntegerField(required=False, allow_null=True)
+    standalone_nozzle_temp_max = serializers.IntegerField(required=False, allow_null=True)
+    standalone_bed_temp_min = serializers.IntegerField(required=False, allow_null=True)
+    standalone_bed_temp_max = serializers.IntegerField(required=False, allow_null=True)
+    standalone_density = serializers.DecimalField(max_digits=4, decimal_places=2, required=False, allow_null=True)
+    
+    class Meta:
+        model = FilamentSpool
+        fields = [
+            'id', 'filament_type', 'is_quick_add', 'display_name',
+            'quantity', 'is_opened', 'initial_weight', 'current_weight',
+            'location', 'assigned_printer', 'project', 'status',
+            'date_added', 'date_opened', 'date_emptied', 'date_archived',
+            'notes', 'nfc_tag_id', 'price_paid',
+            'weight_remaining_percent', 'weight_used_grams', 'estimated_value',
+            # Quick Add fields
+            'standalone_name', 'standalone_brand', 'standalone_material_type',
+            'standalone_colors', 'standalone_color_family', 'standalone_photo',
+            'standalone_nozzle_temp_min', 'standalone_nozzle_temp_max',
+            'standalone_bed_temp_min', 'standalone_bed_temp_max', 'standalone_density',
+        ]
+    
+    def get_standalone_brand(self, obj):
+        """Return the brand for Quick Add spools"""
+        if obj.standalone_brand:
+            return {'id': obj.standalone_brand.id, 'name': obj.standalone_brand.name}
+        return None
+    
+    def get_standalone_material_type(self, obj):
+        """Return the generic material type for Quick Add spools"""
+        if obj.standalone_material_type:
+            return {'id': obj.standalone_material_type.id, 'name': obj.standalone_material_type.name}
+        return None
+    
+    def get_standalone_photo(self, obj):
+        """Return absolute URL for standalone photo"""
+        if obj.standalone_photo:
+            request = self.context.get('request')
+            if request:
+                return request.build_absolute_uri(obj.standalone_photo.url)
+            return obj.standalone_photo.url
+        return None
+    
+    def get_filament_type(self, obj):
+        """Return nested filament type with brand, base_material, colors, print settings, and additional photos"""
+        if obj.filament_type:
+            # Build absolute URI for photo if present
+            photo_url = None
+            if obj.filament_type.photo:
+                request = self.context.get('request')
+                if request:
+                    photo_url = request.build_absolute_uri(obj.filament_type.photo.url)
+                else:
+                    photo_url = obj.filament_type.photo.url
+            
+            # Build additional photos list
+            additional_photos = []
+            for photo in obj.filament_type.additional_photos.all():
+                photo_data = {
+                    'id': photo.id,
+                    'caption': photo.caption,
+                    'order': photo.order,
+                }
+                if photo.image:
+                    request = self.context.get('request')
+                    if request:
+                        photo_data['image'] = request.build_absolute_uri(photo.image.url)
+                    else:
+                        photo_data['image'] = photo.image.url
+                additional_photos.append(photo_data)
+            
+            return {
+                'id': obj.filament_type.id,
+                'name': obj.filament_type.name,
+                'brand': {'id': obj.filament_type.brand.id, 'name': obj.filament_type.brand.name} if obj.filament_type.brand else None,
+                'base_material': {'id': obj.filament_type.base_material.id, 'name': obj.filament_type.base_material.name} if obj.filament_type.base_material else None,
+                'diameter': str(obj.filament_type.diameter) if obj.filament_type.diameter else None,
+                'photo': photo_url,
+                'colors': obj.filament_type.colors if obj.filament_type.colors else [],
+                'additional_photos': additional_photos,
+                # Print settings from blueprint
+                'nozzle_temp_min': obj.filament_type.nozzle_temp_min,
+                'nozzle_temp_max': obj.filament_type.nozzle_temp_max,
+                'bed_temp_min': obj.filament_type.bed_temp_min,
+                'bed_temp_max': obj.filament_type.bed_temp_max,
+                'density': str(obj.filament_type.density) if obj.filament_type.density else None,
+                'tds_value': obj.filament_type.tds_value,
+                # Features from blueprint
+                'features': [{'id': f.id, 'name': f.name} for f in obj.filament_type.features.all()],
+            }
+        return None
+    
+    def get_assigned_printer(self, obj):
+        if obj.assigned_printer:
+            return {'id': obj.assigned_printer.id, 'title': obj.assigned_printer.title}
+        return None
+    
+    def get_project(self, obj):
+        if obj.project:
+            return {'id': obj.project.id, 'project_name': obj.project.project_name}
+        return None
+    
+    def create(self, validated_data):
+        request_data = self.context['request'].data
+        
+        # Handle NFC tag - convert empty string to None
+        if 'nfc_tag_id' in validated_data and not validated_data['nfc_tag_id']:
+            validated_data['nfc_tag_id'] = None
+        
+        # Determine if this is a Quick Add spool
+        is_quick_add = request_data.get('is_quick_add', False)
+        
+        if is_quick_add:
+            # Quick Add mode - use standalone fields
+            validated_data['filament_type'] = None
+            validated_data['standalone_name'] = request_data.get('standalone_name')
+            validated_data['standalone_colors'] = request_data.get('standalone_colors', [])
+            validated_data['standalone_color_family'] = request_data.get('standalone_color_family')
+            
+            # Handle standalone_brand FK (uses get_or_create)
+            validated_data['standalone_brand'] = get_or_create_nested(Brand, request_data.get('standalone_brand'))
+            
+            # Handle standalone_material_type FK (generic material)
+            material_type_id = request_data.get('standalone_material_type_id')
+            if material_type_id:
+                try:
+                    validated_data['standalone_material_type'] = Material.objects.get(
+                        id=material_type_id, is_generic=True
+                    )
+                except Material.DoesNotExist:
+                    raise serializers.ValidationError(
+                        {"standalone_material_type_id": "Invalid material type ID or not a generic material"}
+                    )
+            
+            # Handle print settings for Quick Add
+            for field in ['standalone_nozzle_temp_min', 'standalone_nozzle_temp_max', 
+                         'standalone_bed_temp_min', 'standalone_bed_temp_max', 'standalone_density']:
+                if field in request_data and request_data.get(field):
+                    validated_data[field] = request_data.get(field)
+        else:
+            # Blueprint mode - use filament_type FK
+            filament_type_id = request_data.get('filament_type_id')
+            if filament_type_id:
+                try:
+                    validated_data['filament_type'] = Material.objects.get(
+                        id=filament_type_id, is_generic=False
+                    )
+                except Material.DoesNotExist:
+                    raise serializers.ValidationError(
+                        {"filament_type_id": "Invalid filament type ID or not a blueprint"}
+                    )
+            else:
+                raise serializers.ValidationError(
+                    {"filament_type_id": "Blueprint mode requires a filament type ID"}
+                )
+        
+        # Handle location (supports both 'location' and 'location_name' for backwards compatibility)
+        location_data = request_data.get('location') or request_data.get('location_name')
+        if location_data:
+            # If it's a string, wrap it in a dict for get_or_create_nested
+            if isinstance(location_data, str):
+                location_data = {'name': location_data}
+            validated_data['location'] = get_or_create_nested(Location, location_data)
+        
+        # Handle printer FK
+        printer_id = request_data.get('assigned_printer_id')
+        if printer_id:
+            try:
+                validated_data['assigned_printer'] = Printer.objects.get(id=printer_id)
+            except Printer.DoesNotExist:
+                pass  # Invalid printer_id is ignored; field remains None
+        
+        # Handle project FK
+        project_id = request_data.get('project_id')
+        if project_id:
+            try:
+                validated_data['project'] = Project.objects.get(id=project_id)
+            except Project.DoesNotExist:
+                pass  # Invalid project_id is ignored; field remains None
+        
+        return FilamentSpool.objects.create(**validated_data)
+    
+    def update(self, instance, validated_data):
+        request_data = self.context['request'].data
+        
+        # Handle NFC tag - convert empty string to None
+        if 'nfc_tag_id' in validated_data and not validated_data['nfc_tag_id']:
+            validated_data['nfc_tag_id'] = None
+        
+        # Handle filament_type FK
+        if 'filament_type_id' in request_data:
+            filament_type_id = request_data.get('filament_type_id')
+            if filament_type_id:
+                try:
+                    instance.filament_type = Material.objects.get(
+                        id=filament_type_id, is_generic=False
+                    )
+                except Material.DoesNotExist:
+                    raise serializers.ValidationError(
+                        {"filament_type_id": "Invalid filament type ID or not a blueprint"}
+                    )
+        
+        # Handle location
+        if 'location_id' in request_data:
+            location_id = request_data.get('location_id')
+            if location_id:
+                try:
+                    instance.location = Location.objects.get(id=location_id)
+                except Location.DoesNotExist:
+                    instance.location = None
+            else:
+                instance.location = None
+        elif 'location' in request_data:
+            instance.location = get_or_create_nested(Location, request_data.get('location'))
+        
+        # Handle printer FK
+        if 'assigned_printer_id' in request_data:
+            printer_id = request_data.get('assigned_printer_id')
+            if printer_id:
+                try:
+                    instance.assigned_printer = Printer.objects.get(id=printer_id)
+                except Printer.DoesNotExist:
+                    instance.assigned_printer = None
+            else:
+                instance.assigned_printer = None
+        
+        # Handle project FK
+        if 'project_id' in request_data:
+            project_id = request_data.get('project_id')
+            if project_id:
+                try:
+                    instance.project = Project.objects.get(id=project_id)
+                except Project.DoesNotExist:
+                    instance.project = None
+            else:
+                instance.project = None
+        
+        return super().update(instance, validated_data)
+
         
 class ModFileSerializer(serializers.ModelSerializer):
     class Meta:
@@ -275,6 +698,11 @@ class TrackerSerializer(serializers.ModelSerializer):
     pending_quantity = serializers.IntegerField(read_only=True)
     project_name = serializers.CharField(source='project.project_name', read_only=True, allow_null=True)
     
+    # Filament tracking fields (NEW)
+    primary_filament_info = serializers.SerializerMethodField()
+    secondary_filament_info = serializers.SerializerMethodField()
+    filament_cost = serializers.ReadOnlyField()
+    
     class Meta:
         model = Tracker
         fields = [
@@ -285,12 +713,38 @@ class TrackerSerializer(serializers.ModelSerializer):
             'not_started_count', 'progress_percentage', 'total_quantity',
             'printed_quantity_total', 'pending_quantity',
             # Storage tracking fields
-            'storage_path', 'total_storage_used', 'files_downloaded'
+            'storage_path', 'total_storage_used', 'files_downloaded',
+            # Filament tracking fields (NEW)
+            'primary_filament', 'primary_filament_info', 'primary_filament_used_grams',
+            'secondary_filament', 'secondary_filament_info', 'secondary_filament_used_grams',
+            'filament_cost'
         ]
         read_only_fields = [
             'created_date', 'updated_date', 
             'storage_path', 'total_storage_used', 'files_downloaded'
         ]
+    
+    def get_primary_filament_info(self, obj):
+        if obj.primary_filament:
+            return {
+                'id': obj.primary_filament.id,
+                'color_name': obj.primary_filament.color_name,
+                'color_hex': obj.primary_filament.color_hex,
+                'filament_type': str(obj.primary_filament.filament_type),
+                'current_weight': obj.primary_filament.current_weight
+            }
+        return None
+    
+    def get_secondary_filament_info(self, obj):
+        if obj.secondary_filament:
+            return {
+                'id': obj.secondary_filament.id,
+                'color_name': obj.secondary_filament.color_name,
+                'color_hex': obj.secondary_filament.color_hex,
+                'filament_type': str(obj.secondary_filament.filament_type),
+                'current_weight': obj.secondary_filament.current_weight
+            }
+        return None
 
 
 class TrackerCreateSerializer(serializers.ModelSerializer):
