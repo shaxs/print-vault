@@ -3,6 +3,7 @@
 [![Project Status: Active – The project has reached a stable, usable state and is being actively developed.](https://www.repostatus.org/badges/latest/active.svg)](https://www.repostatus.org/#active)
 ![Test Suite](https://github.com/shaxs/print-vault/workflows/Test%20Suite/badge.svg)
 [![Coverage](https://img.shields.io/badge/coverage-95%25-brightgreen)](https://github.com/shaxs/print-vault)
+[![Discord](https://img.shields.io/badge/Discord-Join%20Chat-7289da?logo=discord&logoColor=white)](https://discord.com/channels/460117602945990666/1432161560578756618)
 
 > The Self-Hosted Vault for Your 3D Printing Ecosystem.
 
@@ -22,13 +23,15 @@ Print Vault was initially built with a core principle: **you should be able to a
 
 ### Screenshots
 
-|                                Inventory Management                                 |                                               Print Tracker                                               |                                                Printer Details                                                |                                            Project Tracking                                            |
-| :---------------------------------------------------------------------------------: | :-------------------------------------------------------------------------------------------------------: | :-----------------------------------------------------------------------------------------------------------: | :----------------------------------------------------------------------------------------------------: |
-| ![A clean, sortable list of all inventory items.](screenshots/inventory%20list.jpg) | ![Import and track 3D prints from GitHub, direct urls, and uploaded files](screenshots/print-tracker.jpg) | ![A detailed view of a printer, showing its mods and maintenance schedule.](screenshots/printer%20detail.jpg) | ![A project view, linking associated printers and inventory parts.](screenshots/project%20details.jpg) |
+|                                Inventory Management                                 |                            Filament Management                            |                                               Print Tracker                                               |                                                Printer Details                                                |                                            Project Tracking                                            |
+| :---------------------------------------------------------------------------------: | :-----------------------------------------------------------------------: | :-------------------------------------------------------------------------------------------------------: | :-----------------------------------------------------------------------------------------------------------: | :----------------------------------------------------------------------------------------------------: |
+| ![A clean, sortable list of all inventory items.](screenshots/inventory%20list.jpg) | ![Track filament blueprints and physical spools](screenshots/filament-management.jpg) | ![Import and track 3D prints from GitHub, direct urls, and uploaded files](screenshots/print-tracker.jpg) | ![A detailed view of a printer, showing its mods and maintenance schedule.](screenshots/printer%20detail.jpg) | ![A project view, linking associated printers and inventory parts.](screenshots/project%20details.jpg) |
 
 ## Key Features
 
 - **Comprehensive Inventory Tracking:** Stop guessing how many screws you have left. Track electronic components, hardware, and every part in your collection. Get low-stock alerts and always know what you have on hand.
+
+- **_NEW_** **Filament Management System:** Organize your filament library with a two-tier system. Create reusable material blueprints with color, technical specs, temperatures, and vendor info, then track individual physical spools with weight, and location. Hybrid tracking supports both quantity for unopened spools and precise gram-based weight tracking for opened spools.
 
 - **Detailed Printer Management:** Keep a detailed record of every mod and upgrade, track maintenance schedules with reminders, and store important files and links for each of your unique printers.
 
@@ -72,9 +75,34 @@ Print Vault is powered by a modern, open-source stack:
 
 ## A Note from the Author
 
-As a technical program manager who has been leading software projects for 20 years, and a passionate maker, I architected the entire system, defined the features, and guided the development process. However, I am not an engineer. The core challenge was translating the technical blueprint into production-ready code, which was accomplished using AI coding engines (Gemini 2.5 Pro and GitHub CoPilot).
+As a technical program manager who has been leading software projects for 20 years, and a passionate maker, I architected the entire system, defined the features, and guided the development process. However, I am not an engineer. The core challenge was translating the technical blueprint into production-ready code, which was accomplished using AI coding engines.
 
 This project is a tool built by a maker, for makers, and is intended for personal use. It may not be the most efficient, most definitely has undiscovered bugs, and may not be the most secure.
+
+## Roadmap and Maintenance
+
+Print Vault is actively maintained and under continuous development. While built with AI assistance, this is a long-term personal project that I use daily in my own workshop. Updates are released on a regular cadence with bundled features and bug fixes. 
+
+### Planned Enhancements
+
+- Filament Integration Into other areas of the application including assigning specific filaments to a print tracker, marking what filament you use to print a project or a printer
+- NFC tag support for rapid spool identification and updates
+- Moonraker/Klipper integration
+- Project BOM importer with inventory mapping
+- Print Tracker updates including support for more sites like Printables
+- Revamped Backup and restore functionality
+- Enhanced inventory management with barcode/QR code scanning
+- And much much more tracked in a project management system
+
+### Current Focus
+
+Filament enhancements for more integration in other areas of the application and NFC tags using the [OpenPrintTag](https://openprinttag.org/) standard.
+
+## Community & Support
+
+Join the Print Vault discussion on the Voron Discord to share feedback, ask questions, and see how others are using it:
+
+[![Discord](https://img.shields.io/badge/Discord-Join%20Chat-7289da?logo=discord&logoColor=white)](https://discord.com/channels/460117602945990666/1432161560578756618)
 
 ## Installation
 
