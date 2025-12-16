@@ -1,5 +1,11 @@
 {
   "chat.instructionsFilesLocations": {
-    "AGENTS.md": true
-  }
+    "AGENTS. md": true
+  },
+  "github.copilot.advanced": {
+    "debug. overrideEngine": "claude-opus-4.5",
+    "debug.verbose": true
+  },
+  "github.copilot.chat.allowSensitiveEdits": true,
+  "github.copilot.chat.terminalExecution": "allow"
 }
