@@ -2,6 +2,8 @@
 import { ref, computed, onMounted } from 'vue'
 import APIService from '@/services/APIService.js'
 import { parseFilename } from '@/utils/filenameParser'
+import Multiselect from 'vue-multiselect'
+import 'vue-multiselect/dist/vue-multiselect.css'
 
 const props = defineProps({
   files: { type: Array, required: true }, // Simple array of file objects
@@ -16,8 +18,14 @@ const forceUpdate = ref(0)
 
 // Track which files are selected for bulk operations
 const bulkSelectedFiles = ref(new Set())
+const bulkQuantity = ref('')
 const bulkColor = ref('')
-const bulkMaterial = ref('')
+const bulkMaterial = ref(null) // Single material OR array of materials (for multicolor)
+
+// Check if multicolor is selected (enables multiple material selection)
+const isMulticolorSelected = computed(() => {
+  return bulkColor.value === 'Multicolor'
+})
 
 // Category state
 const selectedCategory = ref('')
@@ -28,6 +36,10 @@ const showNewCategoryInput = ref(false)
 const colorOptions = ['Primary', 'Accent', 'Multicolor', 'Clear', 'Other']
 const materialOptions = ref([])
 const loadingMaterials = ref(false)
+
+// Smart defaults material assignments
+const smartDefaultPrimaryMaterial = ref(null)
+const smartDefaultAccentMaterial = ref(null)
 
 // Emit category changes
 import { watch } from 'vue'
@@ -41,24 +53,56 @@ watch(newCategoryName, (newValue) => {
   }
 })
 
-// Load materials from API
+// Load materials from API (both blueprints and base materials)
 const loadMaterials = async () => {
   loadingMaterials.value = true
   try {
     const response = await APIService.getMaterials()
-    materialOptions.value = response.data.map((m) => m.name)
+    // Store full material objects for Multiselect
+    materialOptions.value = response.data.results || response.data
 
     // If no materials loaded, use fallback
     if (materialOptions.value.length === 0) {
-      materialOptions.value = ['ABS', 'PETG', 'PLA', 'ASA', 'TPU', 'Nylon', 'Other']
+      // Create basic material objects for fallback
+      materialOptions.value = [
+        { id: 'abs', name: 'ABS', type: 'base' },
+        { id: 'petg', name: 'PETG', type: 'base' },
+        { id: 'pla', name: 'PLA', type: 'base' },
+        { id: 'asa', name: 'ASA', type: 'base' },
+        { id: 'tpu', name: 'TPU', type: 'base' },
+        { id: 'nylon', name: 'Nylon', type: 'base' },
+        { id: 'other', name: 'Other', type: 'base' }
+      ]
     }
   } catch (error) {
     console.error('Failed to load materials:', error)
     // Fallback to default materials
-    materialOptions.value = ['ABS', 'PETG', 'PLA', 'ASA', 'TPU', 'Nylon', 'Other']
+    materialOptions.value = [
+      { id: 'abs', name: 'ABS', type: 'base' },
+      { id: 'petg', name: 'PETG', type: 'base' },
+      { id: 'pla', name: 'PLA', type: 'base' },
+      { id: 'asa', name: 'ASA', type: 'base' },
+      { id: 'tpu', name: 'TPU', type: 'base' },
+      { id: 'nylon', name: 'Nylon', type: 'base' },
+      { id: 'other', name: 'Other', type: 'base' }
+    ]
   } finally {
     loadingMaterials.value = false
+    
+    // Initialize smart defaults to first material (ABS typically)
+    if (materialOptions.value.length > 0) {
+      smartDefaultPrimaryMaterial.value = materialOptions.value[0]
+      smartDefaultAccentMaterial.value = materialOptions.value[0]
+    }
   }
+}
+
+// Format material label for Multiselect
+const formatMaterialLabel = (mat) => {
+  if (!mat) return ''
+  const brandName = mat.brand?.name || ''
+  const diameter = mat.diameter ? ` (${mat.diameter}mm)` : ''
+  return `${brandName} ${mat.name}${diameter}`.trim()
 }
 
 onMounted(() => {
@@ -86,12 +130,27 @@ const allFilesConfigured = computed(() => {
 
 // Apply smart defaults to all unconfigured files
 function applySmartDefaults() {
-  const defaultMaterial = materialOptions.value[0] || 'ABS'
+  const defaultMaterial = smartDefaultPrimaryMaterial.value?.name || materialOptions.value[0]?.name || 'ABS'
+  const primaryMaterial = smartDefaultPrimaryMaterial.value?.name || 'ABS'
+  const accentMaterial = smartDefaultAccentMaterial.value?.name || 'ABS'
 
   props.files.forEach((file) => {
     const defaults = parseFilename(file.name, defaultMaterial)
     if (!file.color) file.color = defaults.color
-    if (!file.material) file.material = defaults.material
+    
+    // Get final color (either existing or detected)
+    const finalColor = file.color || defaults.color
+    
+    // Apply material based on color - ALWAYS update for Primary/Accent to allow correction
+    if (finalColor === 'Accent') {
+      file.material = accentMaterial
+    } else if (finalColor === 'Primary') {
+      file.material = primaryMaterial
+    } else if (!file.material) {
+      // For other colors (Clear, Multicolor, Other), only set if empty
+      file.material = defaults.material || primaryMaterial
+    }
+    
     // Always apply quantity from smart defaults (don't skip if quantity is 1)
     if (!file.quantity || file.quantity === 1) file.quantity = defaults.quantity
   })
@@ -104,15 +163,26 @@ function applySmartDefaults() {
 function applyBulkSettings() {
   props.files.forEach((file) => {
     if (bulkSelectedFiles.value.has(file.name)) {
+      if (bulkQuantity.value) file.quantity = parseInt(bulkQuantity.value) || 1
       if (bulkColor.value) file.color = bulkColor.value
-      if (bulkMaterial.value) file.material = bulkMaterial.value
+      
+      // Handle material - single or multiple (for multicolor)
+      if (bulkMaterial.value) {
+        if (Array.isArray(bulkMaterial.value)) {
+          // Multiple materials selected (multicolor)
+          file.material = bulkMaterial.value.map(m => m.name).join(', ')
+          file.material_ids = bulkMaterial.value.map(m => m.id)
+        } else {
+          // Single material
+          file.material = bulkMaterial.value.name || bulkMaterial.value
+          file.material_ids = [bulkMaterial.value.id]
+        }
+      }
     }
   })
 
-  // Clear bulk selections and inputs
+  // Clear only the file selections (preserve quantity, color, material for next apply)
   bulkSelectedFiles.value.clear()
-  bulkColor.value = ''
-  bulkMaterial.value = ''
 
   // Force reactivity
   forceUpdate.value++
@@ -292,6 +362,17 @@ defineExpose({
           </p>
 
           <div class="form-group">
+            <label>Quantity</label>
+            <input
+              v-model.number="bulkQuantity"
+              type="number"
+              min="1"
+              class="form-control"
+              placeholder="Enter quantity..."
+            />
+          </div>
+
+          <div class="form-group">
             <label>Color</label>
             <select v-model="bulkColor" class="form-control">
               <option value="">Select color...</option>
@@ -302,13 +383,22 @@ defineExpose({
           </div>
 
           <div class="form-group">
-            <label>Material</label>
-            <select v-model="bulkMaterial" class="form-control">
-              <option value="">Select material...</option>
-              <option v-for="material in materialOptions" :key="material" :value="material">
-                {{ material }}
-              </option>
-            </select>
+            <label>Material{{ isMulticolorSelected ? 's' : '' }}</label>
+            <Multiselect
+              v-model="bulkMaterial"
+              :options="materialOptions"
+              :custom-label="formatMaterialLabel"
+              track-by="id"
+              :placeholder="isMulticolorSelected ? 'Type to search and select multiple materials...' : 'Type to search materials...'"
+              :loading="loadingMaterials"
+              :searchable="true"
+              :multiple="isMulticolorSelected"
+              :close-on-select="!isMulticolorSelected"
+              :show-labels="false"
+            />
+            <p v-if="isMulticolorSelected" class="help-text">
+              Select multiple materials for MMU/multicolor printing
+            </p>
           </div>
 
           <button
@@ -325,12 +415,42 @@ defineExpose({
         <div class="config-section quick-actions">
           <h3>Quick Actions</h3>
 
+          <div class="form-group">
+            <label>Primary Material</label>
+            <Multiselect
+              v-model="smartDefaultPrimaryMaterial"
+              :options="materialOptions"
+              :custom-label="formatMaterialLabel"
+              track-by="id"
+              placeholder="Primary color material..."
+              :loading="loadingMaterials"
+              :searchable="true"
+              :close-on-select="true"
+              :show-labels="false"
+            />
+          </div>
+
+          <div class="form-group">
+            <label>Accent Material</label>
+            <Multiselect
+              v-model="smartDefaultAccentMaterial"
+              :options="materialOptions"
+              :custom-label="formatMaterialLabel"
+              track-by="id"
+              placeholder="Accent color material..."
+              :loading="loadingMaterials"
+              :searchable="true"
+              :close-on-select="true"
+              :show-labels="false"
+            />
+          </div>
+
           <button class="btn btn-secondary full-width" @click="applySmartDefaults">
             Apply Smart Defaults
           </button>
           <p class="action-description">
             Automatically detects quantity from filenames (_x2, _x4) and color from brackets ([a] =
-            Accent, [d] = Multicolor).
+            Accent, [d] = Multicolor). Uses selected materials above.
           </p>
         </div>
       </div>

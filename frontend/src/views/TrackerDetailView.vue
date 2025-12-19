@@ -3,6 +3,9 @@ import { ref, computed, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import APIService from '@/services/APIService.js'
 import DeleteTrackerModal from '@/components/DeleteTrackerModal.vue'
+import BaseModal from '@/components/BaseModal.vue'
+import Multiselect from 'vue-multiselect'
+import 'vue-multiselect/dist/vue-multiselect.css'
 
 const route = useRoute()
 const router = useRouter()
@@ -38,35 +41,99 @@ const isEditFileModalVisible = ref(false)
 const editingFile = ref(null)
 const editFileForm = ref({
   color: '',
-  material: '',
+  material: null, // Will be material object or array of material objects
   quantity: 1,
+})
+
+// Check if editing file is multicolor
+const isEditingMulticolor = computed(() => {
+  return editFileForm.value.color === 'Multicolor'
+})
+
+// Check if material selection should be disabled (Primary/Accent use tracker materials)
+const isMaterialSelectionDisabled = computed(() => {
+  return editFileForm.value.color === 'Primary' || editFileForm.value.color === 'Accent'
 })
 
 // Delete file state
 const deletingFile = ref(false)
 
+// Edit tracker materials state
+const isEditTrackerModalVisible = ref(false)
+const editTrackerForm = ref({
+  primary_material_mode: 'custom',  // 'custom' or 'blueprint'
+  primary_color: '',
+  primary_material: null,
+  accent_material_mode: 'custom',
+  accent_color: '',
+  accent_material: null,
+})
+
+// Cascade confirmation state
+const showCascadeConfirmModal = ref(false)
+const cascadeUpdateInfo = ref({
+  affectedType: '',  // 'primary' or 'accent'
+  nonOverriddenCount: 0,
+  overriddenCount: 0,
+  forceOverrideAll: false,
+})
+
 // Materials from API
 const materials = ref([])
 const loadingMaterials = ref(false)
 
-// Load materials from API
+// Load materials from API (full objects for Multiselect)
 const loadMaterials = async () => {
   loadingMaterials.value = true
   try {
     const response = await APIService.getMaterials()
-    materials.value = response.data.map((m) => m.name)
+    materials.value = response.data.results || response.data
 
     // If no materials loaded, use fallback
     if (materials.value.length === 0) {
-      materials.value = ['ABS', 'PLA', 'PETG', 'TPU', 'Nylon', 'ASA', 'Other']
+      materials.value = [
+        { id: 'abs', name: 'ABS', type: 'base' },
+        { id: 'pla', name: 'PLA', type: 'base' },
+        { id: 'petg', name: 'PETG', type: 'base' },
+        { id: 'tpu', name: 'TPU', type: 'base' },
+        { id: 'nylon', name: 'Nylon', type: 'base' },
+        { id: 'asa', name: 'ASA', type: 'base' },
+        { id: 'other', name: 'Other', type: 'base' }
+      ]
     }
   } catch (error) {
     console.error('Failed to load materials:', error)
     // Fallback to default materials
-    materials.value = ['ABS', 'PLA', 'PETG', 'TPU', 'Nylon', 'ASA', 'Other']
+    materials.value = [
+      { id: 'abs', name: 'ABS', type: 'base' },
+      { id: 'pla', name: 'PLA', type: 'base' },
+      { id: 'petg', name: 'PETG', type: 'base' },
+      { id: 'tpu', name: 'TPU', type: 'base' },
+      { id: 'nylon', name: 'Nylon', type: 'base' },
+      { id: 'asa', name: 'ASA', type: 'base' },
+      { id: 'other', name: 'Other', type: 'base' }
+    ]
   } finally {
     loadingMaterials.value = false
   }
+}
+
+// Format material label for Multiselect
+const formatMaterialLabel = (mat) => {
+  if (!mat) return ''
+  const brandName = mat.brand?.name || ''
+  const diameter = mat.diameter ? ` (${mat.diameter}mm)` : ''
+  return `${brandName} ${mat.name}${diameter}`.trim()
+}
+
+// Get material ID from name (for clickable links) - EXACT match only
+const getMaterialId = (materialName) => {
+  const trimmedName = materialName.trim()
+  
+  // Only return ID if EXACT match found (case-insensitive)
+  const material = materials.value.find(m => m.name.toLowerCase() === trimmedName.toLowerCase())
+  
+  return material?.id || null
 }
 
 // Load tracker data
@@ -272,17 +339,64 @@ const toggleFileCompletion = async (file) => {
   }
 }
 
-// Get multicolor gradient
+// Get multicolor gradient - uses material blueprint colors when available
 const getMulticolorGradient = computed(() => {
-  const primary = tracker.value?.primary_color || '#4a90e2'
-  const accent = tracker.value?.accent_color || '#f5a623'
+  let primary = tracker.value?.primary_color || '#4a90e2'
+  let accent = tracker.value?.accent_color || '#f5a623'
+  
+  // Prefer material blueprint colors
+  if (tracker.value?.primary_material_display?.colors && tracker.value.primary_material_display.colors.length > 0) {
+    primary = tracker.value.primary_material_display.colors[0]
+  }
+  
+  if (tracker.value?.accent_material_display?.colors && tracker.value.accent_material_display.colors.length > 0) {
+    accent = tracker.value.accent_material_display.colors[0]
+  }
+  
   return `linear-gradient(to right, ${primary}, ${accent})`
 })
 
-// Get color badge style
-const getColorBadgeStyle = (color) => {
-  const primary = tracker.value?.primary_color || '#4a90e2'
-  const accent = tracker.value?.accent_color || '#f5a623'
+// Get color badge style - uses material blueprint colors when available
+const getColorBadgeStyle = (color, file = null) => {
+  // For Primary/Accent, use tracker-level materials as defaults
+  let primary = tracker.value?.primary_color || '#4a90e2'
+  let accent = tracker.value?.accent_color || '#f5a623'
+  
+  // Prefer material blueprint colors over hardcoded hex
+  if (tracker.value?.primary_material_display?.colors && tracker.value.primary_material_display.colors.length > 0) {
+    primary = tracker.value.primary_material_display.colors[0]
+  }
+  
+  if (tracker.value?.accent_material_display?.colors && tracker.value.accent_material_display.colors.length > 0) {
+    accent = tracker.value.accent_material_display.colors[0]
+  }
+
+  // For Multicolor/Other/Clear files with custom materials, use file's material colors
+  if (file && file.materials_display && file.materials_display.length > 0) {
+    const firstMaterial = file.materials_display[0]
+    if (firstMaterial.colors && firstMaterial.colors.length > 0) {
+      const fileColor = firstMaterial.colors[0]
+      
+      // For Multicolor, create gradient from all materials
+      if (color?.toLowerCase() === 'multicolor' && file.materials_display.length > 1) {
+        const colors = file.materials_display
+          .filter(m => m.colors && m.colors.length > 0)
+          .map(m => m.colors[0])
+        
+        if (colors.length > 1) {
+          return { backgroundImage: `linear-gradient(135deg, ${colors.join(', ')})` }
+        }
+      }
+      
+      // For Other files, use the file's material color
+      if (color?.toLowerCase() === 'other') {
+        return { backgroundColor: fileColor }
+      }
+      
+      // For Clear files with materials, still use clear style but maybe we want custom color?
+      // For now, keep Clear as is since it's meant to be transparent
+    }
+  }
 
   switch (color?.toLowerCase()) {
     case 'primary':
@@ -506,12 +620,165 @@ const downloadAllAsZip = async () => {
 // Edit file functions
 const openEditFileModal = (file) => {
   editingFile.value = file
+  
+  // Parse materials - prefer material_ids if available, fall back to material names
+  let materialValue = null
+  
+  if (file.material_ids && file.material_ids.length > 0) {
+    // Use material_ids (preferred, accurate)
+    if (file.color === 'Multicolor' && file.material_ids.length > 1) {
+      // Multiple materials
+      materialValue = file.material_ids.map(id => 
+        materials.value.find(m => m.id === id)
+      ).filter(Boolean) // Remove any null/undefined
+    } else {
+      // Single material
+      materialValue = materials.value.find(m => m.id === file.material_ids[0])
+    }
+  } else if (file.material) {
+    // Fallback to material names (legacy data)
+    const materialNames = file.material.split(',').map(n => n.trim())
+    
+    if (file.color === 'Multicolor' && materialNames.length > 1) {
+      // Multiple materials - find material objects
+      materialValue = materialNames.map(name => 
+        materials.value.find(m => m.name === name) || { id: name.toLowerCase(), name, type: 'base' }
+      )
+    } else {
+      // Single material - find material object
+      const name = materialNames[0]
+      materialValue = materials.value.find(m => m.name === name) || { id: name.toLowerCase(), name, type: 'base' }
+    }
+  }
+  
   editFileForm.value = {
     color: file.color || '',
-    material: file.material || '',
+    material: materialValue,
     quantity: file.quantity || 1,
   }
   isEditFileModalVisible.value = true
+}
+
+// Edit tracker material functions
+const openEditTrackerModal = () => {
+  // Initialize form with current tracker values
+  if (tracker.value.primary_material_display) {
+    editTrackerForm.value.primary_material_mode = 'blueprint'
+    editTrackerForm.value.primary_material = tracker.value.primary_material_display
+  } else if (tracker.value.primary_color) {
+    editTrackerForm.value.primary_material_mode = 'custom'
+    editTrackerForm.value.primary_color = tracker.value.primary_color
+  }
+  
+  if (tracker.value.accent_material_display) {
+    editTrackerForm.value.accent_material_mode = 'blueprint'
+    editTrackerForm.value.accent_material = tracker.value.accent_material_display
+  } else if (tracker.value.accent_color) {
+    editTrackerForm.value.accent_material_mode = 'custom'
+    editTrackerForm.value.accent_color = tracker.value.accent_color
+  }
+  
+  isEditTrackerModalVisible.value = true
+}
+
+const closeEditTrackerModal = () => {
+  isEditTrackerModalVisible.value = false
+}
+
+const saveTrackerMaterials = async () => {
+  try {
+    // Prepare payload
+    const payload = {}
+    
+    // Primary material/color
+    if (editTrackerForm.value.primary_material_mode === 'blueprint' && editTrackerForm.value.primary_material) {
+      payload.primary_material = editTrackerForm.value.primary_material.id
+      payload.primary_color = null
+    } else if (editTrackerForm.value.primary_material_mode === 'custom' && editTrackerForm.value.primary_color) {
+      payload.primary_color = editTrackerForm.value.primary_color
+      payload.primary_material = null
+    }
+    
+    // Accent material/color
+    if (editTrackerForm.value.accent_material_mode === 'blueprint' && editTrackerForm.value.accent_material) {
+      payload.accent_material = editTrackerForm.value.accent_material.id
+      payload.accent_color = null
+    } else if (editTrackerForm.value.accent_material_mode === 'custom' && editTrackerForm.value.accent_color) {
+      payload.accent_color = editTrackerForm.value.accent_color
+      payload.accent_material = null
+    }
+    
+    // Check if materials changed to show cascade confirmation
+    const primaryChanged = payload.primary_material !== tracker.value.primary_material
+    const accentChanged = payload.accent_material !== tracker.value.accent_material
+    
+    if (primaryChanged || accentChanged) {
+      // Count affected files (this would ideally come from API, for now we'll estimate)
+      const primaryFiles = tracker.value.files?.filter(f => f.color === 'Primary') || []
+      const accentFiles = tracker.value.files?.filter(f => f.color === 'Accent') || []
+      
+      if (primaryChanged && primaryFiles.length > 0) {
+        // Show confirmation for primary
+        cascadeUpdateInfo.value = {
+          affectedType: 'primary',
+          nonOverriddenCount: primaryFiles.filter(f => !f.material_override).length,
+          overriddenCount: primaryFiles.filter(f => f.material_override).length,
+          forceOverrideAll: false,
+          payload: payload
+        }
+        closeEditTrackerModal()
+        showCascadeConfirmModal.value = true
+        return
+      } else if (accentChanged && accentFiles.length > 0) {
+        // Show confirmation for accent
+        cascadeUpdateInfo.value = {
+          affectedType: 'accent',
+          nonOverriddenCount: accentFiles.filter(f => !f.material_override).length,
+          overriddenCount: accentFiles.filter(f => f.material_override).length,
+          forceOverrideAll: false,
+          payload: payload
+        }
+        closeEditTrackerModal()
+        showCascadeConfirmModal.value = true
+        return
+      }
+    }
+    
+    // No cascade needed or no files affected, just update
+    await applyCascadeUpdate(payload, false)
+  } catch (error) {
+    console.error('Failed to save tracker materials:', error)
+    alert('Failed to save materials. Please try again.')
+  }
+}
+
+const confirmCascadeUpdate = async () => {
+  try {
+    await applyCascadeUpdate(
+      cascadeUpdateInfo.value.payload,
+      cascadeUpdateInfo.value.forceOverrideAll
+    )
+    showCascadeConfirmModal.value = false
+  } catch (error) {
+    console.error('Failed to apply cascade update:', error)
+    alert('Failed to update materials. Please try again.')
+  }
+}
+
+const applyCascadeUpdate = async (payload, forceOverrideAll) => {
+  // Add force flag to payload
+  const updatePayload = {
+    ...payload,
+    force_override_all: forceOverrideAll
+  }
+  
+  // Call backend endpoint (to be implemented)
+  await APIService.updateTrackerMaterials(tracker.value.id, updatePayload)
+  
+  // Reload tracker data
+  await loadTracker()
+  
+  closeEditTrackerModal()
 }
 
 const closeEditFileModal = () => {
@@ -523,11 +790,34 @@ const saveFileConfiguration = async () => {
   if (!editingFile.value) return
 
   try {
+    // Extract material IDs and names for API
+    let materialString = ''
+    let materialIds = []
+    
+    // Primary/Accent files get materials from tracker settings, not user input
+    if (editFileForm.value.color === 'Primary' || editFileForm.value.color === 'Accent') {
+      // Material will be set by backend based on tracker settings
+      materialString = null
+      materialIds = null
+    } else if (editFileForm.value.material) {
+      // Other/Multicolor/Clear files can have custom materials
+      if (Array.isArray(editFileForm.value.material)) {
+        // Multiple materials (multicolor)
+        materialString = editFileForm.value.material.map(m => m.name).join(', ')
+        materialIds = editFileForm.value.material.map(m => m.id)
+      } else {
+        // Single material
+        materialString = editFileForm.value.material.name
+        materialIds = [editFileForm.value.material.id]
+      }
+    }
+    
     await APIService.updateTrackerFileConfiguration(
       editingFile.value.id,
       editFileForm.value.color,
-      editFileForm.value.material,
+      materialString,
       editFileForm.value.quantity,
+      materialIds,
     )
 
     // Reload tracker to get updated data
@@ -834,11 +1124,33 @@ onMounted(() => {
                         ⚠️
                       </span>
 
-                      <span class="color-tag" :style="getColorBadgeStyle(file.color)">
+                      <span class="color-tag" :style="getColorBadgeStyle(file.color, file)">
                         {{ file.color }}
                       </span>
 
-                      <span class="material-tag">{{ file.material }}</span>
+                      <span class="material-tags-container">
+                        <!-- Use materials_display if available (has IDs for accurate linking) -->
+                        <template v-if="file.materials_display && file.materials_display.length > 0">
+                          <router-link
+                            v-for="(mat, idx) in file.materials_display"
+                            :key="idx"
+                            :to="`/filaments/materials/${mat.id}`"
+                            class="material-tag clickable"
+                          >
+                            {{ mat.name }}
+                          </router-link>
+                        </template>
+                        <!-- Legacy: material names without IDs - display as non-clickable text -->
+                        <template v-else-if="file.material">
+                          <span
+                            v-for="(mat, idx) in file.material.split(',').map(m => m.trim())"
+                            :key="idx"
+                            class="material-tag"
+                          >
+                            {{ mat }}
+                          </span>
+                        </template>
+                      </span>
 
                       <button
                         @click.stop="openEditFileModal(file)"
@@ -954,6 +1266,115 @@ onMounted(() => {
         @delete="deleteTracker"
         @downloadAndDelete="downloadAndDeleteTracker"
       />
+      
+      <!-- Edit Tracker Materials Modal -->
+      <BaseModal
+        :show="isEditTrackerModalVisible"
+        title="Edit Tracker Materials"
+        @close="closeEditTrackerModal"
+      >
+        <form @submit.prevent="saveTrackerMaterials">
+          <!-- Primary Material -->
+          <div class="form-group">
+            <label>Primary Color/Material</label>
+            <div class="radio-group">
+              <label class="radio-label">
+                <input type="radio" v-model="editTrackerForm.primary_material_mode" value="custom" />
+                Custom Color
+              </label>
+              <label class="radio-label">
+                <input type="radio" v-model="editTrackerForm.primary_material_mode" value="blueprint" />
+                Material Blueprint
+              </label>
+            </div>
+            
+            <input 
+              v-if="editTrackerForm.primary_material_mode === 'custom'"
+              v-model="editTrackerForm.primary_color"
+              type="color"
+              class="color-input"
+            />
+            
+            <multiselect
+              v-if="editTrackerForm.primary_material_mode === 'blueprint'"
+              v-model="editTrackerForm.primary_material"
+              :options="materials"
+              :custom-label="formatMaterialLabel"
+              track-by="id"
+              placeholder="Select material blueprint"
+              :show-no-results="false"
+            ></multiselect>
+          </div>
+
+          <!-- Accent Material -->
+          <div class="form-group">
+            <label>Accent Color/Material</label>
+            <div class="radio-group">
+              <label class="radio-label">
+                <input type="radio" v-model="editTrackerForm.accent_material_mode" value="custom" />
+                Custom Color
+              </label>
+              <label class="radio-label">
+                <input type="radio" v-model="editTrackerForm.accent_material_mode" value="blueprint" />
+                Material Blueprint
+              </label>
+            </div>
+            
+            <input 
+              v-if="editTrackerForm.accent_material_mode === 'custom'"
+              v-model="editTrackerForm.accent_color"
+              type="color"
+              class="color-input"
+            />
+            
+            <multiselect
+              v-if="editTrackerForm.accent_material_mode === 'blueprint'"
+              v-model="editTrackerForm.accent_material"
+              :options="materials"
+              :custom-label="formatMaterialLabel"
+              track-by="id"
+              placeholder="Select material blueprint"
+              :show-no-results="false"
+            ></multiselect>
+          </div>
+        </form>
+        
+        <template #footer>
+          <button @click="closeEditTrackerModal" class="btn btn-secondary">Cancel</button>
+          <button @click="saveTrackerMaterials" class="btn btn-primary">Save</button>
+        </template>
+      </BaseModal>
+      
+      <!-- Cascade Confirmation Modal -->
+      <BaseModal
+        :show="showCascadeConfirmModal"
+        :title="`Update ${cascadeUpdateInfo.affectedType === 'primary' ? 'Primary' : 'Accent'} Material?`"
+        @close="showCascadeConfirmModal = false"
+      >
+        <div class="cascade-info">
+          <p>This change will affect the following files:</p>
+          <ul>
+            <li><strong>{{ cascadeUpdateInfo.nonOverriddenCount }}</strong> non-customized files</li>
+            <li><strong>{{ cascadeUpdateInfo.overriddenCount }}</strong> manually customized files</li>
+          </ul>
+          
+          <div class="radio-group">
+            <label class="radio-label">
+              <input type="radio" v-model="cascadeUpdateInfo.forceOverrideAll" :value="false" />
+              Update only non-customized files (recommended)
+            </label>
+            <label class="radio-label">
+              <input type="radio" v-model="cascadeUpdateInfo.forceOverrideAll" :value="true" />
+              Update ALL files, including manually customized ones
+            </label>
+          </div>
+        </div>
+        
+        <template #footer>
+          <button @click="showCascadeConfirmModal = false" class="btn btn-secondary">Cancel</button>
+          <button @click="confirmCascadeUpdate" class="btn btn-primary">Apply</button>
+        </template>
+      </BaseModal>
 
       <!-- Filter Modal -->
       <Teleport to="body">
@@ -1044,13 +1465,29 @@ onMounted(() => {
                 </select>
               </div>
               <div class="form-group">
-                <label>Material</label>
-                <select v-model="editFileForm.material" required :disabled="loadingMaterials">
-                  <option value="">-- Select Material --</option>
-                  <option v-for="material in materials" :key="material" :value="material">
-                    {{ material }}
-                  </option>
-                </select>
+                <label>Material{{ isEditingMulticolor ? 's' : '' }}</label>
+                <Multiselect
+                  v-if="!isMaterialSelectionDisabled"
+                  v-model="editFileForm.material"
+                  :options="materials"
+                  :custom-label="formatMaterialLabel"
+                  track-by="id"
+                  :placeholder="isEditingMulticolor ? 'Select multiple materials...' : 'Type to search materials...'"
+                  :loading="loadingMaterials"
+                  :searchable="true"
+                  :multiple="isEditingMulticolor"
+                  :close-on-select="!isEditingMulticolor"
+                  :show-labels="false"
+                  required
+                />
+                <div v-else class="material-locked-message">
+                  <p class="locked-text">
+                    <strong>{{ editFileForm.color }}</strong> files use the material set in tracker settings.
+                  </p>
+                  <p class="locked-hint">
+                    To use a custom material, change the color to "Other" or "Multicolor".
+                  </p>
+                </div>
               </div>
               <div class="form-group">
                 <label>Quantity</label>
@@ -1551,6 +1988,12 @@ onMounted(() => {
 }
 
 /* Material Tags */
+.material-tags-container {
+  display: inline-flex;
+  gap: 4px;
+  flex-wrap: wrap;
+}
+
 .material-tag {
   padding: 3px 8px;
   border-radius: 3px;
@@ -1562,6 +2005,14 @@ onMounted(() => {
   white-space: nowrap;
   text-transform: uppercase;
   letter-spacing: 0.5px;
+  text-decoration: none;
+  transition: all 0.2s ease;
+}
+
+.material-tag.clickable:hover {
+  border-color: var(--color-blue);
+  color: var(--color-blue);
+  cursor: pointer;
 }
 
 /* Missing Config Warning Icon */
@@ -1687,6 +2138,31 @@ onMounted(() => {
 .modal-form .form-group select:focus {
   outline: none;
   border-color: var(--color-primary);
+}
+
+/* Material locked message for Primary/Accent files */
+.material-locked-message {
+  padding: 1rem;
+  background: var(--color-background-soft);
+  border: 1px solid var(--color-border);
+  border-radius: 4px;
+}
+
+.locked-text {
+  margin: 0 0 0.5rem 0;
+  color: var(--color-text);
+  font-size: 0.9rem;
+}
+
+.locked-text strong {
+  color: var(--color-heading);
+}
+
+.locked-hint {
+  margin: 0;
+  color: var(--color-text-soft);
+  font-size: 0.85rem;
+  font-style: italic;
 }
 
 .filter-indicator {
@@ -2114,5 +2590,63 @@ onMounted(() => {
   line-height: 1.6;
   white-space: pre-wrap;
   word-break: break-word;
+}
+
+.color-badge {
+  display: inline-block;
+  padding: 0.25rem 0.75rem;
+  border-radius: 4px;
+  color: white;
+  font-size: 0.85rem;
+  font-weight: 500;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.3);
+}
+
+/* Cascade Confirmation Modal */
+.cascade-info {
+  padding: 1rem 0;
+}
+
+.cascade-info ul {
+  margin: 1rem 0;
+  padding-left: 1.5rem;
+}
+
+.cascade-info li {
+  margin: 0.5rem 0;
+  color: var(--color-text);
+}
+
+.radio-group {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  margin-top: 1rem;
+}
+
+.radio-label {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  cursor: pointer;
+  padding: 0.5rem;
+  border-radius: 4px;
+  transition: background-color 0.2s;
+}
+
+.radio-label:hover {
+  background: var(--color-background-soft);
+}
+
+.radio-label input[type="radio"] {
+  cursor: pointer;
+}
+
+.color-input {
+  width: 100px;
+  height: 40px;
+  border: 1px solid var(--color-border);
+  border-radius: 4px;
+  cursor: pointer;
 }
 </style>

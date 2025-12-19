@@ -15,6 +15,12 @@ const isEditMode = ref(false)
 const photoFile = ref(null)
 const photoPreview = ref(null)
 const brands = ref([])
+const materialBlueprints = ref([])
+
+// Filament mode toggles
+const primaryFilamentMode = ref('custom') // 'custom' or 'blueprint'
+const accentFilamentMode = ref('custom') // 'custom' or 'blueprint'
+const additionalFilaments = ref([]) // Array of { type: '', mode: 'custom'/'blueprint', custom: '', blueprint: null }
 
 watch(
   () => props.initialData,
@@ -22,6 +28,29 @@ watch(
     if (newData) {
       printer.value = { ...newData }
       isEditMode.value = true
+      
+      // Initialize filament modes based on existing data
+      if (newData.primary_filament_blueprint) {
+        primaryFilamentMode.value = 'blueprint'
+      } else if (newData.primary_filament_custom) {
+        primaryFilamentMode.value = 'custom'
+      }
+      
+      if (newData.accent_filament_blueprint) {
+        accentFilamentMode.value = 'blueprint'
+      } else if (newData.accent_filament_custom) {
+        accentFilamentMode.value = 'custom'
+      }
+      
+      // Load additional filaments if they exist
+      if (newData.additional_filaments && newData.additional_filaments.length > 0) {
+        additionalFilaments.value = newData.additional_filaments.map(f => ({
+          type: f.type || '',
+          mode: f.blueprint_id ? 'blueprint' : 'custom',
+          custom: f.custom || '',
+          blueprint: f.blueprint_id ? materialBlueprints.value.find(m => m.id === f.blueprint_id) : null
+        }))
+      }
     } else {
       printer.value = {
         title: '',
@@ -34,8 +63,13 @@ watch(
         build_size_y: null,
         build_size_z: null,
         purchase_price: null,
+        primary_filament_custom: '',
+        primary_filament_blueprint: null,
+        accent_filament_custom: '',
+        accent_filament_blueprint: null,
       }
       isEditMode.value = false
+      additionalFilaments.value = []
     }
   },
   { immediate: true },
@@ -80,6 +114,37 @@ const savePrinter = async () => {
   } else if (isEditMode.value && brandValue === null) {
     formData.append('manufacturer', JSON.stringify(null))
   }
+  
+  // Handle filament fields
+  if (primaryFilamentMode.value === 'custom' && printer.value.primary_filament_custom) {
+    formData.append('primary_filament_custom', printer.value.primary_filament_custom)
+    formData.append('primary_filament_blueprint_id', '')
+  } else if (primaryFilamentMode.value === 'blueprint' && printer.value.primary_filament_blueprint) {
+    formData.append('primary_filament_blueprint_id', printer.value.primary_filament_blueprint.id)
+    formData.append('primary_filament_custom', '')
+  } else {
+    formData.append('primary_filament_custom', '')
+    formData.append('primary_filament_blueprint_id', '')
+  }
+  
+  if (accentFilamentMode.value === 'custom' && printer.value.accent_filament_custom) {
+    formData.append('accent_filament_custom', printer.value.accent_filament_custom)
+    formData.append('accent_filament_blueprint_id', '')
+  } else if (accentFilamentMode.value === 'blueprint' && printer.value.accent_filament_blueprint) {
+    formData.append('accent_filament_blueprint_id', printer.value.accent_filament_blueprint.id)
+    formData.append('accent_filament_custom', '')
+  } else {
+    formData.append('accent_filament_custom', '')
+    formData.append('accent_filament_blueprint_id', '')
+  }
+  
+  // Handle additional filaments - convert to JSON format
+  const additionalFilamentsData = additionalFilaments.value.map(f => ({
+    type: f.type,
+    custom: f.mode === 'custom' ? f.custom : '',
+    blueprint_id: f.mode === 'blueprint' && f.blueprint ? f.blueprint.id : null
+  }))
+  formData.append('additional_filaments', JSON.stringify(additionalFilamentsData))
 
   if (photoFile.value) {
     formData.append('photo', photoFile.value)
@@ -104,12 +169,36 @@ const addBrand = (newBrand) => {
   printer.value.manufacturer = brand
 }
 
+const addAdditionalFilament = () => {
+  additionalFilaments.value.push({
+    type: '',
+    mode: 'custom',
+    custom: '',
+    blueprint: null
+  })
+}
+
+const removeAdditionalFilament = (index) => {
+  additionalFilaments.value.splice(index, 1)
+}
+
+const formatMaterialLabel = (mat) => {
+  if (!mat) return ''
+  const brandName = mat.brand?.name || ''
+  const diameter = mat.diameter ? ` (${mat.diameter}mm)` : ''
+  return `${brandName} ${mat.name}${diameter}`.trim()
+}
+
 onMounted(async () => {
   try {
-    const response = await APIService.getBrands()
-    brands.value = response.data
+    const [brandsRes, materialsRes] = await Promise.all([
+      APIService.getBrands(),
+      APIService.getMaterials({ type: 'blueprint' })
+    ])
+    brands.value = brandsRes.data
+    materialBlueprints.value = materialsRes.data.results || materialsRes.data
   } catch (error) {
-    console.error('Error loading brands:', error)
+    console.error('Error loading options:', error)
   }
 })
 </script>
@@ -182,6 +271,141 @@ onMounted(async () => {
         <img :src="photoPreview || printer.photo" alt="Printer preview" />
       </div>
     </div>
+
+    <!-- Primary Filament -->
+      <div class="form-group">
+        <label>Primary Color/Material</label>
+        <div class="radio-group">
+          <label class="radio-label">
+            <input type="radio" v-model="primaryFilamentMode" value="custom" />
+            Custom Entry
+          </label>
+          <label class="radio-label">
+            <input type="radio" v-model="primaryFilamentMode" value="blueprint" />
+            Select from Library
+          </label>
+        </div>
+        
+        <input 
+          v-if="primaryFilamentMode === 'custom'"
+          v-model="printer.primary_filament_custom"
+          type="text"
+          placeholder="e.g., Red PLA, Black PETG"
+          class="filament-input"
+        />
+        
+        <multiselect
+          v-if="primaryFilamentMode === 'blueprint'"
+          v-model="printer.primary_filament_blueprint"
+          :options="materialBlueprints"
+          :custom-label="formatMaterialLabel"
+          track-by="id"
+          placeholder="Select material blueprint"
+          :show-no-results="false"
+        ></multiselect>
+      </div>
+
+      <!-- Accent Filament -->
+      <div class="form-group">
+        <label>Accent Color/Material</label>
+        <div class="radio-group">
+          <label class="radio-label">
+            <input type="radio" v-model="accentFilamentMode" value="custom" />
+            Custom Entry
+          </label>
+          <label class="radio-label">
+            <input type="radio" v-model="accentFilamentMode" value="blueprint" />
+            Select from Library
+          </label>
+        </div>
+        
+        <input 
+          v-if="accentFilamentMode === 'custom'"
+          v-model="printer.accent_filament_custom"
+          type="text"
+          placeholder="e.g., White PLA, Clear PETG"
+          class="filament-input"
+        />
+        
+        <multiselect
+          v-if="accentFilamentMode === 'blueprint'"
+          v-model="printer.accent_filament_blueprint"
+          :options="materialBlueprints"
+          :custom-label="formatMaterialLabel"
+          track-by="id"
+          placeholder="Select material blueprint"
+          :show-no-results="false"
+        ></multiselect>
+      </div>
+
+      <!-- Additional Filaments -->
+      <div v-if="additionalFilaments.length > 0" class="additional-filaments-section">
+        <label>Additional Materials</label>
+        <div 
+          v-for="(filament, index) in additionalFilaments" 
+          :key="index"
+          class="additional-filament-card"
+        >
+          <div class="card-content">
+            <div class="form-group">
+              <label>Type</label>
+              <input 
+                v-model="filament.type"
+                type="text"
+                placeholder="e.g., Canopy, Extruder, X-Mount"
+              />
+            </div>
+
+            <div class="form-group">
+              <label>Color/Material</label>
+              <div class="radio-group">
+                <label class="radio-label">
+                  <input type="radio" v-model="filament.mode" value="custom" />
+                  Custom Entry
+                </label>
+                <label class="radio-label">
+                  <input type="radio" v-model="filament.mode" value="blueprint" />
+                  Select from Library
+                </label>
+              </div>
+              
+              <input 
+                v-if="filament.mode === 'custom'"
+                v-model="filament.custom"
+                type="text"
+                placeholder="e.g., Orange PLA"
+                class="filament-input"
+              />
+              
+              <multiselect
+                v-if="filament.mode === 'blueprint'"
+                v-model="filament.blueprint"
+                :options="materialBlueprints"
+                :custom-label="formatMaterialLabel"
+                track-by="id"
+                placeholder="Select material blueprint"
+                :show-no-results="false"
+              ></multiselect>
+            </div>
+
+            <button 
+              type="button" 
+              class="btn btn-sm btn-danger remove-btn"
+              @click="removeAdditionalFilament(index)"
+            >
+              Remove
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <button 
+        type="button" 
+        class="btn btn-secondary add-material-btn"
+        @click="addAdditionalFilament"
+      >
+        + Add Another Material
+      </button>
 
     <div class="form-group">
       <label for="notes">Notes</label>
@@ -283,5 +507,64 @@ select {
 }
 .multiselect__tag {
   background: var(--color-blue);
+}
+
+/* Filament tracking styles */
+.radio-group {
+  display: flex;
+  gap: 1.5rem;
+  margin-bottom: 0.75rem;
+}
+
+.radio-label {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-weight: normal;
+  cursor: pointer;
+  color: var(--color-text);
+}
+
+.radio-label input[type="radio"] {
+  width: auto;
+  margin: 0;
+  cursor: pointer;
+}
+
+.filament-input {
+  margin-top: 0.5rem;
+}
+
+.additional-filaments-section {
+  margin-top: 1.5rem;
+}
+
+.additional-filament-card {
+  margin-bottom: 1rem;
+  padding: 0;
+  background-color: transparent;
+  border: none;
+}
+
+.additional-filament-card .card-content {
+  position: relative;
+}
+
+.additional-filament-card .form-group {
+  margin-bottom: 1rem;
+}
+
+.additional-filament-card .form-group:last-of-type {
+  margin-bottom: 0.5rem;
+}
+
+.remove-btn {
+  margin-top: 0.5rem;
+}
+
+.add-material-btn {
+  width: 100%;
+  margin-top: 1rem;
+  margin-bottom: 2rem;
 }
 </style>

@@ -695,6 +695,13 @@ class Printer(models.Model):
     carbon_reminder_date = models.DateField(null=True, blank=True)
     maintenance_notes = models.TextField(null=True, blank=True)
     moonraker_url = models.URLField(blank=True, null=True)
+    
+    # Filament tracking fields
+    primary_filament_custom = models.CharField(max_length=255, null=True, blank=True, help_text="Custom primary filament description")
+    primary_filament_blueprint = models.ForeignKey('Material', on_delete=models.SET_NULL, null=True, blank=True, related_name='printers_using_as_primary', help_text="Material blueprint for primary filament")
+    accent_filament_custom = models.CharField(max_length=255, null=True, blank=True, help_text="Custom accent filament description")
+    accent_filament_blueprint = models.ForeignKey('Material', on_delete=models.SET_NULL, null=True, blank=True, related_name='printers_using_as_accent', help_text="Material blueprint for accent filament")
+    additional_filaments = models.JSONField(default=list, blank=True, help_text="Additional filaments: [{'type': 'Top Hat', 'custom': 'Red PLA', 'blueprint_id': null}, ...]")
     class Meta:
         verbose_name = "Printer"
         verbose_name_plural = "Printers"
@@ -764,6 +771,11 @@ class Project(models.Model):
     photo = models.ImageField(upload_to='project_photos/', null=True, blank=True)
     associated_inventory_items = models.ManyToManyField(InventoryItem, through='ProjectInventory', related_name='associated_projects')
     associated_printers = models.ManyToManyField(Printer, through='ProjectPrinters', related_name='associated_projects')
+    materials = models.JSONField(
+        default=list,
+        blank=True,
+        help_text='Array of material objects with label, custom_color, and blueprint_id fields'
+    )
     
     class Meta:
         verbose_name = "Project"
@@ -900,12 +912,32 @@ class Tracker(models.Model):
     primary_color = models.CharField(
         max_length=7, 
         default='#1E40AF',
-        help_text='Hex color code for primary color (e.g., #1E40AF)'
+        blank=True,
+        help_text='Hex color code for primary color (e.g., #1E40AF) - DEPRECATED: Use primary_material instead'
     )
     accent_color = models.CharField(
         max_length=7, 
-        default='#DC2626',
-        help_text='Hex color code for accent color (e.g., #DC2626)'
+        default='',
+        blank=True,
+        help_text='Hex color code for accent color (e.g., #DC2626) - DEPRECATED: Use accent_material instead'
+    )
+    
+    # Material-based color configuration (NEW - replaces hex colors)
+    primary_material = models.ForeignKey(
+        'Material',
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='trackers_as_primary',
+        help_text='Material blueprint for primary color files'
+    )
+    accent_material = models.ForeignKey(
+        'Material',
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='trackers_as_accent',
+        help_text='Material blueprint for accent color files'
     )
     
     # Timestamps
@@ -1088,7 +1120,16 @@ class TrackerFile(models.Model):
     material = models.CharField(
         max_length=50, 
         blank=True,
-        help_text='Material type (e.g., ABS, PLA, PETG)'
+        help_text='Material name(s) for display (legacy field, use material_ids instead)'
+    )
+    material_ids = models.JSONField(
+        default=list,
+        blank=True,
+        help_text='Array of Material IDs (e.g., [1, 5, 13] for multicolor)'
+    )
+    material_override = models.BooleanField(
+        default=False,
+        help_text='If True, this file has custom materials and won\'t be updated by tracker-level material changes'
     )
     quantity = models.IntegerField(
         default=1,

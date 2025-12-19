@@ -552,19 +552,66 @@ class PrinterSerializer(serializers.ModelSerializer):
     manufacturer = BrandSerializer(read_only=True)
     mods = ModSerializer(many=True, read_only=True)
     associated_projects = serializers.PrimaryKeyRelatedField(many=True, read_only=True)
+    
+    # Filament fields - nested serialization for read, FK handling for write
+    primary_filament_blueprint = MaterialSerializer(read_only=True)
+    accent_filament_blueprint = MaterialSerializer(read_only=True)
+    additional_filaments_display = serializers.SerializerMethodField()
+    filamentspool_set = FilamentSpoolSerializer(many=True, read_only=True)  # Assigned spools
+    
     class Meta:
         model = Printer
         fields = '__all__'
+    
+    def get_additional_filaments_display(self, obj):
+        """Enrich additional_filaments with full material blueprint data"""
+        if not obj.additional_filaments:
+            return []
+        
+        enriched = []
+        for filament in obj.additional_filaments:
+            enriched_filament = filament.copy()
+            blueprint_id = filament.get('blueprint_id')
+            if blueprint_id:
+                try:
+                    material = Material.objects.get(id=blueprint_id)
+                    enriched_filament['blueprint'] = MaterialSerializer(material).data
+                except Material.DoesNotExist:
+                    enriched_filament['blueprint'] = None
+            else:
+                enriched_filament['blueprint'] = None
+            enriched.append(enriched_filament)
+        return enriched
 
     def create(self, validated_data):
         request_data = self.context['request'].data
         validated_data['manufacturer'] = get_or_create_nested(Brand, request_data.get('manufacturer'))
+        
+        # Handle filament blueprint FKs
+        if 'primary_filament_blueprint_id' in request_data:
+            primary_id = request_data.get('primary_filament_blueprint_id')
+            validated_data['primary_filament_blueprint_id'] = primary_id if primary_id else None
+        
+        if 'accent_filament_blueprint_id' in request_data:
+            accent_id = request_data.get('accent_filament_blueprint_id')
+            validated_data['accent_filament_blueprint_id'] = accent_id if accent_id else None
+        
         return Printer.objects.create(**validated_data)
 
     def update(self, instance, validated_data):
         request_data = self.context['request'].data
         if 'manufacturer' in request_data:
             instance.manufacturer = get_or_create_nested(Brand, request_data.get('manufacturer'))
+        
+        # Handle filament blueprint FKs
+        if 'primary_filament_blueprint_id' in request_data:
+            primary_id = request_data.get('primary_filament_blueprint_id')
+            instance.primary_filament_blueprint_id = primary_id if primary_id else None
+        
+        if 'accent_filament_blueprint_id' in request_data:
+            accent_id = request_data.get('accent_filament_blueprint_id')
+            instance.accent_filament_blueprint_id = accent_id if accent_id else None
+        
         return super().update(instance, validated_data)
 
 class ProjectSerializer(serializers.ModelSerializer):
@@ -574,6 +621,8 @@ class ProjectSerializer(serializers.ModelSerializer):
     links = ProjectLinkSerializer(many=True, read_only=True)
     files = ProjectFileSerializer(many=True, read_only=True)
     trackers = serializers.SerializerMethodField()  # Add trackers to project detail
+    materials_display = serializers.SerializerMethodField()  # Enriched materials with blueprint data
+    filaments_used = FilamentSpoolSerializer(many=True, read_only=True)  # Assigned spools
 
     inventory_item_ids = serializers.PrimaryKeyRelatedField(many=True, queryset=InventoryItem.objects.all(), source='associated_inventory_items', write_only=True, required=False)
     printer_ids = serializers.PrimaryKeyRelatedField(many=True, queryset=Printer.objects.all(), source='associated_printers', write_only=True, required=False)
@@ -584,7 +633,8 @@ class ProjectSerializer(serializers.ModelSerializer):
         fields = [
             'id', 'project_name', 'description', 'status', 'start_date', 'due_date',
             'notes', 'photo', 'associated_inventory_items', 'associated_printers', 
-            'total_cost', 'inventory_item_ids', 'printer_ids', 'links', 'files', 'trackers', 'tracker_ids'
+            'total_cost', 'inventory_item_ids', 'printer_ids', 'links', 'files', 'trackers', 'tracker_ids',
+            'materials', 'materials_display', 'filaments_used'
         ]
     
     def get_total_cost(self, obj):
@@ -595,6 +645,23 @@ class ProjectSerializer(serializers.ModelSerializer):
         """Return list of trackers associated with this project."""
         from .serializers import TrackerListSerializer
         return TrackerListSerializer(obj.trackers.all(), many=True).data
+
+    def get_materials_display(self, obj):
+        """Enrich materials array with full Material blueprint data."""
+        if not obj.materials:
+            return []
+        
+        enriched = []
+        for material in obj.materials:
+            enriched_material = material.copy()
+            if material.get('blueprint_id'):
+                try:
+                    blueprint = Material.objects.get(id=material['blueprint_id'])
+                    enriched_material['blueprint'] = MaterialSerializer(blueprint).data
+                except Material.DoesNotExist:
+                    enriched_material['blueprint'] = None
+            enriched.append(enriched_material)
+        return enriched
 
     def create(self, validated_data):
         inventory_items = validated_data.pop('associated_inventory_items', None)
@@ -645,14 +712,16 @@ class TrackerFileSerializer(serializers.ModelSerializer):
     remaining_quantity = serializers.IntegerField(read_only=True)
     is_complete = serializers.BooleanField(read_only=True)
     local_file = serializers.SerializerMethodField()
+    materials_display = serializers.SerializerMethodField()
     
     class Meta:
         model = TrackerFile
         fields = [
             'id', 'tracker', 'filename', 'directory_path', 'github_url', 
-            'local_file', 'file_size', 'sha', 'color', 'material', 'quantity',
-            'is_selected', 'status', 'printed_quantity', 'remaining_quantity',
-            'is_complete', 'created_date', 'updated_date', 'download_date',
+            'local_file', 'file_size', 'sha', 'color', 'material', 'material_ids',
+            'materials_display', 'material_override', 'quantity', 'is_selected', 'status', 
+            'printed_quantity', 'remaining_quantity', 'is_complete', 
+            'created_date', 'updated_date', 'download_date',
             # Download tracking fields
             'download_status', 'download_error', 'downloaded_at', 
             'file_checksum', 'actual_file_size'
@@ -669,6 +738,19 @@ class TrackerFileSerializer(serializers.ModelSerializer):
             # Return relative URL starting with /media/
             return obj.local_file.url if obj.local_file.url.startswith('/') else f"/{obj.local_file.url}"
         return None
+    
+    def get_materials_display(self, obj):
+        """
+        Enrich material_ids with full Material objects for display.
+        Returns array of Material objects matching the IDs in material_ids.
+        Falls back to empty array if no material_ids.
+        """
+        if not obj.material_ids:
+            return []
+        
+        from .models import Material
+        materials = Material.objects.filter(id__in=obj.material_ids)
+        return MaterialSerializer(materials, many=True).data
 
 
 class TrackerFileCreateSerializer(serializers.ModelSerializer):
@@ -678,7 +760,7 @@ class TrackerFileCreateSerializer(serializers.ModelSerializer):
         model = TrackerFile
         fields = [
             'filename', 'directory_path', 'github_url', 'file_size', 'sha',
-            'color', 'material', 'quantity', 'is_selected'
+            'color', 'material', 'material_ids', 'material_override', 'quantity', 'is_selected'
         ]
         extra_kwargs = {
             'github_url': {'required': False, 'allow_blank': True}
@@ -703,6 +785,10 @@ class TrackerSerializer(serializers.ModelSerializer):
     secondary_filament_info = serializers.SerializerMethodField()
     filament_cost = serializers.ReadOnlyField()
     
+    # Material-based color configuration (NEW)
+    primary_material_display = serializers.SerializerMethodField()
+    accent_material_display = serializers.SerializerMethodField()
+    
     class Meta:
         model = Tracker
         fields = [
@@ -717,7 +803,10 @@ class TrackerSerializer(serializers.ModelSerializer):
             # Filament tracking fields (NEW)
             'primary_filament', 'primary_filament_info', 'primary_filament_used_grams',
             'secondary_filament', 'secondary_filament_info', 'secondary_filament_used_grams',
-            'filament_cost'
+            'filament_cost',
+            # Material-based colors (NEW)
+            'primary_material', 'primary_material_display',
+            'accent_material', 'accent_material_display'
         ]
         read_only_fields = [
             'created_date', 'updated_date', 
@@ -745,6 +834,18 @@ class TrackerSerializer(serializers.ModelSerializer):
                 'current_weight': obj.secondary_filament.current_weight
             }
         return None
+    
+    def get_primary_material_display(self, obj):
+        """Return full Material object for primary color with color hex for badges."""
+        if obj.primary_material:
+            return MaterialSerializer(obj.primary_material).data
+        return None
+    
+    def get_accent_material_display(self, obj):
+        """Return full Material object for accent color with color hex for badges."""
+        if obj.accent_material:
+            return MaterialSerializer(obj.accent_material).data
+        return None
 
 
 class TrackerCreateSerializer(serializers.ModelSerializer):
@@ -755,7 +856,8 @@ class TrackerCreateSerializer(serializers.ModelSerializer):
         model = Tracker
         fields = [
             'id', 'name', 'project', 'github_url', 'storage_type', 'creation_mode',
-            'primary_color', 'accent_color', 'notes', 'files'
+            'primary_color', 'accent_color', 'primary_material', 'accent_material', 
+            'notes', 'files'
         ]
     
     def create(self, validated_data):
