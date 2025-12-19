@@ -19,6 +19,15 @@ const isPhotoModalVisible = ref(false)
 const isDownloading = ref(false)
 const isAddInventoryModalVisible = ref(false)
 
+// Color swatch lightbox state
+const isColorSwatchModalVisible = ref(false)
+const selectedColorHex = ref(null)
+
+const openColorSwatchModal = (colorHex) => {
+  selectedColorHex.value = colorHex
+  isColorSwatchModalVisible.value = true
+}
+
 const fetchProject = async () => {
   try {
     isLoading.value = true
@@ -119,6 +128,28 @@ const getTrackerProgressStyle = (tracker) => {
   }
 }
 
+// Format material name from blueprint
+const formatMaterialName = (material) => {
+  if (!material) return ''
+  const brandName = material.brand?.name || ''
+  const diameter = material.diameter ? ` (${material.diameter}mm)` : ''
+  return `${brandName} ${material.name}${diameter}`.trim()
+}
+
+// Format spool display name
+const getSpoolDisplayName = (spool) => {
+  // Blueprint-based spool
+  if (spool.filament_type) {
+    return formatMaterialName(spool.filament_type)
+  }
+  // Quick Add spool
+  if (spool.standalone_name) {
+    const brand = spool.standalone_brand?.name || ''
+    return brand ? `${brand} ${spool.standalone_name}` : spool.standalone_name
+  }
+  return `Spool #${spool.id}`
+}
+
 const existingInventoryIds = computed(() => {
   return project.value?.associated_inventory_items?.map((item) => item.id) || []
 })
@@ -205,6 +236,53 @@ onMounted(fetchProject)
                 </li>
               </ul>
               <p v-else>No printers associated with this project.</p>
+            </div>
+            <hr v-if="project.materials_display && project.materials_display.length > 0" />
+            <div v-if="project.materials_display && project.materials_display.length > 0" class="card-section">
+              <h4>Materials</h4>
+              <div class="materials-list">
+                <div v-for="(material, index) in project.materials_display" :key="index" class="material-item">
+                  <strong v-if="material.label">{{ material.label }}:</strong>
+                  <span 
+                    v-if="material.blueprint && material.blueprint.colors && material.blueprint.colors.length > 0"
+                    class="color-swatch clickable"
+                    :style="{ backgroundColor: material.blueprint.colors[0] }"
+                    :title="material.blueprint.colors[0]"
+                    @click.stop="openColorSwatchModal(material.blueprint.colors[0])"
+                  ></span>
+                  <span v-if="material.custom_color">{{ material.custom_color }}</span>
+                  <router-link 
+                    v-if="material.blueprint"
+                    :to="`/filaments/materials/${material.blueprint.id}`"
+                    class="material-link"
+                  >
+                    {{ formatMaterialName(material.blueprint) }}
+                  </router-link>
+                </div>
+              </div>
+            </div>
+            <hr v-if="project.filaments_used && project.filaments_used.length > 0" />
+            <div v-if="project.filaments_used && project.filaments_used.length > 0" class="card-section">
+              <h4>Assigned Spools</h4>
+              <ul class="resource-list">
+                <li v-for="spool in project.filaments_used" :key="spool.id">
+                  <div class="spool-name-wrapper">
+                    <span 
+                      v-if="spool.filament_type && spool.filament_type.colors && spool.filament_type.colors.length > 0"
+                      class="color-swatch clickable"
+                      :style="{ backgroundColor: spool.filament_type.colors[0] }"
+                      :title="spool.filament_type.colors[0]"
+                      @click.stop="openColorSwatchModal(spool.filament_type.colors[0])"
+                    ></span>
+                    <router-link :to="`/filaments/${spool.id}`">
+                      {{ getSpoolDisplayName(spool) }}
+                    </router-link>
+                  </div>
+                  <span class="spool-status" :class="`status-${spool.status}`">
+                    {{ spool.status.replace('_', ' ').toUpperCase() }}
+                  </span>
+                </li>
+              </ul>
             </div>
           </div>
         </div>
@@ -350,6 +428,22 @@ onMounted(fetchProject)
       <div class="modal-content" @click.stop>
         <button @click="isPhotoModalVisible = false" class="close-button">&times;</button>
         <img :src="project.photo" alt="Full size project photo" class="modal-image" />
+      </div>
+    </div>
+
+    <!-- Color Swatch Lightbox Modal -->
+    <div
+      v-if="isColorSwatchModalVisible"
+      class="modal-overlay"
+      @click="isColorSwatchModalVisible = false"
+    >
+      <div class="color-swatch-modal-content" @click.stop>
+        <button @click="isColorSwatchModalVisible = false" class="close-button">&times;</button>
+        <div
+          class="color-swatch-large"
+          :style="{ backgroundColor: selectedColorHex || '#cccccc' }"
+        ></div>
+        <p class="color-hex-label">{{ selectedColorHex }}</p>
       </div>
     </div>
 
@@ -606,6 +700,12 @@ onMounted(fetchProject)
 .card-body :deep(a:hover) {
   text-decoration: underline;
 }
+
+.spool-name-wrapper {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
 .block-add-form {
   display: flex;
   flex-direction: column;
@@ -860,5 +960,141 @@ onMounted(fetchProject)
   .manage-trackers-button button {
     width: 100%;
   }
+}
+
+/* Materials List Styling */
+.materials-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.material-item {
+  padding: 0.5rem 0;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.material-item strong {
+  color: var(--color-heading);
+}
+
+.color-swatch {
+  display: inline-block;
+  width: 20px;
+  height: 20px;
+  border-radius: 3px;
+  border: 1.5px solid var(--color-border);
+  flex-shrink: 0;
+}
+
+.color-swatch.clickable {
+  cursor: pointer;
+  transition: transform 0.2s ease;
+}
+
+.color-swatch.clickable:hover {
+  transform: scale(1.1);
+}
+
+.material-link {
+  margin-left: 0.5rem;
+  color: var(--color-text);
+  text-decoration: underline;
+}
+
+.material-link:hover {
+  opacity: 0.8;
+}
+
+/* Spool Status Styling - matches FilamentSpoolDetailView */
+.spool-status {
+  display: inline-block;
+  padding: 0.25rem 0.6rem;
+  margin-left: 0.5rem;
+  border-radius: 12px;
+  font-size: 0.7rem;
+  font-weight: 600;
+  text-transform: uppercase;
+}
+
+.spool-status.status-new {
+  background-color: rgba(59, 130, 246, 0.1);
+  color: #3b82f6;
+  border: 1px solid rgba(59, 130, 246, 0.3);
+}
+
+.spool-status.status-opened {
+  background-color: rgba(34, 197, 94, 0.1);
+  color: #22c55e;
+  border: 1px solid rgba(34, 197, 94, 0.3);
+}
+
+.spool-status.status-in_use {
+  background-color: rgba(168, 85, 247, 0.1);
+  color: #a855f7;
+  border: 1px solid rgba(168, 85, 247, 0.3);
+}
+
+.spool-status.status-low {
+  background-color: rgba(245, 158, 11, 0.1);
+  color: #f59e0b;
+  border: 1px solid rgba(245, 158, 11, 0.3);
+}
+
+.spool-status.status-empty {
+  background-color: rgba(107, 114, 128, 0.1);
+  color: #6b7280;
+  border: 1px solid rgba(107, 114, 128, 0.3);
+}
+
+.spool-status.status-archived {
+  background-color: rgba(107, 114, 128, 0.1);
+  color: #6b7280;
+  border: 1px solid rgba(107, 114, 128, 0.3);
+  text-decoration: line-through;
+}
+
+/* Color Swatch Modal Styles */
+.color-swatch-modal-content {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1rem;
+}
+
+.close-button {
+  position: absolute;
+  top: -40px;
+  right: 0;
+  background: none;
+  border: none;
+  color: white;
+  font-size: 2rem;
+  cursor: pointer;
+  padding: 0.5rem;
+}
+
+.close-button:hover {
+  color: var(--color-text-muted);
+}
+
+.color-swatch-large {
+  width: 250px;
+  height: 250px;
+  border-radius: 16px;
+  border: 3px solid rgba(255, 255, 255, 0.3);
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+}
+
+.color-hex-label {
+  color: white;
+  font-size: 1.25rem;
+  font-family: monospace;
+  background: rgba(0, 0, 0, 0.5);
+  padding: 0.5rem 1rem;
+  border-radius: 8px;
 }
 </style>

@@ -17,6 +17,8 @@ const photoPreview = ref(null)
 const allInventoryItems = ref([])
 const allPrinters = ref([])
 const allTrackers = ref([])
+const materialBlueprints = ref([])
+const projectMaterials = ref([])
 
 watch(
   () => props.initialData,
@@ -28,6 +30,15 @@ watch(
       project.value.tracker_ids = newData.trackers
         ? newData.trackers.map((tracker) => tracker.id)
         : []
+      
+      // Initialize materials with mode tracking
+      projectMaterials.value = (newData.materials_display || newData.materials || []).map(mat => ({
+        label: mat.label || '',
+        custom_color: mat.custom_color || '',
+        blueprint_obj: mat.blueprint || null,
+        mode: mat.blueprint || mat.blueprint_id ? 'blueprint' : 'custom'
+      }))
+      
       isEditMode.value = true
     } else {
       project.value = {
@@ -41,6 +52,7 @@ watch(
         printer_ids: [],
         tracker_ids: [],
       }
+      projectMaterials.value = []
       isEditMode.value = false
     }
   },
@@ -53,6 +65,26 @@ const handleFileUpload = (event) => {
     photoFile.value = file
     photoPreview.value = URL.createObjectURL(file)
   }
+}
+
+const addMaterial = () => {
+  projectMaterials.value.push({
+    label: '',
+    custom_color: '',
+    blueprint_obj: null,
+    mode: 'custom'
+  })
+}
+
+const removeMaterial = (index) => {
+  projectMaterials.value.splice(index, 1)
+}
+
+const formatMaterialName = (material) => {
+  if (!material) return ''
+  const brandName = material.brand?.name || ''
+  const diameter = material.diameter ? ` (${material.diameter}mm)` : ''
+  return `${brandName} ${material.name}${diameter}`.trim()
 }
 
 const saveProject = async () => {
@@ -71,6 +103,14 @@ const saveProject = async () => {
     formData.append('photo', photoFile.value)
   }
 
+  // Add materials as JSON
+  const materialsData = projectMaterials.value.map(mat => ({
+    label: mat.label,
+    custom_color: mat.mode === 'custom' ? mat.custom_color : '',
+    blueprint_id: mat.mode === 'blueprint' && mat.blueprint_obj ? mat.blueprint_obj.id : null
+  }))
+  formData.append('materials', JSON.stringify(materialsData))
+
   try {
     let savedProject
     if (isEditMode.value) {
@@ -86,14 +126,16 @@ const saveProject = async () => {
 
 onMounted(async () => {
   try {
-    const [itemsRes, printersRes, trackersRes] = await Promise.all([
+    const [itemsRes, printersRes, trackersRes, materialsRes] = await Promise.all([
       APIService.getInventoryItems(),
       APIService.getPrinters(),
       APIService.getTrackers(),
+      APIService.getMaterials({ type: 'blueprint' }),
     ])
     allInventoryItems.value = itemsRes.data
     allPrinters.value = printersRes.data
     allTrackers.value = trackersRes.data
+    materialBlueprints.value = materialsRes.data
   } catch (error) {
     console.error('Error loading form options:', error)
   }
@@ -159,6 +201,83 @@ onMounted(async () => {
         placeholder="Select print trackers for this project"
       ></multiselect>
     </div>
+
+    <!-- Materials Section -->
+    <div class="materials-section">
+      <h4>Materials</h4>
+      <div v-for="(material, index) in projectMaterials" :key="index" class="material-entry">
+        <div class="form-group">
+          <label>Label</label>
+          <input 
+            v-model="material.label"
+            type="text"
+            placeholder="e.g., Primary, Accent, Support"
+          />
+        </div>
+
+        <div class="form-group">
+          <label>Material/Blueprint</label>
+          <div class="radio-group">
+            <label>
+              <input 
+                type="radio" 
+                :name="`material-mode-${index}`"
+                value="custom"
+                v-model="material.mode"
+              />
+              Custom Material
+            </label>
+            <label>
+              <input 
+                type="radio" 
+                :name="`material-mode-${index}`"
+                value="blueprint"
+                v-model="material.mode"
+              />
+              Material Blueprint
+            </label>
+          </div>
+        </div>
+
+        <div v-if="material.mode === 'custom'" class="form-group">
+          <label>Custom Material</label>
+          <input 
+            v-model="material.custom_color"
+            type="text"
+            placeholder="e.g., Red ASA, Blue ABS, Transparent PETG"
+          />
+        </div>
+
+        <div v-else class="form-group">
+          <label>Select Blueprint</label>
+          <multiselect
+            v-model="material.blueprint_obj"
+            :options="materialBlueprints"
+            :custom-label="formatMaterialName"
+            track-by="id"
+            placeholder="Select material blueprint"
+            :show-no-results="false"
+          ></multiselect>
+        </div>
+
+        <button 
+          type="button" 
+          class="btn btn-danger btn-small"
+          @click="removeMaterial(index)"
+        >
+          Remove Material
+        </button>
+      </div>
+
+      <button 
+        type="button" 
+        class="btn btn-secondary add-material-btn"
+        @click="addMaterial"
+      >
+        + Add Material
+      </button>
+    </div>
+
     <div class="form-group">
       <label for="photo">Photo / Render</label>
       <input id="photo" type="file" @change="handleFileUpload" accept="image/*" />
@@ -265,5 +384,66 @@ select {
 }
 .multiselect__tag {
   background: var(--color-blue);
+}
+
+/* Materials Section Styling */
+.materials-section {
+  margin-bottom: 1.5rem;
+  padding: 1rem 0;
+}
+
+.materials-section h4 {
+  color: var(--color-heading);
+  margin-bottom: 1rem;
+  font-size: 1.1rem;
+}
+
+.material-entry {
+  padding: 0;
+  margin-bottom: 1.5rem;
+  border-bottom: 1px solid var(--color-border);
+  padding-bottom: 1.5rem;
+}
+
+.material-entry:last-child {
+  border-bottom: none;
+}
+
+.radio-group {
+  display: flex;
+  gap: 1.5rem;
+  margin-top: 0.5rem;
+}
+
+.radio-group label {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-weight: normal;
+  cursor: pointer;
+}
+
+.radio-group input[type="radio"] {
+  width: auto;
+  cursor: pointer;
+}
+
+.btn-small {
+  padding: 6px 12px;
+  font-size: 0.875rem;
+}
+
+.btn-danger {
+  background-color: var(--color-error, #dc3545);
+  color: white;
+  border: none;
+}
+
+.btn-danger:hover {
+  background-color: var(--color-error-dark, #c82333);
+}
+
+.add-material-btn {
+  margin-bottom: 2rem;
 }
 </style>

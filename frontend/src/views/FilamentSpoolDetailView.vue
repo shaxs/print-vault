@@ -433,11 +433,19 @@ onMounted(() => {
                 </div>
                 <div v-else-if="spool.assigned_printer" class="info-item">
                   <span class="label">Assigned Printer:</span>
-                  <span class="value">{{ spool.assigned_printer.title }}</span>
+                  <span class="value">
+                    <router-link :to="`/printers/${spool.assigned_printer.id}`">
+                      {{ spool.assigned_printer.title }}
+                    </router-link>
+                  </span>
                 </div>
                 <div v-if="spool.project" class="info-item">
                   <span class="label">Associated Project:</span>
-                  <span class="value">{{ spool.project.project_name }}</span>
+                  <span class="value">
+                    <router-link :to="`/projects/${spool.project.id}`">
+                      {{ spool.project.project_name }}
+                    </router-link>
+                  </span>
                 </div>
               </div>
             </div>
@@ -788,6 +796,15 @@ onMounted(() => {
   overflow-wrap: break-word;
   min-width: 0;
   flex: 1;
+}
+
+.info-item .value a {
+  color: var(--color-text);
+  text-decoration: none;
+}
+
+.info-item .value a:hover {
+  opacity: 0.8;
 }
 
 @media (max-width: 768px) {

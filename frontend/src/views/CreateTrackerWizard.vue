@@ -254,7 +254,7 @@ async function createTracker() {
     return
   }
 
-  if (!storageOption.value) {
+  if (isStorageOptionRequired.value && !storageOption.value) {
     submitError.value = 'Please select a file storage option'
     return
   }
@@ -282,6 +282,7 @@ async function createTracker() {
             sha: node.sha || '',
             color: node.color || 'Primary',
             material: node.material || 'ABS',
+            material_ids: node.material_ids || [],
             quantity: node.quantity || 1,
             is_selected: true,
           })
@@ -304,14 +305,29 @@ async function createTracker() {
       showDownloadModal.value = true
     }
 
+    // Detect primary and accent materials from selected files
+    // Find the most common material_id for Primary and Accent files
+    const primaryMaterialIds = selectedFilesData
+      .filter(f => f.color === 'Primary' && f.material_ids && f.material_ids.length > 0)
+      .map(f => f.material_ids[0]) // Take first material if multiple
+    const accentMaterialIds = selectedFilesData
+      .filter(f => f.color === 'Accent' && f.material_ids && f.material_ids.length > 0)
+      .map(f => f.material_ids[0])
+    
+    // Get most common material ID for each color (or first one if all same)
+    const primaryMaterialId = primaryMaterialIds.length > 0 ? primaryMaterialIds[0] : null
+    const accentMaterialId = accentMaterialIds.length > 0 ? accentMaterialIds[0] : null
+    
     // Build tracker data matching TrackerCreateSerializer format
     const trackerData = {
       name: trackerName.value.trim(),
       project: selectedProject.value || null, // null if no project selected
       github_url: githubUrl.value.trim(),
       storage_type: storageOption.value, // 'link' or 'local'
-      primary_color: '#1E40AF', // Default blue - TODO: Add color picker
-      accent_color: '#DC2626', // Default red - TODO: Add color picker
+      primary_color: '#1E40AF', // Fallback hex (will be overridden by primary_material color)
+      accent_color: '#DC2626', // Fallback hex (material-based colors take precedence in UI)
+      primary_material: primaryMaterialId,
+      accent_material: accentMaterialId,
       files: selectedFilesData.map((file) => ({
         filename: file.filename,
         directory_path: file.directory_path,
@@ -320,6 +336,7 @@ async function createTracker() {
         sha: file.sha,
         color: file.color,
         material: file.material,
+        material_ids: file.material_ids || [],
         quantity: file.quantity,
         is_selected: file.is_selected,
       })),
@@ -564,6 +581,20 @@ function buildManualFileTree() {
   return tree
 }
 
+// Check if manual wizard has any URL files (not uploads)
+const hasManualUrlFiles = computed(() => {
+  return manualFiles.value.some((file) => file.source !== 'Upload')
+})
+
+// Check if storage option is required for manual mode (only when URL files exist)
+const isStorageOptionRequired = computed(() => {
+  if (creationMode.value === 'manual') {
+    return hasManualUrlFiles.value
+  }
+  // For GitHub mode, always required (all files are URLs)
+  return creationMode.value === 'github'
+})
+
 // Check if all manual files are configured
 const isManualConfigurationComplete = computed(() => {
   if (manualFiles.value.length === 0) return false
@@ -658,16 +689,41 @@ async function createManualTracker() {
               quantity: file.quantity,
               color: file.color,
               material: file.material,
+              material_ids: file.material_ids || [],
             })
           }
         })
       }
     })
 
+    // Detect primary and accent materials from all manual files (both URL and uploaded)
+    const allManualFiles = []
+    manualFileTree.value.forEach((category) => {
+      if (category.children) {
+        category.children.forEach((file) => {
+          if (file.isSelected) {
+            allManualFiles.push(file)
+          }
+        })
+      }
+    })
+    
+    const primaryMaterialIds = allManualFiles
+      .filter(f => f.color === 'Primary' && f.material_ids && f.material_ids.length > 0)
+      .map(f => f.material_ids[0])
+    const accentMaterialIds = allManualFiles
+      .filter(f => f.color === 'Accent' && f.material_ids && f.material_ids.length > 0)
+      .map(f => f.material_ids[0])
+    
+    const primaryMaterialId = primaryMaterialIds.length > 0 ? primaryMaterialIds[0] : null
+    const accentMaterialId = accentMaterialIds.length > 0 ? accentMaterialIds[0] : null
+    
     const payload = {
       name: trackerName.value,
       project: selectedProject.value,
-      storage_type: storageOption.value,
+      storage_type: hasManualUrlFiles.value ? storageOption.value : 'link', // Default to 'link' for upload-only
+      primary_material: primaryMaterialId,
+      accent_material: accentMaterialId,
       files: configuredFiles,
       creation_mode: 'manual',
     }
@@ -700,6 +756,7 @@ async function createManualTracker() {
             formData.append('category', fileData.category || 'Uploads')
             formData.append('color', fileData.color || 'Primary')
             formData.append('material', fileData.material || 'PLA')
+            formData.append('material_ids', JSON.stringify(fileData.material_ids || []))
             formData.append('quantity', fileData.quantity || 1)
 
             // Upload file with configuration
@@ -1143,12 +1200,12 @@ initializeSelectionState(fileTree4.value)
               <button
                 class="btn btn-primary"
                 @click="goToNextStep"
-                :disabled="!isManualConfigurationComplete || !storageOption"
+                :disabled="!isManualConfigurationComplete || (isStorageOptionRequired && !storageOption)"
               >
                 Next: Review & Create
               </button>
             </div>
-            <p v-if="!storageOption" class="validation-message">
+            <p v-if="isStorageOptionRequired && !storageOption" class="validation-message">
               Please select a file storage option before continuing.
             </p>
             <p v-else-if="!isManualConfigurationComplete" class="validation-message">

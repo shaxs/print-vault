@@ -16,6 +16,16 @@ const error = ref(null)
 const downloading = ref(false)
 const downloadMessage = ref('')
 
+// Material selection state
+const materials = ref([])
+const loadingMaterials = ref(false)
+const primaryMaterialMode = ref('color') // 'color' or 'blueprint'
+const accentMaterialMode = ref('color') // 'color' or 'blueprint'
+const selectedPrimaryMaterial = ref(null)
+const selectedAccentMaterial = ref(null)
+
+
+
 // Check if download button should be shown
 const shouldShowDownloadButton = computed(() => {
   if (!tracker.value) return false
@@ -43,10 +53,58 @@ const loadTracker = async () => {
     tracker.value = response.data
     // Store original storage type
     originalStorageType.value = response.data.storage_type
+    
+    // Initialize material modes based on current data
+    if (tracker.value.primary_material) {
+      primaryMaterialMode.value = 'blueprint'
+      selectedPrimaryMaterial.value = tracker.value.primary_material
+      // Populate color from material display if available
+      if (tracker.value.primary_material_display?.colors?.length > 0) {
+        tracker.value.primary_color = tracker.value.primary_material_display.colors[0]
+      }
+    } else {
+      primaryMaterialMode.value = 'color'
+      selectedPrimaryMaterial.value = null // Explicitly set to null
+    }
+    
+    if (tracker.value.accent_material) {
+      accentMaterialMode.value = 'blueprint'
+      selectedAccentMaterial.value = tracker.value.accent_material
+      // Populate color from material display if available
+      if (tracker.value.accent_material_display?.colors?.length > 0) {
+        tracker.value.accent_color = tracker.value.accent_material_display.colors[0]
+      }
+    } else {
+      accentMaterialMode.value = 'color'
+      selectedAccentMaterial.value = null // Explicitly set to null
+      // Clear accent color if it's the default (user never set it)
+      if (tracker.value.accent_color === '#DC2626') {
+        tracker.value.accent_color = ''
+      }
+    }
   } catch (err) {
     console.error('Failed to load tracker:', err)
     error.value = 'Failed to load tracker'
   }
+}
+
+const loadMaterials = async () => {
+  loadingMaterials.value = true
+  try {
+    const response = await APIService.getMaterials()
+    materials.value = response.data.results || response.data
+  } catch (err) {
+    console.error('Failed to load materials:', err)
+  } finally {
+    loadingMaterials.value = false
+  }
+}
+
+const formatMaterialLabel = (mat) => {
+  if (!mat) return ''
+  const brandName = mat.brand?.name || ''
+  const diameter = mat.diameter ? ` (${mat.diameter}mm)` : ''
+  return `${brandName} ${mat.name}${diameter}`.trim()
 }
 
 const loadProjects = async () => {
@@ -63,6 +121,21 @@ const saveTracker = async () => {
   error.value = null
 
   try {
+    // Apply material cascade if either primary or accent use blueprint mode
+    const usingBlueprintMode = 
+      (primaryMaterialMode.value === 'blueprint' && selectedPrimaryMaterial.value) ||
+      (accentMaterialMode.value === 'blueprint' && selectedAccentMaterial.value)
+    
+    if (usingBlueprintMode) {
+      await APIService.updateTrackerMaterials(route.params.id, {
+        primary_material_id: primaryMaterialMode.value === 'blueprint' ? selectedPrimaryMaterial.value : null,
+        accent_material_id: accentMaterialMode.value === 'blueprint' ? selectedAccentMaterial.value : null,
+        force_override_all: false,
+        dry_run: false
+      })
+    }
+    
+    // Save other tracker fields
     await APIService.updateTracker(route.params.id, {
       name: tracker.value.name,
       project: tracker.value.project,
@@ -71,8 +144,11 @@ const saveTracker = async () => {
       show_on_dashboard: tracker.value.show_on_dashboard || false,
       primary_color: tracker.value.primary_color,
       accent_color: tracker.value.accent_color,
+      primary_material: primaryMaterialMode.value === 'blueprint' ? selectedPrimaryMaterial.value : null,
+      accent_material: accentMaterialMode.value === 'blueprint' ? selectedAccentMaterial.value : null,
       notes: tracker.value.notes || '',
     })
+    
     router.push(`/trackers/${route.params.id}`)
   } catch (err) {
     console.error('Failed to save tracker:', err)
@@ -84,6 +160,34 @@ const saveTracker = async () => {
 
 const cancel = () => {
   router.push(`/trackers/${route.params.id}`)
+}
+
+// Update color when primary material blueprint is selected
+// Get primary material color from the loaded materials list
+const getPrimaryMaterialColor = () => {
+  if (!selectedPrimaryMaterial.value) return '#cccccc'
+  const material = materials.value.find(m => m.id === selectedPrimaryMaterial.value)
+  return material?.colors?.[0] || tracker.value.primary_color || '#cccccc'
+}
+
+// Get accent material color from the loaded materials list
+const getAccentMaterialColor = () => {
+  if (!selectedAccentMaterial.value) return '#cccccc'
+  const material = materials.value.find(m => m.id === selectedAccentMaterial.value)
+  return material?.colors?.[0] || tracker.value.accent_color || '#cccccc'
+}
+
+const onPrimaryMaterialChange = (material) => {
+  if (material && material.colors && material.colors.length > 0) {
+    tracker.value.primary_color = material.colors[0]
+  }
+}
+
+// Update color when accent material blueprint is selected
+const onAccentMaterialChange = (material) => {
+  if (material && material.colors && material.colors.length > 0) {
+    tracker.value.accent_color = material.colors[0]
+  }
 }
 
 const downloadAllFiles = async () => {
@@ -124,7 +228,7 @@ const downloadAllFiles = async () => {
 }
 
 onMounted(async () => {
-  await Promise.all([loadTracker(), loadProjects()])
+  await Promise.all([loadTracker(), loadProjects(), loadMaterials()])
   loading.value = false
 })
 </script>
@@ -213,44 +317,124 @@ onMounted(async () => {
           <input id="show_on_dashboard" v-model="tracker.show_on_dashboard" type="checkbox" />
           <label for="show_on_dashboard">Featured on Dashboard</label>
         </div>
-        <p class="help-text" style="margin-top: -0.5rem; margin-left: 0">
+        <p class="help-text" style="margin-top: -0.5rem; margin-left: 0; margin-bottom: 2rem">
           Display this tracker in the dashboard's featured section
         </p>
 
-        <div class="form-row">
-          <div class="form-group">
-            <label for="primary_color">Primary Color</label>
-            <div class="color-input-group">
+        <!-- Primary Material/Color -->
+        <div class="form-group">
+          <label>Primary Material/Color</label>
+          <div class="material-mode-toggle">
+            <label class="radio-label">
               <input
-                id="primary_color"
-                v-model="tracker.primary_color"
-                type="color"
-                class="color-picker"
+                type="radio"
+                v-model="primaryMaterialMode"
+                value="color"
               />
+              Manual Color
+            </label>
+            <label class="radio-label">
               <input
-                v-model="tracker.primary_color"
-                type="text"
-                class="form-input"
-                placeholder="#1E40AF"
+                type="radio"
+                v-model="primaryMaterialMode"
+                value="blueprint"
               />
+              Material Blueprint
+            </label>
+          </div>
+          
+          <!-- Manual Color Mode -->
+          <div v-if="primaryMaterialMode === 'color'" class="color-input-group">
+            <input
+              v-model="tracker.primary_color"
+              type="color"
+              class="color-picker"
+            />
+            <input
+              v-model="tracker.primary_color"
+              type="text"
+              class="form-input"
+              placeholder="#1E40AF"
+            />
+          </div>
+          
+          <!-- Blueprint Mode -->
+          <div v-else>
+            <select
+              v-model="selectedPrimaryMaterial"
+              @change="onPrimaryMaterialChange(materials.find(m => m.id === selectedPrimaryMaterial))"
+              class="form-input"
+            >
+              <option :value="null">-- Select Material Blueprint --</option>
+              <option v-for="mat in materials" :key="mat.id" :value="mat.id">
+                {{ formatMaterialLabel(mat) }}
+              </option>
+            </select>
+            <div v-if="selectedPrimaryMaterial" class="color-preview">
+              <div
+                class="color-swatch"
+                :style="{ background: getPrimaryMaterialColor() }"
+              ></div>
+              <span class="color-code">{{ getPrimaryMaterialColor() }}</span>
             </div>
           </div>
+        </div>
 
-          <div class="form-group">
-            <label for="accent_color">Accent Color</label>
-            <div class="color-input-group">
+        <!-- Accent Material/Color -->
+        <div class="form-group">
+          <label>Accent Material/Color</label>
+          <div class="material-mode-toggle">
+            <label class="radio-label">
               <input
-                id="accent_color"
-                v-model="tracker.accent_color"
-                type="color"
-                class="color-picker"
+                type="radio"
+                v-model="accentMaterialMode"
+                value="color"
               />
+              Manual Color
+            </label>
+            <label class="radio-label">
               <input
-                v-model="tracker.accent_color"
-                type="text"
-                class="form-input"
-                placeholder="#DC2626"
+                type="radio"
+                v-model="accentMaterialMode"
+                value="blueprint"
               />
+              Material Blueprint
+            </label>
+          </div>
+          
+          <!-- Manual Color Mode -->
+          <div v-if="accentMaterialMode === 'color'" class="color-input-group">
+            <input
+              v-model="tracker.accent_color"
+              type="color"
+              class="color-picker"
+            />
+            <input
+              v-model="tracker.accent_color"
+              type="text"
+              class="form-input"
+              placeholder="#DC2626"
+            />
+          </div>
+          
+          <!-- Blueprint Mode -->
+          <div v-else>
+            <select
+              v-model="selectedAccentMaterial"
+              @change="onAccentMaterialChange(materials.find(m => m.id === selectedAccentMaterial))"
+              class="form-input"
+            >
+              <option :value="null">-- Select Material Blueprint --</option>
+              <option v-for="mat in materials" :key="mat.id" :value="mat.id">
+                {{ formatMaterialLabel(mat) }}
+              </option>
+            </select>
+            <div v-if="selectedAccentMaterial !== null && selectedAccentMaterial !== undefined" class="color-preview">
+              <div
+                class="color-swatch"
+                :style="{ background: getAccentMaterialColor() }"
+              ></div>
+              <span class="color-code">{{ getAccentMaterialColor() }}</span>
             </div>
           </div>
         </div>
@@ -417,6 +601,66 @@ onMounted(async () => {
   to {
     transform: rotate(360deg);
   }
+}
+
+/* Material Mode Toggle */
+.material-mode-toggle {
+  display: flex;
+  gap: 1.5rem;
+  margin-bottom: 1rem;
+}
+
+.radio-label {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  cursor: pointer;
+  font-size: 0.875rem;
+  color: var(--color-text);
+}
+
+.radio-label input[type="radio"] {
+  cursor: pointer;
+}
+
+/* Color Input Group */
+.color-input-group {
+  display: flex;
+  gap: 0.75rem;
+  align-items: center;
+}
+
+.color-picker {
+  width: 60px;
+  height: 40px;
+  border: 1px solid var(--color-border);
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+/* Color Preview */
+.color-preview {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  margin-top: 0.75rem;
+  padding: 0.75rem;
+  background: var(--color-background-soft);
+  border-radius: 4px;
+}
+
+.color-swatch {
+  width: 40px;
+  height: 40px;
+  border-radius: 4px;
+  border: 1px solid var(--color-border);
+}
+
+.color-code {
+  font-family: monospace;
+  font-size: 0.875rem;
+  color: var(--color-text);
+  font-weight: 500;
 }
 
 @media (max-width: 768px) {

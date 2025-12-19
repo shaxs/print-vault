@@ -43,9 +43,10 @@ class TestTrackerModel:
     def test_tracker_default_colors(self):
         """Test default color values."""
         tracker = TrackerFactory()
-        
+
         assert tracker.primary_color == "#1E40AF"
-        assert tracker.accent_color == "#DC2626"
+        # accent_color now defaults to empty string (blank=True allows empty)
+        assert tracker.accent_color == ""
     
     def test_tracker_custom_colors(self):
         """Test custom color configuration."""

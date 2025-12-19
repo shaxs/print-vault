@@ -2752,6 +2752,8 @@ class TrackerViewSet(viewsets.ModelViewSet):
         name = request.data.get('name')
         project_id = request.data.get('project')
         storage_type = request.data.get('storage_type', 'link')
+        primary_material_id = request.data.get('primary_material')
+        accent_material_id = request.data.get('accent_material')
         
         files = request.data.get('files', [])
         
@@ -2771,7 +2773,9 @@ class TrackerViewSet(viewsets.ModelViewSet):
                 project_id=project_id if project_id else None,
                 storage_type=storage_type,
                 github_url='',  # No GitHub URL for manual trackers
-                creation_mode='manual'
+                creation_mode='manual',
+                primary_material_id=primary_material_id,
+                accent_material_id=accent_material_id
             )
             
             # Create tracker files
@@ -2787,6 +2791,7 @@ class TrackerViewSet(viewsets.ModelViewSet):
                     status='pending',
                     color=file_data.get('color', 'Primary'),
                     material=file_data.get('material', 'PLA'),
+                    material_ids=file_data.get('material_ids', []),
                     quantity=file_data.get('quantity', 1),
                     printed_quantity=0
                 )
@@ -3628,6 +3633,16 @@ class TrackerViewSet(viewsets.ModelViewSet):
         material = request.data.get('material', '')
         quantity = int(request.data.get('quantity', 1))
         
+        # Parse material_ids if provided (sent as JSON string in FormData)
+        material_ids = []
+        material_ids_str = request.data.get('material_ids')
+        if material_ids_str:
+            try:
+                import json
+                material_ids = json.loads(material_ids_str)
+            except (json.JSONDecodeError, TypeError):
+                material_ids = []
+        
         # Use StorageManager to save files
         storage_manager = StorageManager()
         created_files = []
@@ -3667,6 +3682,8 @@ class TrackerViewSet(viewsets.ModelViewSet):
                         existing_file.color = color
                     if material:
                         existing_file.material = material
+                    if material_ids:
+                        existing_file.material_ids = material_ids
                     if quantity:
                         existing_file.quantity = quantity
                     
@@ -3685,6 +3702,7 @@ class TrackerViewSet(viewsets.ModelViewSet):
                         actual_file_size=uploaded_file.size,
                         color=color,
                         material=material,
+                        material_ids=material_ids,
                         quantity=quantity,
                         status='not_started',
                         is_selected=True,
@@ -3762,6 +3780,118 @@ class TrackerViewSet(viewsets.ModelViewSet):
                 logger.error(f"Failed to cleanup files for tracker {tracker_id}: {cleanup_result.get('error')}")
         
         return response
+    
+    @action(detail=True, methods=['post'], url_path='update_materials')
+    def update_materials(self, request, pk=None):
+        """
+        Update tracker materials and cascade to files.
+        
+        POST /api/trackers/{id}/update_materials/
+        Body: {
+            "primary_material_id": int|null,  # Material ID or null
+            "accent_material_id": int|null,
+            "force_override_all": bool,     # If True, update ALL files including overridden ones
+            "dry_run": bool                 # If True, preview changes without applying them
+        }
+        """
+        tracker = self.get_object()
+        
+        primary_material_id = request.data.get('primary_material_id')
+        accent_material_id = request.data.get('accent_material_id')
+        force_override_all = request.data.get('force_override_all', False)
+        dry_run = request.data.get('dry_run', False)
+        
+        # Count affected files for preview - simplified model (no material_override checks)
+        affected_filenames = []
+        total_affected_files = 0
+        
+        # Count Primary files (ALL will be updated)
+        if primary_material_id is not None:
+            primary_files = tracker.files.filter(color='Primary')
+            total_affected_files += primary_files.count()
+            affected_filenames.extend(list(primary_files.values_list('filename', flat=True)))
+        
+        # Count Accent files (ALL will be updated)
+        if accent_material_id is not None:
+            accent_files = tracker.files.filter(color='Accent')
+            total_affected_files += accent_files.count()
+            affected_filenames.extend(list(accent_files.values_list('filename', flat=True)))
+        
+        # If dry run, return preview without making changes
+        if dry_run:
+            return Response({
+                'total_affected_files': total_affected_files,
+                'affected_filenames': affected_filenames[:10],  # Return first 10 for preview
+                'dry_run': True
+            })
+        
+        # Apply actual changes
+        # Update tracker fields
+        if primary_material_id is not None:
+            from .models import Material
+            try:
+                material = Material.objects.get(id=primary_material_id)
+                tracker.primary_material_id = primary_material_id
+                # Also update primary_color for backwards compatibility
+                if material.colors and len(material.colors) > 0:
+                    tracker.primary_color = material.colors[0]
+            except Material.DoesNotExist:
+                pass
+        
+        if accent_material_id is not None:
+            from .models import Material
+            try:
+                material = Material.objects.get(id=accent_material_id)
+                tracker.accent_material_id = accent_material_id
+                # Also update accent_color for backwards compatibility
+                if material.colors and len(material.colors) > 0:
+                    tracker.accent_color = material.colors[0]
+            except Material.DoesNotExist:
+                pass
+        
+        tracker.save()
+        
+        # Cascade to files - ALWAYS update ALL Primary/Accent files (simplified model)
+        updates_made = {'primary': 0, 'accent': 0}
+        
+        # Update Primary files
+        if primary_material_id is not None:
+            primary_files = tracker.files.filter(color='Primary')
+            
+            for file in primary_files:
+                file.material_ids = [primary_material_id]
+                # Also update material name for backwards compatibility
+                try:
+                    from .models import Material
+                    material = Material.objects.get(id=primary_material_id)
+                    file.material = material.name
+                except Material.DoesNotExist:
+                    pass
+                file.save()
+                updates_made['primary'] += 1
+        
+        # Update Accent files
+        if accent_material_id is not None:
+            accent_files = tracker.files.filter(color='Accent')
+            
+            for file in accent_files:
+                file.material_ids = [accent_material_id]
+                try:
+                    from .models import Material
+                    material = Material.objects.get(id=accent_material_id)
+                    file.material = material.name
+                except Material.DoesNotExist:
+                    pass
+                file.save()
+                updates_made['accent'] += 1
+        
+        # Return updated tracker data
+        serializer = TrackerSerializer(tracker)
+        return Response({
+            'tracker': serializer.data,
+            'updates_made': updates_made,
+            'total_affected_files': total_affected_files
+        })
 
 
 class TrackerFileViewSet(viewsets.ModelViewSet):
@@ -3802,12 +3932,55 @@ class TrackerFileViewSet(viewsets.ModelViewSet):
     
     @action(detail=True, methods=['patch'])
     def update_configuration(self, request, pk=None):
-        """Custom endpoint to update file configuration (color, material, quantity)."""
+        """Custom endpoint to update file configuration (color, material, material_ids, quantity).
+        
+        Primary/Accent files ALWAYS use tracker materials (no overrides).
+        Other/Multicolor/Clear files can have custom materials.
+        """
+        import logging
+        logger = logging.getLogger(__name__)
+        
         file = self.get_object()
-        file.color = request.data.get('color', file.color)
-        file.material = request.data.get('material', file.material)
+        tracker = file.tracker
+        
+        new_color = request.data.get('color', file.color)
+        file.color = new_color
         file.quantity = request.data.get('quantity', file.quantity)
+        
+        # Handle materials based on color type
+        if new_color == 'Primary':
+            # Use tracker's primary material
+            if tracker.primary_material:
+                file.material_ids = [tracker.primary_material.id]
+                file.material = tracker.primary_material.name
+            elif tracker.primary_color:
+                # Fallback to hex color if no material set
+                file.material_ids = []
+                file.material = ''  # Empty string, not None (field doesn't allow null)
+        elif new_color == 'Accent':
+            # Use tracker's accent material
+            if tracker.accent_material:
+                file.material_ids = [tracker.accent_material.id]
+                file.material = tracker.accent_material.name
+            elif tracker.accent_color:
+                # Fallback to hex color if no material set
+                file.material_ids = []
+                file.material = ''  # Empty string, not None (field doesn't allow null)
+        else:
+            # Other/Multicolor/Clear - use custom materials if provided
+            material_data = request.data.get('material')
+            material_ids_data = request.data.get('material_ids')
+            
+            # Update material_ids if provided (even if it's an empty list or null)
+            if 'material_ids' in request.data:
+                file.material_ids = material_ids_data if material_ids_data else []
+            
+            # Update material string if provided
+            if 'material' in request.data:
+                file.material = material_data if material_data else ''
+        
         file.save()
+        
         serializer = self.get_serializer(file)
         return Response(serializer.data)
 

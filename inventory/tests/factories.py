@@ -345,7 +345,9 @@ class TrackerFactory(DjangoModelFactory):
     storage_type = fuzzy.FuzzyChoice(['link', 'local'])
     creation_mode = fuzzy.FuzzyChoice(['github', 'manual'])
     primary_color = "#1E40AF"
-    accent_color = "#DC2626"
+    accent_color = ""  # Updated to default empty per migration 0037
+    primary_material = None  # Material blueprint for primary color (optional)
+    accent_material = None  # Material blueprint for accent color (optional)
     show_on_dashboard = False
     total_quantity = 0
     printed_quantity_total = 0
@@ -367,7 +369,8 @@ class TrackerFileFactory(DjangoModelFactory):
     file_size = fuzzy.FuzzyInteger(1024, 10485760)  # 1KB to 10MB
     sha = factory.LazyAttribute(lambda _: fake.sha1())
     color = fuzzy.FuzzyChoice(['Primary', 'Accent', 'Multicolor'])
-    material = fuzzy.FuzzyChoice(['ABS', 'PLA', 'PETG', 'ASA'])
+    material = fuzzy.FuzzyChoice(['ABS', 'PLA', 'PETG', 'ASA'])  # Legacy field
+    material_ids = []  # New material blueprint IDs array (empty by default)
     quantity = fuzzy.FuzzyInteger(1, 10)
     is_selected = True
     status = fuzzy.FuzzyChoice(['not_started', 'in_progress', 'completed'])
