@@ -189,9 +189,9 @@ function applySmartDefaults() {
           node.material = primaryMaterial
           if (primaryMaterialId) node.material_ids = [primaryMaterialId]
         } else if (!node.material) {
-          // For other colors (Clear, Multicolor, Other), only set if empty
+          // For other colors (Clear, Multicolor, Other), only set material name if empty
+          // Do not assign material_ids - these parts aren't the primary/accent filament
           node.material = defaults.material || primaryMaterial
-          if (primaryMaterialId) node.material_ids = [primaryMaterialId]
         }
         
         // Always apply quantity from smart defaults (don't skip if quantity is 1)

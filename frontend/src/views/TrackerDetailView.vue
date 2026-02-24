@@ -127,14 +127,7 @@ const formatMaterialLabel = (mat) => {
 }
 
 // Get material ID from name (for clickable links) - EXACT match only
-const getMaterialId = (materialName) => {
-  const trimmedName = materialName.trim()
-  
-  // Only return ID if EXACT match found (case-insensitive)
-  const material = materials.value.find(m => m.name.toLowerCase() === trimmedName.toLowerCase())
-  
-  return material?.id || null
-}
+// NOTE: Removed unused getMaterialId function - materials_display already includes IDs
 
 // Load tracker data
 const loadTracker = async () => {
@@ -708,9 +701,35 @@ const saveTrackerMaterials = async () => {
       payload.accent_material = null
     }
     
-    // Check if materials changed to show cascade confirmation
-    const primaryChanged = payload.primary_material !== tracker.value.primary_material
-    const accentChanged = payload.accent_material !== tracker.value.accent_material
+    // Check if materials/colors changed to show cascade confirmation
+    let primaryChanged = false
+    let accentChanged = false
+
+    // Determine primary change based on mode
+    if (editTrackerForm.value.primary_material_mode === 'blueprint') {
+      const newPrimaryMaterialId = editTrackerForm.value.primary_material
+        ? editTrackerForm.value.primary_material.id
+        : null
+      const currentPrimaryMaterialId = tracker.value.primary_material ?? null
+      primaryChanged = newPrimaryMaterialId !== currentPrimaryMaterialId
+    } else if (editTrackerForm.value.primary_material_mode === 'custom') {
+      const newPrimaryColor = editTrackerForm.value.primary_color ?? null
+      const currentPrimaryColor = tracker.value.primary_color ?? null
+      primaryChanged = newPrimaryColor !== currentPrimaryColor
+    }
+
+    // Determine accent change based on mode
+    if (editTrackerForm.value.accent_material_mode === 'blueprint') {
+      const newAccentMaterialId = editTrackerForm.value.accent_material
+        ? editTrackerForm.value.accent_material.id
+        : null
+      const currentAccentMaterialId = tracker.value.accent_material ?? null
+      accentChanged = newAccentMaterialId !== currentAccentMaterialId
+    } else if (editTrackerForm.value.accent_material_mode === 'custom') {
+      const newAccentColor = editTrackerForm.value.accent_color ?? null
+      const currentAccentColor = tracker.value.accent_color ?? null
+      accentChanged = newAccentColor !== currentAccentColor
+    }
     
     if (primaryChanged || accentChanged) {
       // Count affected files (this would ideally come from API, for now we'll estimate)

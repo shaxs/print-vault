@@ -567,17 +567,24 @@ class PrinterSerializer(serializers.ModelSerializer):
         """Enrich additional_filaments with full material blueprint data"""
         if not obj.additional_filaments:
             return []
-        
+
+        # Collect all blueprint IDs and fetch materials in a single query
+        blueprint_ids = {
+            filament.get('blueprint_id')
+            for filament in obj.additional_filaments
+            if filament.get('blueprint_id')
+        }
+        material_map = {}
+        if blueprint_ids:
+            material_map = {m.id: m for m in Material.objects.filter(id__in=blueprint_ids)}
+
         enriched = []
         for filament in obj.additional_filaments:
             enriched_filament = filament.copy()
             blueprint_id = filament.get('blueprint_id')
-            if blueprint_id:
-                try:
-                    material = Material.objects.get(id=blueprint_id)
-                    enriched_filament['blueprint'] = MaterialSerializer(material).data
-                except Material.DoesNotExist:
-                    enriched_filament['blueprint'] = None
+            material = material_map.get(blueprint_id) if blueprint_id else None
+            if material:
+                enriched_filament['blueprint'] = MaterialSerializer(material).data
             else:
                 enriched_filament['blueprint'] = None
             enriched.append(enriched_filament)
@@ -650,15 +657,26 @@ class ProjectSerializer(serializers.ModelSerializer):
         """Enrich materials array with full Material blueprint data."""
         if not obj.materials:
             return []
-        
+
+        # Collect all blueprint IDs first to avoid N+1 queries
+        blueprint_ids = {
+            material.get('blueprint_id')
+            for material in obj.materials
+            if material.get('blueprint_id') is not None
+        }
+        blueprint_map = {}
+        if blueprint_ids:
+            blueprint_map = {m.id: m for m in Material.objects.filter(id__in=blueprint_ids)}
+
         enriched = []
         for material in obj.materials:
             enriched_material = material.copy()
-            if material.get('blueprint_id'):
-                try:
-                    blueprint = Material.objects.get(id=material['blueprint_id'])
+            blueprint_id = material.get('blueprint_id')
+            if blueprint_id is not None:
+                blueprint = blueprint_map.get(blueprint_id)
+                if blueprint is not None:
                     enriched_material['blueprint'] = MaterialSerializer(blueprint).data
-                except Material.DoesNotExist:
+                else:
                     enriched_material['blueprint'] = None
             enriched.append(enriched_material)
         return enriched

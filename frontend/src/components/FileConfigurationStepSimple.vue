@@ -133,6 +133,8 @@ function applySmartDefaults() {
   const defaultMaterial = smartDefaultPrimaryMaterial.value?.name || materialOptions.value[0]?.name || 'ABS'
   const primaryMaterial = smartDefaultPrimaryMaterial.value?.name || 'ABS'
   const accentMaterial = smartDefaultAccentMaterial.value?.name || 'ABS'
+  const primaryMaterialId = smartDefaultPrimaryMaterial.value?.id
+  const accentMaterialId = smartDefaultAccentMaterial.value?.id
 
   props.files.forEach((file) => {
     const defaults = parseFilename(file.name, defaultMaterial)
@@ -144,10 +146,13 @@ function applySmartDefaults() {
     // Apply material based on color - ALWAYS update for Primary/Accent to allow correction
     if (finalColor === 'Accent') {
       file.material = accentMaterial
+      if (accentMaterialId) file.material_ids = [accentMaterialId]
     } else if (finalColor === 'Primary') {
       file.material = primaryMaterial
+      if (primaryMaterialId) file.material_ids = [primaryMaterialId]
     } else if (!file.material) {
-      // For other colors (Clear, Multicolor, Other), only set if empty
+      // For other colors (Clear, Multicolor, Other), only set material name if empty
+      // Do not assign material_ids - these parts aren't the primary/accent filament
       file.material = defaults.material || primaryMaterial
     }
     

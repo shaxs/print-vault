@@ -64,7 +64,6 @@ const loadTracker = async () => {
       }
     } else {
       primaryMaterialMode.value = 'color'
-      selectedPrimaryMaterial.value = null // Explicitly set to null
     }
     
     if (tracker.value.accent_material) {
@@ -429,7 +428,7 @@ onMounted(async () => {
                 {{ formatMaterialLabel(mat) }}
               </option>
             </select>
-            <div v-if="selectedAccentMaterial !== null && selectedAccentMaterial !== undefined" class="color-preview">
+            <div v-if="selectedAccentMaterial != null" class="color-preview">
               <div
                 class="color-swatch"
                 :style="{ background: getAccentMaterialColor() }"

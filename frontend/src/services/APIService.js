@@ -310,13 +310,12 @@ export default {
       printed_quantity: printedQuantity,
     })
   },
-  updateTrackerFileConfiguration(id, color, material, quantity, material_ids = []) {
-    return apiClient.patch(`tracker-files/${id}/update_configuration/`, {
-      color,
-      material,
-      material_ids,
-      quantity,
-    })
+  updateTrackerFileConfiguration(id, color, material, quantity, material_ids = null) {
+    const payload = { color, material, quantity }
+    if (material_ids !== null && material_ids !== undefined) {
+      payload.material_ids = material_ids
+    }
+    return apiClient.patch(`tracker-files/${id}/update_configuration/`, payload)
   },
   deleteTrackerFile(id) {
     return apiClient.delete(`tracker-files/${id}/`)

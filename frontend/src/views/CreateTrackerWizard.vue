@@ -315,8 +315,24 @@ async function createTracker() {
       .map(f => f.material_ids[0])
     
     // Get most common material ID for each color (or first one if all same)
-    const primaryMaterialId = primaryMaterialIds.length > 0 ? primaryMaterialIds[0] : null
-    const accentMaterialId = accentMaterialIds.length > 0 ? accentMaterialIds[0] : null
+    const getMostCommonMaterialId = (ids) => {
+      if (!ids || ids.length === 0) return null
+      const counts = new Map()
+      let mostCommonId = ids[0]
+      let maxCount = 0
+      for (const id of ids) {
+        const newCount = (counts.get(id) || 0) + 1
+        counts.set(id, newCount)
+        if (newCount > maxCount) {
+          maxCount = newCount
+          mostCommonId = id
+        }
+      }
+      return mostCommonId
+    }
+
+    const primaryMaterialId = getMostCommonMaterialId(primaryMaterialIds)
+    const accentMaterialId = getMostCommonMaterialId(accentMaterialIds)
     
     // Build tracker data matching TrackerCreateSerializer format
     const trackerData = {

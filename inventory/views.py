@@ -3638,7 +3638,6 @@ class TrackerViewSet(viewsets.ModelViewSet):
         material_ids_str = request.data.get('material_ids')
         if material_ids_str:
             try:
-                import json
                 material_ids = json.loads(material_ids_str)
             except (json.JSONDecodeError, TypeError):
                 material_ids = []
@@ -3790,7 +3789,6 @@ class TrackerViewSet(viewsets.ModelViewSet):
         Body: {
             "primary_material_id": int|null,  # Material ID or null
             "accent_material_id": int|null,
-            "force_override_all": bool,     # If True, update ALL files including overridden ones
             "dry_run": bool                 # If True, preview changes without applying them
         }
         """
@@ -3828,7 +3826,6 @@ class TrackerViewSet(viewsets.ModelViewSet):
         # Apply actual changes
         # Update tracker fields
         if primary_material_id is not None:
-            from .models import Material
             try:
                 material = Material.objects.get(id=primary_material_id)
                 tracker.primary_material_id = primary_material_id
@@ -3839,7 +3836,6 @@ class TrackerViewSet(viewsets.ModelViewSet):
                 pass
         
         if accent_material_id is not None:
-            from .models import Material
             try:
                 material = Material.objects.get(id=accent_material_id)
                 tracker.accent_material_id = accent_material_id
@@ -3862,7 +3858,6 @@ class TrackerViewSet(viewsets.ModelViewSet):
                 file.material_ids = [primary_material_id]
                 # Also update material name for backwards compatibility
                 try:
-                    from .models import Material
                     material = Material.objects.get(id=primary_material_id)
                     file.material = material.name
                 except Material.DoesNotExist:
@@ -3877,7 +3872,6 @@ class TrackerViewSet(viewsets.ModelViewSet):
             for file in accent_files:
                 file.material_ids = [accent_material_id]
                 try:
-                    from .models import Material
                     material = Material.objects.get(id=accent_material_id)
                     file.material = material.name
                 except Material.DoesNotExist:
