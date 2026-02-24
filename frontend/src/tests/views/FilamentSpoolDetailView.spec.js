@@ -277,3 +277,94 @@ describe('FilamentSpoolDetailView UI Structure', () => {
     expect(hasPrintSettings).toBeTruthy()
   })
 })
+
+// ─── Pure function: getFilamentUsedColor ─────────────────────────────────────
+// Extracted from FilamentSpoolDetailView.vue — maps usedPercent to hex colour.
+
+const getFilamentUsedColor = (usedPercent) => {
+  if (usedPercent <= 50) return '#10b981' // Green - 0-50% used
+  if (usedPercent <= 75) return '#eab308' // Yellow - 51-75% used
+  if (usedPercent <= 90) return '#f59e0b' // Orange - 76-90% used
+  return '#ef4444'                         // Red - 91-100% used
+}
+
+describe('FilamentSpoolDetailView — getFilamentUsedColor', () => {
+  it('returns green for 0% used', () => {
+    expect(getFilamentUsedColor(0)).toBe('#10b981')
+  })
+
+  it('returns green for 50% used (boundary)', () => {
+    expect(getFilamentUsedColor(50)).toBe('#10b981')
+  })
+
+  it('returns yellow for 51% used', () => {
+    expect(getFilamentUsedColor(51)).toBe('#eab308')
+  })
+
+  it('returns yellow for 75% used (boundary)', () => {
+    expect(getFilamentUsedColor(75)).toBe('#eab308')
+  })
+
+  it('returns orange for 76% used', () => {
+    expect(getFilamentUsedColor(76)).toBe('#f59e0b')
+  })
+
+  it('returns orange for 90% used (boundary)', () => {
+    expect(getFilamentUsedColor(90)).toBe('#f59e0b')
+  })
+
+  it('returns red for 91% used', () => {
+    expect(getFilamentUsedColor(91)).toBe('#ef4444')
+  })
+
+  it('returns red for 100% used', () => {
+    expect(getFilamentUsedColor(100)).toBe('#ef4444')
+  })
+})
+
+// ─── Pure function: filamentUsedPercent ──────────────────────────────────────
+// Parameterised version: accepts spool object instead of the Vue ref.
+
+const filamentUsedPercent = (spoolObj) => {
+  if (
+    !spoolObj ||
+    spoolObj.weight_remaining_percent === null ||
+    spoolObj.weight_remaining_percent === undefined
+  )
+    return 0
+  return 100 - spoolObj.weight_remaining_percent
+}
+
+describe('FilamentSpoolDetailView — filamentUsedPercent', () => {
+  it('returns 0 for null spool', () => {
+    expect(filamentUsedPercent(null)).toBe(0)
+  })
+
+  it('returns 0 for undefined spool', () => {
+    expect(filamentUsedPercent(undefined)).toBe(0)
+  })
+
+  it('returns 0 when weight_remaining_percent is null', () => {
+    expect(filamentUsedPercent({ weight_remaining_percent: null })).toBe(0)
+  })
+
+  it('returns 0 when weight_remaining_percent is undefined', () => {
+    expect(filamentUsedPercent({ weight_remaining_percent: undefined })).toBe(0)
+  })
+
+  it('returns 0 when weight_remaining_percent is 100 (full spool)', () => {
+    expect(filamentUsedPercent({ weight_remaining_percent: 100 })).toBe(0)
+  })
+
+  it('returns 50 when weight_remaining_percent is 50', () => {
+    expect(filamentUsedPercent({ weight_remaining_percent: 50 })).toBe(50)
+  })
+
+  it('returns 100 when weight_remaining_percent is 0 (empty spool)', () => {
+    expect(filamentUsedPercent({ weight_remaining_percent: 0 })).toBe(100)
+  })
+
+  it('returns 25 when weight_remaining_percent is 75', () => {
+    expect(filamentUsedPercent({ weight_remaining_percent: 75 })).toBe(25)
+  })
+})

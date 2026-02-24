@@ -185,4 +185,36 @@ describe('APIService', () => {
       expect(typeof APIService.deleteFilamentSpool).toBe('function')
     })
   })
+
+  describe('Bill of Materials (BOM)', () => {
+    it('should have getBOMItems method', () => {
+      expect(typeof APIService.getBOMItems).toBe('function')
+    })
+
+    it('should have createBOMItem method', () => {
+      expect(typeof APIService.createBOMItem).toBe('function')
+    })
+
+    it('should have updateBOMItem method', () => {
+      expect(typeof APIService.updateBOMItem).toBe('function')
+    })
+
+    it('should have deleteBOMItem method', () => {
+      expect(typeof APIService.deleteBOMItem).toBe('function')
+    })
+
+    it('should have reorderBOMItems method', () => {
+      expect(typeof APIService.reorderBOMItems).toBe('function')
+    })
+  })
+
+  describe('Project Inventory Association', () => {
+    it('should have addInventoryToProject method', () => {
+      expect(typeof APIService.addInventoryToProject).toBe('function')
+    })
+
+    it('should have removeInventoryFromProject method', () => {
+      expect(typeof APIService.removeInventoryFromProject).toBe('function')
+    })
+  })
 })

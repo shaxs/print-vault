@@ -82,7 +82,7 @@ class PrinterFactory(DjangoModelFactory):
     manufacturer = factory.SubFactory(BrandFactory)
     serial_number = factory.Sequence(lambda n: f"SN-{n:06d}")
     purchase_date = factory.LazyAttribute(lambda _: fake.date_between(start_date='-2y', end_date='today'))
-    status = fuzzy.FuzzyChoice(['operational', 'maintenance', 'retired'])
+    status = fuzzy.FuzzyChoice(['Active', 'Under Repair', 'Sold', 'Archived', 'Planned'])
     notes = factory.LazyAttribute(lambda _: fake.text(max_nb_chars=200))
     purchase_price = fuzzy.FuzzyDecimal(200.0, 5000.0, precision=2)
 
@@ -402,7 +402,7 @@ class ModFileFactory(DjangoModelFactory):
 
 
 # ============================================================================
-# BOM FACTORY
+# BOM FACTORIES
 # ============================================================================
 
 class ProjectBOMItemFactory(DjangoModelFactory):
@@ -411,9 +411,9 @@ class ProjectBOMItemFactory(DjangoModelFactory):
         model = ProjectBOMItem
 
     project = factory.SubFactory(ProjectFactory, status='Planning')
-    description = factory.Sequence(lambda n: f"BOM Item {n}")
-    quantity_needed = 1
-    status = 'unlinked'
+    description = factory.Sequence(lambda n: f"M3x{n+4} SHCS")
+    quantity_needed = fuzzy.FuzzyInteger(1, 20)
     inventory_item = None
+    status = 'unlinked'
     notes = ''
     sort_order = factory.Sequence(lambda n: n)
