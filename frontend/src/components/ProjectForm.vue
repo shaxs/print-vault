@@ -87,7 +87,7 @@ const formatMaterialName = (material) => {
   return `${brandName} ${material.name}${diameter}`.trim()
 }
 
-const saveProject = async () => {
+const saveProject = async (redirectToBOM = false) => {
   const formData = new FormData()
   for (const key in project.value) {
     if (key === 'inventory_item_ids' || key === 'printer_ids' || key === 'tracker_ids') {
@@ -118,7 +118,11 @@ const saveProject = async () => {
     } else {
       savedProject = await APIService.createProject(formData)
     }
-    router.push(`/projects/${savedProject.data.id}`)
+    if (redirectToBOM) {
+      router.push({ name: 'bom-wizard', params: { id: savedProject.data.id } })
+    } else {
+      router.push(`/projects/${savedProject.data.id}`)
+    }
   } catch (error) {
     console.error('Error saving project:', error)
   }
@@ -143,7 +147,7 @@ onMounted(async () => {
 </script>
 
 <template>
-  <form @submit.prevent="saveProject" class="item-form">
+  <form @submit.prevent="saveProject(false)" class="item-form">
     <div class="form-group">
       <label for="project_name">Project Name</label>
       <input id="project_name" v-model="project.project_name" type="text" required />
@@ -290,13 +294,21 @@ onMounted(async () => {
       <textarea id="notes" v-model="project.notes"></textarea>
     </div>
     <div class="form-actions">
-      <button type="submit" class="btn btn-primary">Save Project</button>
       <RouterLink
         :to="isEditMode ? `/projects/${project.id}` : '/projects'"
         class="btn btn-secondary"
       >
         Cancel
       </RouterLink>
+      <button
+        v-if="!isEditMode"
+        type="button"
+        class="btn btn-success"
+        @click="saveProject(true)"
+      >
+        Save &amp; Create BOM
+      </button>
+      <button type="submit" class="btn btn-primary">Save Project</button>
     </div>
   </form>
 </template>

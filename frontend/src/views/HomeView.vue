@@ -14,7 +14,8 @@ const allInventoryColumns = ref([
   { text: 'Brand', value: 'brand', defaultVisible: true },
   { text: 'Part Type', value: 'partType', defaultVisible: true },
   { text: 'Location', value: 'location', defaultVisible: true },
-  { text: 'Quantity', value: 'quantity', defaultVisible: true },
+  { text: 'Qty on Hand', value: 'quantity', defaultVisible: true },
+  { text: 'Qty Needed', value: 'qtyNeeded', defaultVisible: true },
   { text: 'Cost', value: 'cost', defaultVisible: false },
 ])
 const visibleColumns = ref([])
@@ -216,7 +217,6 @@ onMounted(() => {
                 Remove Filters
               </button>
               <div class="form-actions-right">
-                <button type="submit" class="btn btn-primary">Apply Filters</button>
                 <button
                   @click="isFilterModalVisible = false"
                   type="button"
@@ -224,6 +224,7 @@ onMounted(() => {
                 >
                   Cancel
                 </button>
+                <button type="submit" class="btn btn-primary">Apply Filters</button>
               </div>
             </div>
           </form>

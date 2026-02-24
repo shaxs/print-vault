@@ -173,6 +173,7 @@ onMounted(fetchPrinter)
           </div>
         </div>
         <div class="header-actions">
+          <button @click="router.push({ name: 'printer-list' })" class="btn btn-secondary">&larr; Back to Printers</button>
           <router-link
             :to="{ name: 'printer-edit', params: { id: printer.id } }"
             class="btn btn-primary"

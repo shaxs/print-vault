@@ -65,6 +65,7 @@ const getHealthClass = (health) => {
   const classes = {
     healthy: 'health-healthy',
     'at-risk': 'health-at-risk',
+    'partially-blocked': 'health-partially-blocked',
     blocked: 'health-blocked',
     overdue: 'health-overdue',
   }
@@ -76,6 +77,7 @@ const getHealthLabel = (health) => {
   const labels = {
     healthy: 'Healthy',
     'at-risk': 'At Risk',
+    'partially-blocked': 'Partially Blocked',
     blocked: 'Blocked',
     overdue: 'Overdue',
   }
@@ -1067,6 +1069,11 @@ onMounted(() => {
 .health-at-risk {
   background: color-mix(in srgb, var(--color-health-at-risk), transparent 85%);
   color: var(--color-health-at-risk);
+}
+
+.health-partially-blocked {
+  background: color-mix(in srgb, var(--color-health-partially-blocked), transparent 85%);
+  color: var(--color-health-partially-blocked);
 }
 
 .health-blocked {

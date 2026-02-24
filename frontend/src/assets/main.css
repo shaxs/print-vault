@@ -30,7 +30,8 @@
   /* Project health status colors */
   --color-health-healthy: #10b981; /* Green - on track */
   --color-health-at-risk: #f59e0b; /* Orange - needs attention */
-  --color-health-blocked: #a855f7; /* Purple - blocked/waiting */
+  --color-health-partially-blocked: #c084fc; /* Light purple - some printers unavailable */
+  --color-health-blocked: #a855f7; /* Purple - all printers blocked/waiting */
   --color-health-overdue: #ef4444; /* Red - past deadline */
 }
 
@@ -64,7 +65,8 @@
   /* Project health status colors (same in light theme) */
   --color-health-healthy: #10b981; /* Green - on track */
   --color-health-at-risk: #f59e0b; /* Orange - needs attention */
-  --color-health-blocked: #a855f7; /* Purple - blocked/waiting */
+  --color-health-partially-blocked: #c084fc; /* Light purple - some printers unavailable */
+  --color-health-blocked: #a855f7; /* Purple - all printers blocked/waiting */
   --color-health-overdue: #ef4444; /* Red - past deadline */
 }
 
@@ -147,6 +149,17 @@ body {
 .btn-primary:hover {
   background-color: #0b5ed7;
   border-color: #0a58ca;
+}
+
+/* --- SUCCESS BUTTONS (Green) --- */
+.btn-success {
+  color: #fff;
+  background-color: var(--color-green);
+  border-color: var(--color-green);
+}
+.btn-success:hover {
+  background-color: #35a272;
+  border-color: #35a272;
 }
 
 /* --- SECONDARY BUTTONS (Gray) --- */

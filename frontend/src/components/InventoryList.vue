@@ -15,7 +15,8 @@ const headers = [
   { text: 'Brand', value: 'brand' },
   { text: 'Part Type', value: 'partType' },
   { text: 'Location', value: 'location' },
-  { text: 'Quantity', value: 'quantity' },
+  { text: 'Qty on Hand', value: 'quantity' },
+  { text: 'Qty Needed', value: 'qtyNeeded' },
   { text: 'Cost', value: 'cost' },
 ]
 
@@ -66,6 +67,23 @@ const viewItem = (item) => {
     <template #cell-quantity="{ item }">
       {{ item.quantity }}
     </template>
+    <template #cell-qtyNeeded="{ item }">
+      <span v-if="item.qty_needed > 0" :class="item.qty_needed > item.quantity ? 'qty-over' : 'qty-ok'">{{ item.qty_needed }}</span>
+      <span v-else class="qty-none">—</span>
+    </template>
     <template #cell-cost="{ item }"> ${{ item.cost || '0.00' }} </template>
   </DataTable>
 </template>
+<style scoped>
+.qty-over {
+  color: var(--color-red);
+  font-weight: 600;
+}
+.qty-ok {
+  color: var(--color-green);
+  font-weight: 600;
+}
+.qty-none {
+  color: var(--color-text-soft);
+}
+</style>

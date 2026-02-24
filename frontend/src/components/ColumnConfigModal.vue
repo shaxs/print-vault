@@ -82,8 +82,8 @@ const save = () => {
         </div>
       </div>
       <div class="form-actions">
-        <button @click="save" class="save-button">Save</button>
         <button @click="emit('close')" type="button" class="cancel-button">Cancel</button>
+        <button @click="save" class="save-button">Save</button>
       </div>
     </div>
   </div>

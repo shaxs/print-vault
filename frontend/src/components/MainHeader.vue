@@ -30,7 +30,7 @@ const clearSearch = () => {
       </button>
       <div v-if="showSearch" class="search-container">
         <input
-          type="search"
+          type="text"
           placeholder="Search..."
           class="search-bar"
           :value="modelValue"

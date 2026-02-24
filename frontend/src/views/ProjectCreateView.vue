@@ -5,7 +5,7 @@ import ProjectForm from '../components/ProjectForm.vue'
 
 <template>
   <div>
-    <MainHeader title="Add New Project" :showSearch="false" :showAddButton="false" />
+    <MainHeader title="Add New Project" :showSearch="false" :showAddButton="false" :showFilterButton="false" :showColumnButton="false" />
     <ProjectForm />
   </div>
 </template>

@@ -9,6 +9,7 @@ defineProps({
 
 const router = useRouter()
 const headers = [
+  { text: 'Photo', value: 'photo' },
   { text: 'Project Name', value: 'projectName' },
   { text: 'Status', value: 'status' },
   { text: 'Description', value: 'description' },

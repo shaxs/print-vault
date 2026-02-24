@@ -5,7 +5,7 @@ import MainHeader from '../components/MainHeader.vue'
 
 <template>
   <div>
-    <MainHeader title="Add New Printer" :showSearch="false" :showAddButton="false" />
+    <MainHeader title="Add New Printer" :showSearch="false" :showAddButton="false" :showFilterButton="false" :showColumnButton="false" />
     <PrinterForm />
   </div>
 </template>

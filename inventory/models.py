@@ -834,6 +834,70 @@ class ProjectPrinters(models.Model):
 
 
 # ============================================================================
+# BILL OF MATERIALS MODELS
+# ============================================================================
+
+class ProjectBOMItem(models.Model):
+    """
+    A single line item in a project's Bill of Materials.
+    Represents a hardware/purchased part needed for a project build.
+    May be linked to an existing InventoryItem, marked as needs_purchase,
+    or left unlinked until the user associates it with inventory.
+    """
+    STATUS_CHOICES = [
+        ('linked', 'Linked'),
+        ('unlinked', 'Unlinked'),
+        ('needs_purchase', 'Needs Purchase'),
+    ]
+
+    project = models.ForeignKey(
+        Project, related_name='bom_items', on_delete=models.CASCADE
+    )
+    description = models.CharField(
+        max_length=255,
+        help_text="Part description as written in the creator's BOM (e.g., 'M3x8 SHCS')"
+    )
+    quantity_needed = models.PositiveIntegerField(
+        default=1,
+        validators=[MinValueValidator(1)],
+        help_text="Quantity required for this build"
+    )
+    inventory_item = models.ForeignKey(
+        InventoryItem,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='bom_items',
+        help_text="Optional link to an existing inventory item"
+    )
+    status = models.CharField(
+        max_length=20,
+        choices=STATUS_CHOICES,
+        default='unlinked',
+        help_text="linked=associated to inventory / unlinked=not yet matched / needs_purchase=flag to buy"
+    )
+    notes = models.TextField(
+        blank=True,
+        default='',
+        help_text="Optional notes for this BOM item (e.g., variant notes from creator)"
+    )
+    sort_order = models.PositiveIntegerField(
+        default=0,
+        help_text="Display order within the project BOM"
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name = "Project BOM Item"
+        verbose_name_plural = "Project BOM Items"
+        ordering = ['sort_order', 'id']
+
+    def __str__(self):
+        return f"{self.project.project_name} — {self.description}"
+
+
+# ============================================================================
 # PRINT TRACKER MODELS
 # ============================================================================
 

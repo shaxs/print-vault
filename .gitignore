@@ -5,6 +5,11 @@
 __pycache__/
 venv/
 
+# Python test coverage artifacts
+.coverage
+coverage.json
+htmlcov/
+
 # Node
 node_modules/
 
@@ -23,6 +28,7 @@ frontend/dev-dist/
 frontend/.vscode/
 frontend/dev-dist/
 frontend/dev-dist/sw.js
+frontend/src/mockups/
 
 # Documentation and test scripts (not for public repo)
 chat_docs/

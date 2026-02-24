@@ -5,7 +5,7 @@ import InventoryForm from '../components/InventoryForm.vue'
 
 <template>
   <div>
-    <MainHeader title="Add New Item" :showSearch="false" :showAddButton="false" />
+    <MainHeader title="Add New Item" :showSearch="false" :showAddButton="false" :showFilterButton="false" :showColumnButton="false" />
     <InventoryForm />
   </div>
 </template>

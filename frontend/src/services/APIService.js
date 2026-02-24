@@ -378,4 +378,24 @@ export default {
   deleteFilamentSpool(id) {
     return apiClient.delete(`filament-spools/${id}/`)
   },
+
+  // Bill of Materials (BOM)
+  getBOMItems(projectId) {
+    return apiClient.get('projectbomitems/', { params: { project: projectId } })
+  },
+  createBOMItem(data) {
+    return apiClient.post('projectbomitems/', data)
+  },
+  updateBOMItem(id, data) {
+    return apiClient.patch(`projectbomitems/${id}/`, data)
+  },
+  deleteBOMItem(id) {
+    return apiClient.delete(`projectbomitems/${id}/`)
+  },
+  reorderBOMItems(items) {
+    return apiClient.post('projectbomitems/reorder/', { items })
+  },
+  getInventoryAllocation(inventoryItemId) {
+    return apiClient.get(`inventoryitems/${inventoryItemId}/allocation/`)
+  },
 }

@@ -4,6 +4,7 @@ import { useRoute, useRouter } from 'vue-router'
 import APIService from '../services/APIService'
 import DataTable from '../components/DataTable.vue'
 import BaseModal from '../components/BaseModal.vue'
+import InfoTooltip from '../components/InfoTooltip.vue'
 
 const route = useRoute()
 const router = useRouter()
@@ -67,7 +68,82 @@ const editItem = () => {
   })
 }
 
-onMounted(fetchInventoryItem)
+// ── BOM Allocation ────────────────────────────────────────────────────────────
+const allocation = ref(null)
+const showClosedBOMProjects = ref(false)
+
+const fetchAllocation = async (id) => {
+  try {
+    const response = await APIService.getInventoryAllocation(id)
+    allocation.value = response.data
+  } catch {
+    allocation.value = null
+  }
+}
+
+const bomProjectHeaders = [
+  { text: 'Project Name', value: 'project_name' },
+  { text: 'Qty Allocated', value: 'qty_allocated' },
+  { text: 'Project Status', value: 'project_status' },
+]
+
+const closedBOMProjectHeaders = [
+  { text: 'Name', value: 'project_name' },
+  { text: 'Qty Allocated', value: 'qty_allocated' },
+  { text: 'Status', value: 'project_status' },
+]
+
+const allocationStatusLabel = computed(() => {
+  if (!allocation.value) return null
+  const { qty_on_hand, qty_needed, is_overallocated } = allocation.value
+  if (qty_needed === 0) return null
+  if (is_overallocated) return 'Overallocated'
+  if (item.value?.is_consumable && item.value?.low_stock_threshold) {
+    if ((qty_on_hand - qty_needed) <= item.value.low_stock_threshold) return 'Running Low'
+  }
+  return 'Covered'
+})
+
+const allocationStatusClass = computed(() => {
+  const s = allocationStatusLabel.value
+  if (s === 'Overallocated') return 'alloc-overallocated'
+  if (s === 'Running Low') return 'alloc-low'
+  if (s === 'Covered') return 'alloc-covered'
+  return ''
+})
+
+const availableClass = computed(() => {
+  if (!allocation.value) return ''
+  const avail = allocation.value.qty_available
+  if (avail < 0) return 'avail-negative'
+  if (avail === 0) return 'avail-zero'
+  if (item.value?.is_consumable && item.value?.low_stock_threshold && avail <= item.value.low_stock_threshold) return 'avail-low'
+  return 'avail-ok'
+})
+
+const formatProjectStatus = (status) =>
+  status ? status.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase()) : '—'
+
+const viewBOMProject = (proj) => {
+  router.push({ name: 'project-detail', params: { id: proj.id } })
+}
+
+const removeBOMItem = async (proj) => {
+  const msg = `Remove ${item.value.title} from the BOM of project "${proj.project_name}"? This will release ${proj.qty_allocated} unit(s) back to available stock.`
+  if (confirm(msg)) {
+    try {
+      await APIService.deleteBOMItem(proj.bom_item_id)
+      await fetchAllocation(item.value.id)
+    } catch (error) {
+      console.error('Failed to remove BOM item:', error)
+    }
+  }
+}
+
+onMounted(async () => {
+  await fetchInventoryItem()
+  if (item.value) fetchAllocation(item.value.id)
+})
 </script>
 
 <template>
@@ -80,6 +156,7 @@ onMounted(fetchInventoryItem)
       <div class="detail-header">
         <h1>{{ item.title }}</h1>
         <div class="actions">
+          <button @click="router.push({ name: 'home' })" class="btn btn-secondary">&larr; Back to Inventory</button>
           <button @click="editItem" class="btn btn-primary">Edit</button>
           <button @click="deleteItem" class="btn btn-danger">Delete</button>
         </div>
@@ -169,7 +246,16 @@ onMounted(fetchInventoryItem)
 
           <div class="card">
             <div class="card-header">
-              <h3>Associated Projects</h3>
+              <h3>
+                Associated Projects
+                <InfoTooltip>
+                  This item is <strong>soft-linked</strong> to these projects — it's been marked
+                  as relevant or purchased for use. No quantity is tracked against the project.<br /><br />
+                  An inventory item can be either <strong>Associated</strong> (soft link) or part of
+                  a project's <strong>Bill of Materials</strong> (structured, quantity-tracked), but
+                  not both for the same project.
+                </InfoTooltip>
+              </h3>
             </div>
             <div class="card-body table-card-body">
               <DataTable
@@ -190,6 +276,97 @@ onMounted(fetchInventoryItem)
               </DataTable>
             </div>
           </div>
+
+          <!-- ── BOM Allocation ────────────────────────── -->
+          <div v-if="allocation && allocation.qty_needed > 0" class="card">
+            <div class="card-header">
+              <h3>
+                BOM Allocation
+                <InfoTooltip>
+                  This item appears in the <strong>Bill of Materials</strong> of one or more
+                  projects. Each BOM entry specifies a quantity needed and is compared against
+                  your on-hand stock to show whether you're covered, low, or need to purchase
+                  more.<br /><br />
+                  BOM is a <strong>structured association</strong> — once an item is in a
+                  project's BOM it is no longer a soft association and quantity is actively
+                  tracked.
+                </InfoTooltip>
+              </h3>
+            </div>
+            <div class="card-body">
+              <!-- Summary info-grid row -->
+              <div class="alloc-summary-grid">
+                <div class="alloc-cell">
+                  <span class="alloc-label">Qty on Hand</span>
+                  <span class="alloc-value">{{ allocation.qty_on_hand }}</span>
+                </div>
+                <div class="alloc-cell">
+                  <span class="alloc-label">Qty Needed</span>
+                  <span :class="['alloc-value', allocationStatusClass]">{{ allocation.qty_needed }}</span>
+                </div>
+                <div class="alloc-cell">
+                  <span class="alloc-label">Available</span>
+                  <span :class="['alloc-value', availableClass]">{{ allocation.qty_available }}</span>
+                </div>
+                <div class="alloc-cell">
+                  <span class="alloc-label">Status</span>
+                  <span v-if="allocationStatusLabel" :class="['alloc-badge', allocationStatusClass]">
+                    {{ allocationStatusLabel }}
+                  </span>
+                  <span v-else class="alloc-value text-muted">—</span>
+                </div>
+              </div>
+
+              <!-- Active projects table -->
+              <div v-if="allocation.active_projects.length > 0" class="alloc-section">
+                <DataTable
+                  :headers="bomProjectHeaders"
+                  :items="allocation.active_projects"
+                  :visible-columns="bomProjectHeaders.map((h) => h.value)"
+                  empty-message=""
+                  @row-click="viewBOMProject"
+                >
+                  <template #cell-project_name="{ item: proj }">
+                    <span class="table-link grey-link">{{ proj.project_name }}</span>
+                  </template>
+                  <template #cell-project_status="{ item: proj }">
+                    <span class="project-status-text">{{ formatProjectStatus(proj.project_status) }}</span>
+                  </template>
+                  <template #cell-actions="{ item: proj }">
+                    <button @click.stop="removeBOMItem(proj)" class="btn-remove-datatable">
+                      Remove
+                    </button>
+                  </template>
+                </DataTable>
+              </div>
+
+              <!-- Closed projects (collapsed) -->
+              <div v-if="allocation.closed_projects.length > 0" class="alloc-section closed-section">
+                <button
+                  type="button"
+                  class="btn btn-sm btn-secondary"
+                  @click="showClosedBOMProjects = !showClosedBOMProjects"
+                >
+                  {{ showClosedBOMProjects ? 'Hide' : 'Show' }} Closed Projects ({{ allocation.closed_projects.length }})
+                </button>
+                <template v-if="showClosedBOMProjects">
+                  <DataTable
+                    :headers="closedBOMProjectHeaders"
+                    :items="allocation.closed_projects"
+                    :visible-columns="closedBOMProjectHeaders.map((h) => h.value)"
+                    empty-message=""
+                  >
+                    <template #cell-project_name="{ item: proj }">
+                      <span class="table-link grey-link text-muted">{{ proj.project_name }}</span>
+                    </template>
+                    <template #cell-project_status="{ item: proj }">
+                      <span class="text-muted">{{ formatProjectStatus(proj.project_status) }}</span>
+                    </template>
+                  </DataTable>
+                </template>
+              </div>
+            </div>
+          </div>
         </div>
       </div>
     </div>
@@ -208,7 +385,6 @@ onMounted(fetchInventoryItem)
     >
       <p>Are you sure you want to permanently delete "{{ item.title }}"?</p>
       <template #footer>
-        <button @click="confirmDelete" class="btn btn-danger btn-sm">Yes, Delete</button>
         <button
           @click="isDeleteModalVisible = false"
           type="button"
@@ -216,6 +392,7 @@ onMounted(fetchInventoryItem)
         >
           Cancel
         </button>
+        <button @click="confirmDelete" class="btn btn-danger btn-sm">Yes, Delete</button>
       </template>
     </BaseModal>
   </div>
@@ -566,5 +743,110 @@ hr {
 }
 .vendor-link:hover {
   text-decoration: underline;
+}
+
+/* ── BOM Allocation ─────────────────────────────────────────────────────── */
+.alloc-summary-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 0;
+  border-bottom: 1px solid var(--color-border);
+}
+
+@media (max-width: 600px) {
+  .alloc-summary-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+.alloc-cell {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 1rem;
+  border-right: 1px solid var(--color-border);
+  gap: 0.25rem;
+}
+
+.alloc-cell:last-child {
+  border-right: none;
+}
+
+.alloc-label {
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--color-text-soft);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.alloc-value {
+  font-size: 1rem;
+  font-weight: 700;
+  color: var(--color-heading);
+}
+
+.alloc-badge {
+  display: inline-block;
+  padding: 3px 10px;
+  border-radius: 12px;
+  font-size: 0.82rem;
+  font-weight: 600;
+}
+
+.alloc-covered, .avail-ok {
+  color: var(--color-green);
+}
+
+.avail-zero {
+  color: var(--color-text-muted);
+}
+
+.alloc-covered.alloc-badge {
+  background: color-mix(in srgb, var(--color-green) 15%, transparent);
+}
+
+.alloc-low, .avail-low {
+  color: var(--color-alert-warning);
+}
+
+.alloc-low.alloc-badge {
+  background: color-mix(in srgb, var(--color-alert-warning) 15%, transparent);
+}
+
+.alloc-overallocated, .avail-negative {
+  color: var(--color-red);
+}
+
+.alloc-overallocated.alloc-badge {
+  background: color-mix(in srgb, var(--color-red) 15%, transparent);
+}
+
+.alloc-section {
+  padding: 0.75rem 0 0;
+}
+
+.alloc-section-title {
+  padding: 0.25rem 1rem;
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--color-text-soft);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  margin: 0;
+}
+
+.closed-section {
+  padding: 0.75rem 1rem;
+  border-top: 1px solid var(--color-border);
+}
+
+.project-status-text {
+  font-size: 0.875rem;
+  color: var(--color-text);
+}
+
+.text-muted {
+  color: var(--color-text-soft);
 }
 </style>

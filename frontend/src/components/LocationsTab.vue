@@ -99,10 +99,10 @@ onMounted(() => {
         </div>
       </form>
       <template #footer>
-        <button @click="saveItem" class="btn btn-primary">Save</button>
         <button @click="isEditModalVisible = false" type="button" class="btn btn-secondary">
           Cancel
         </button>
+        <button @click="saveItem" class="btn btn-primary">Save</button>
       </template>
     </BaseModal>
 
@@ -113,10 +113,10 @@ onMounted(() => {
     >
       <p>Are you sure you want to delete '{{ itemToDelete?.name }}'?</p>
       <template #footer>
-        <button @click="handleDeleteConfirm" class="btn btn-danger">Yes, Delete</button>
         <button @click="isDeleteModalVisible = false" type="button" class="btn btn-secondary">
           Cancel
         </button>
+        <button @click="handleDeleteConfirm" class="btn btn-danger">Yes, Delete</button>
       </template>
     </BaseModal>
   </div>

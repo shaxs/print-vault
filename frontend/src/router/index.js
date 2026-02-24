@@ -12,6 +12,8 @@ import MaintenanceEditView from '../views/MaintenanceEditView.vue'
 import ProjectListView from '../views/ProjectListView.vue'
 import ProjectCreateView from '../views/ProjectCreateView.vue'
 import ProjectDetailView from '../views/ProjectDetailView.vue'
+// BOM feature
+import BomWizardView from '../views/BomWizardView.vue'
 import ProjectEditView from '../views/ProjectEditView.vue'
 import SettingsView from '../views/SettingsView.vue'
 import DashboardView from '../views/DashboardView.vue'
@@ -64,6 +66,12 @@ const router = createRouter({
     { path: '/projects/create', name: 'project-create', component: ProjectCreateView },
     { path: '/projects/:id', name: 'project-detail', component: ProjectDetailView },
     { path: '/projects/:id/edit', name: 'project-edit', component: ProjectEditView },
+    {
+      path: '/projects/:id/bom/edit',
+      name: 'bom-wizard',
+      component: BomWizardView,
+      props: true,
+    },
     {
       path: '/projects/:id/manage-files',
       name: 'project-manage-files',
@@ -139,6 +147,28 @@ const router = createRouter({
       path: '/filaments/:id/edit',
       name: 'filament-spool-edit',
       component: () => import('../views/FilamentSpoolEditView.vue'),
+    },
+
+    // ── Mockup Routes (delete before merging feature/bom-system) ──────────
+    {
+      path: '/mockup/bom-project',
+      name: 'mockup-bom-project',
+      component: () => import('../mockups/BOM_ProjectDetail.vue'),
+    },
+    {
+      path: '/mockup/bom-rapid-entry',
+      name: 'mockup-bom-rapid-entry',
+      component: () => import('../mockups/BOM_RapidEntry.vue'),
+    },
+    {
+      path: '/mockup/bom-inventory-detail',
+      name: 'mockup-bom-inventory-detail',
+      component: () => import('../mockups/BOM_InventoryDetail.vue'),
+    },
+    {
+      path: '/mockup/bom-inventory-list',
+      name: 'mockup-bom-inventory-list',
+      component: () => import('../mockups/BOM_InventoryList.vue'),
     },
 
     // Settings Route
