@@ -31,17 +31,19 @@ class TestTrackerFileSerializer:
         """Verify serializer includes all expected fields."""
         tracker_file = TrackerFileFactory()
         serializer = TrackerFileSerializer(tracker_file)
-        
+
         expected_fields = {
             'id', 'tracker', 'filename', 'directory_path', 'github_url',
             'local_file', 'file_size', 'sha', 'color', 'material', 'quantity',
             'is_selected', 'status', 'printed_quantity', 'remaining_quantity',
             'is_complete', 'created_date', 'updated_date', 'download_date',
             'download_status', 'download_error', 'downloaded_at',
-            'file_checksum', 'actual_file_size'
+            'file_checksum', 'actual_file_size',
+            # Material blueprint fields (Phase 10)
+            'material_ids', 'materials_display', 'material_override'
         }
         assert set(serializer.data.keys()) == expected_fields
-
+    
     def test_remaining_quantity_computed(self):
         """Test remaining_quantity computed field."""
         tracker_file = TrackerFileFactory(quantity=10, printed_quantity=3)
@@ -96,7 +98,9 @@ class TestTrackerSerializer:
             # Filament tracking fields added for print cost estimation
             'primary_filament', 'primary_filament_info', 'primary_filament_used_grams',
             'secondary_filament', 'secondary_filament_info', 'secondary_filament_used_grams',
-            'filament_cost'
+            'filament_cost',
+            # Material blueprint fields (Phase 10)
+            'primary_material', 'accent_material', 'primary_material_display', 'accent_material_display'
         }
         assert set(serializer.data.keys()) == expected_fields
 

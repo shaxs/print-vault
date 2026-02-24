@@ -19,6 +19,15 @@ const infoModalMessage = ref('')
 const isPhotoModalVisible = ref(false)
 const isDownloading = ref(new Set())
 
+// Color swatch lightbox state
+const isColorSwatchModalVisible = ref(false)
+const selectedColorHex = ref(null)
+
+const openColorSwatchModal = (colorHex) => {
+  selectedColorHex.value = colorHex
+  isColorSwatchModalVisible.value = true
+}
+
 const fetchPrinter = async () => {
   try {
     isLoading.value = true
@@ -115,6 +124,26 @@ const getFileName = (filePath) => {
   return filePath.split('/').pop()
 }
 
+const formatMaterialName = (material) => {
+  if (!material) return ''
+  const brandName = material.brand?.name || ''
+  const diameter = material.diameter ? ` (${material.diameter}mm)` : ''
+  return `${brandName} ${material.name}${diameter}`.trim()
+}
+
+const getSpoolDisplayName = (spool) => {
+  // Blueprint-based spool
+  if (spool.filament_type) {
+    return formatMaterialName(spool.filament_type)
+  }
+  // Quick Add spool
+  if (spool.standalone_name) {
+    const brand = spool.standalone_brand?.name || ''
+    return brand ? `${brand} ${spool.standalone_name}` : spool.standalone_name
+  }
+  return `Spool #${spool.id}`
+}
+
 onMounted(fetchPrinter)
 </script>
 
@@ -189,6 +218,101 @@ onMounted(fetchPrinter)
             <div class="card-section">
               <h4>Notes</h4>
               <p class="notes-content">{{ printer.notes || 'No notes available.' }}</p>
+            </div>
+            
+            <!-- Filament Materials Section -->
+            <div 
+              v-if="printer.primary_filament_custom || printer.primary_filament_blueprint || 
+                    printer.accent_filament_custom || printer.accent_filament_blueprint || 
+                    (printer.additional_filaments_display && printer.additional_filaments_display.length > 0)"
+              class="card-section"
+            >
+              <hr />
+              <h4>Materials</h4>
+              
+              <div v-if="printer.primary_filament_custom || printer.primary_filament_blueprint" class="filament-item">
+                <strong>Primary:</strong>
+                <span 
+                  v-if="printer.primary_filament_blueprint && printer.primary_filament_blueprint.colors && printer.primary_filament_blueprint.colors.length > 0"
+                  class="color-swatch clickable"
+                  :style="{ backgroundColor: printer.primary_filament_blueprint.colors[0] }"
+                  :title="printer.primary_filament_blueprint.colors[0]"
+                  @click.stop="openColorSwatchModal(printer.primary_filament_blueprint.colors[0])"
+                ></span>
+                <span v-if="printer.primary_filament_custom">{{ printer.primary_filament_custom }}</span>
+                <router-link 
+                  v-if="printer.primary_filament_blueprint" 
+                  :to="`/filaments/materials/${printer.primary_filament_blueprint.id}`"
+                  class="filament-link"
+                >
+                  {{ formatMaterialName(printer.primary_filament_blueprint) }}
+                </router-link>
+              </div>
+              
+              <div v-if="printer.accent_filament_custom || printer.accent_filament_blueprint" class="filament-item">
+                <strong>Accent:</strong>
+                <span 
+                  v-if="printer.accent_filament_blueprint && printer.accent_filament_blueprint.colors && printer.accent_filament_blueprint.colors.length > 0"
+                  class="color-swatch clickable"
+                  :style="{ backgroundColor: printer.accent_filament_blueprint.colors[0] }"
+                  :title="printer.accent_filament_blueprint.colors[0]"
+                  @click.stop="openColorSwatchModal(printer.accent_filament_blueprint.colors[0])"
+                ></span>
+                <span v-if="printer.accent_filament_custom">{{ printer.accent_filament_custom }}</span>
+                <router-link 
+                  v-if="printer.accent_filament_blueprint" 
+                  :to="`/filaments/materials/${printer.accent_filament_blueprint.id}`"
+                  class="filament-link"
+                >
+                  {{ formatMaterialName(printer.accent_filament_blueprint) }}
+                </router-link>
+              </div>
+              
+              <div 
+                v-for="(filament, index) in printer.additional_filaments_display" 
+                :key="index"
+                class="filament-item"
+              >
+                <strong>{{ filament.type }}:</strong>
+                <span 
+                  v-if="filament.blueprint && filament.blueprint.colors && filament.blueprint.colors.length > 0"
+                  class="color-swatch clickable"
+                  :style="{ backgroundColor: filament.blueprint.colors[0] }"
+                  :title="filament.blueprint.colors[0]"
+                  @click.stop="openColorSwatchModal(filament.blueprint.colors[0])"
+                ></span>
+                <span v-if="filament.custom">{{ filament.custom }}</span>
+                <router-link 
+                  v-if="filament.blueprint" 
+                  :to="`/filaments/materials/${filament.blueprint.id}`"
+                  class="filament-link"
+                >
+                  {{ formatMaterialName(filament.blueprint) }}
+                </router-link>
+              </div>
+            </div>
+            <hr v-if="printer.filamentspool_set && printer.filamentspool_set.length > 0" />
+            <div v-if="printer.filamentspool_set && printer.filamentspool_set.length > 0" class="card-section">
+              <h4>Assigned Spools</h4>
+              <ul class="resource-list">
+                <li v-for="spool in printer.filamentspool_set" :key="spool.id">
+                  <div class="spool-name-wrapper">
+                    <span 
+                      v-if="spool.filament_type && spool.filament_type.colors && spool.filament_type.colors.length > 0"
+                      class="color-swatch clickable"
+                      :style="{ backgroundColor: spool.filament_type.colors[0] }"
+                      :title="spool.filament_type.colors[0]"
+                      @click.stop="openColorSwatchModal(spool.filament_type.colors[0])"
+                    ></span>
+                    <router-link :to="`/filaments/${spool.id}`">
+                      {{ getSpoolDisplayName(spool) }}
+                    </router-link>
+                  </div>
+                  <span class="spool-status" :class="`status-${spool.status}`">
+                    {{ spool.status.replace('_', ' ').toUpperCase() }}
+                  </span>
+                </li>
+              </ul>
             </div>
           </div>
         </div>
@@ -292,6 +416,22 @@ onMounted(fetchPrinter)
       <div class="modal-content" @click.stop>
         <button @click="isPhotoModalVisible = false" class="close-button">&times;</button>
         <img :src="printer.photo" alt="Full size printer photo" class="modal-image" />
+      </div>
+    </div>
+
+    <!-- Color Swatch Lightbox Modal -->
+    <div
+      v-if="isColorSwatchModalVisible"
+      class="modal-overlay"
+      @click="isColorSwatchModalVisible = false"
+    >
+      <div class="color-swatch-modal-content" @click.stop>
+        <button @click="isColorSwatchModalVisible = false" class="close-button">&times;</button>
+        <div
+          class="color-swatch-large"
+          :style="{ backgroundColor: selectedColorHex || '#cccccc' }"
+        ></div>
+        <p class="color-hex-label">{{ selectedColorHex }}</p>
       </div>
     </div>
 
@@ -712,5 +852,181 @@ onMounted(fetchPrinter)
   max-width: 100%;
   max-height: 100%;
   display: block;
+}
+
+/* Filament Materials Styles */
+.filament-item {
+  margin-bottom: 0.75rem;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.filament-item strong {
+  color: var(--color-heading);
+  min-width: 80px;
+}
+
+.color-swatch {
+  display: inline-block;
+  width: 20px;
+  height: 20px;
+  border-radius: 3px;
+  border: 1.5px solid var(--color-border);
+  flex-shrink: 0;
+}
+
+.color-swatch.clickable {
+  cursor: pointer;
+  transition: transform 0.2s ease;
+}
+
+.color-swatch.clickable:hover {
+  transform: scale(1.1);
+}
+
+.filament-item span {
+  color: var(--color-text);
+}
+
+.filament-link {
+  color: var(--color-text);
+  text-decoration: none;
+}
+
+.filament-link:hover {
+  text-decoration: underline;
+}
+
+/* Spool Status Styling - matches FilamentSpoolDetailView */
+.spool-status {
+  display: inline-block;
+  padding: 0.25rem 0.6rem;
+  margin-left: 0.5rem;
+  border-radius: 12px;
+  font-size: 0.7rem;
+  font-weight: 600;
+  text-transform: uppercase;
+}
+
+.spool-status.status-new {
+  background-color: rgba(59, 130, 246, 0.1);
+  color: #3b82f6;
+  border: 1px solid rgba(59, 130, 246, 0.3);
+}
+
+.spool-status.status-opened {
+  background-color: rgba(34, 197, 94, 0.1);
+  color: #22c55e;
+  border: 1px solid rgba(34, 197, 94, 0.3);
+}
+
+.spool-status.status-in_use {
+  background-color: rgba(168, 85, 247, 0.1);
+  color: #a855f7;
+  border: 1px solid rgba(168, 85, 247, 0.3);
+}
+
+.spool-status.status-low {
+  background-color: rgba(245, 158, 11, 0.1);
+  color: #f59e0b;
+  border: 1px solid rgba(245, 158, 11, 0.3);
+}
+
+.spool-status.status-empty {
+  background-color: rgba(107, 114, 128, 0.1);
+  color: #6b7280;
+  border: 1px solid rgba(107, 114, 128, 0.3);
+}
+
+.spool-status.status-archived {
+  background-color: rgba(107, 114, 128, 0.1);
+  color: #6b7280;
+  border: 1px solid rgba(107, 114, 128, 0.3);
+  text-decoration: line-through;
+}
+
+/* Resource List Styling */
+.resource-list {
+  list-style-type: none;
+  padding: 0;
+  margin: 0 0 1rem 0;
+}
+
+.resource-list li {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 0.5rem 0;
+  border-bottom: 1px solid var(--color-border-mute);
+  word-break: break-word;
+}
+
+@media (max-width: 768px) {
+  .resource-list li {
+    font-size: 0.875rem;
+  }
+}
+
+.resource-list li:last-child {
+  border-bottom: none;
+}
+
+.resource-list a {
+  color: var(--color-text);
+  text-decoration: none;
+  word-break: break-word;
+}
+
+.resource-list a:hover {
+  text-decoration: underline;
+}
+
+.spool-name-wrapper {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+/* Color Swatch Modal Styles */
+.color-swatch-modal-content {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1rem;
+}
+
+.close-button {
+  position: absolute;
+  top: -40px;
+  right: 0;
+  background: none;
+  border: none;
+  color: white;
+  font-size: 2rem;
+  cursor: pointer;
+  padding: 0.5rem;
+}
+
+.close-button:hover {
+  color: var(--color-text-muted);
+}
+
+.color-swatch-large {
+  width: 250px;
+  height: 250px;
+  border-radius: 16px;
+  border: 3px solid rgba(255, 255, 255, 0.3);
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+}
+
+.color-hex-label {
+  color: white;
+  font-size: 1.25rem;
+  font-family: monospace;
+  background: rgba(0, 0, 0, 0.5);
+  padding: 0.5rem 1rem;
+  border-radius: 8px;
 }
 </style>

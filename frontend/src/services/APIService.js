@@ -263,6 +263,9 @@ export default {
   updateTracker(id, data) {
     return apiClient.patch(`trackers/${id}/`, data)
   },
+  updateTrackerMaterials(id, data) {
+    return apiClient.post(`trackers/${id}/update_materials/`, data)
+  },
   deleteTracker(id) {
     return apiClient.delete(`trackers/${id}/`)
   },
@@ -307,12 +310,12 @@ export default {
       printed_quantity: printedQuantity,
     })
   },
-  updateTrackerFileConfiguration(id, color, material, quantity) {
-    return apiClient.patch(`tracker-files/${id}/update_configuration/`, {
-      color,
-      material,
-      quantity,
-    })
+  updateTrackerFileConfiguration(id, color, material, quantity, material_ids = null) {
+    const payload = { color, material, quantity }
+    if (material_ids !== null && material_ids !== undefined) {
+      payload.material_ids = material_ids
+    }
+    return apiClient.patch(`tracker-files/${id}/update_configuration/`, payload)
   },
   deleteTrackerFile(id) {
     return apiClient.delete(`tracker-files/${id}/`)

@@ -99,14 +99,16 @@ class TestProjectSerializer:
         """Verify serializer includes all expected fields."""
         project = ProjectFactory()
         serializer = ProjectSerializer(project)
-        
+
         expected_fields = {
             'id', 'project_name', 'description', 'status', 'start_date', 'due_date',
             'notes', 'photo', 'associated_inventory_items', 'associated_printers',
-            'total_cost', 'links', 'files', 'trackers'
+            'total_cost', 'links', 'files', 'trackers',
+            # Material tracking fields (Phase 10)
+            'materials', 'materials_display', 'filaments_used'
         }
         assert set(serializer.data.keys()) == expected_fields
-
+    
     def test_serialize_minimal_project(self):
         """Test serializing project with only required fields."""
         project = ProjectFactory(project_name="Test Project")
