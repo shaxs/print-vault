@@ -767,14 +767,9 @@ class ProjectBOMItemInlineSerializer(serializers.ModelSerializer):
             return 'needs_purchase'
         if not obj.inventory_item:
             return 'unlinked'
-        from django.db.models import Sum
         inv = obj.inventory_item
-        total_needed = (
-            ProjectBOMItem.objects
-            .filter(inventory_item=inv, project__status__in=ACTIVE_PROJECT_STATUSES)
-            .aggregate(total=Sum('quantity_needed'))['total'] or 0
-        )
-        qty_available = inv.quantity - total_needed
+        # Reservation model: inv.quantity already deducts active BOM allocations.
+        qty_available = inv.quantity
         if qty_available < 0:
             return 'overallocated'
         if inv.is_consumable and inv.low_stock_threshold and qty_available <= inv.low_stock_threshold:
@@ -816,14 +811,9 @@ class ProjectBOMItemSerializer(serializers.ModelSerializer):
             return 'needs_purchase'
         if not obj.inventory_item:
             return 'unlinked'
-        from django.db.models import Sum
         inv = obj.inventory_item
-        total_needed = (
-            ProjectBOMItem.objects
-            .filter(inventory_item=inv, project__status__in=ACTIVE_PROJECT_STATUSES)
-            .aggregate(total=Sum('quantity_needed'))['total'] or 0
-        )
-        qty_available = inv.quantity - total_needed
+        # Reservation model: inv.quantity already deducts active BOM allocations.
+        qty_available = inv.quantity
         if qty_available < 0:
             return 'overallocated'
         if inv.is_consumable and inv.low_stock_threshold and qty_available <= inv.low_stock_threshold:

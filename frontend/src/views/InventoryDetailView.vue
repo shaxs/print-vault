@@ -95,11 +95,12 @@ const closedBOMProjectHeaders = [
 
 const allocationStatusLabel = computed(() => {
   if (!allocation.value) return null
-  const { qty_on_hand, qty_needed, is_overallocated } = allocation.value
+  const { qty_needed, is_overallocated } = allocation.value
   if (qty_needed === 0) return null
   if (is_overallocated) return 'Overallocated'
   if (item.value?.is_consumable && item.value?.low_stock_threshold) {
-    if ((qty_on_hand - qty_needed) <= item.value.low_stock_threshold) return 'Running Low'
+    // qty_on_hand now IS the available qty (reservation model)
+    if (allocation.value.qty_on_hand <= item.value.low_stock_threshold) return 'Running Low'
   }
   return 'Covered'
 })
@@ -129,7 +130,7 @@ const viewBOMProject = (proj) => {
 }
 
 const removeBOMItem = async (proj) => {
-  const msg = `Remove ${item.value.title} from the BOM of project "${proj.project_name}"? This will release ${proj.qty_allocated} unit(s) back to available stock.`
+  const msg = `Remove ${item.value.title} from the BOM of project "${proj.project_name}"?\n\n${proj.qty_allocated} unit(s) will be returned to Inventory.`
   if (confirm(msg)) {
     try {
       await APIService.deleteBOMItem(proj.bom_item_id)
@@ -220,7 +221,7 @@ onMounted(async () => {
                   <span class="value">{{ item.model }}</span>
                 </div>
                 <div class="info-item">
-                  <span class="label">Quantity: </span>
+                  <span class="label">Qty Available: </span>
                   <span class="value">{{ item.quantity }}</span>
                 </div>
                 <div class="info-item">
@@ -278,7 +279,7 @@ onMounted(async () => {
           </div>
 
           <!-- ── BOM Allocation ────────────────────────── -->
-          <div v-if="allocation && allocation.qty_needed > 0" class="card">
+          <div v-if="allocation && (allocation.qty_needed > 0 || allocation.closed_projects?.length > 0)" class="card">
             <div class="card-header">
               <h3>
                 BOM Allocation
@@ -294,19 +295,11 @@ onMounted(async () => {
               </h3>
             </div>
             <div class="card-body">
-              <!-- Summary info-grid row -->
+              <!-- Summary: Committed + Status (Qty Available is already in Item Details card) -->
               <div class="alloc-summary-grid">
                 <div class="alloc-cell">
-                  <span class="alloc-label">Qty on Hand</span>
-                  <span class="alloc-value">{{ allocation.qty_on_hand }}</span>
-                </div>
-                <div class="alloc-cell">
-                  <span class="alloc-label">Qty Needed</span>
+                  <span class="alloc-label">Committed to Projects</span>
                   <span :class="['alloc-value', allocationStatusClass]">{{ allocation.qty_needed }}</span>
-                </div>
-                <div class="alloc-cell">
-                  <span class="alloc-label">Available</span>
-                  <span :class="['alloc-value', availableClass]">{{ allocation.qty_available }}</span>
                 </div>
                 <div class="alloc-cell">
                   <span class="alloc-label">Status</span>
@@ -361,6 +354,17 @@ onMounted(async () => {
                     </template>
                     <template #cell-project_status="{ item: proj }">
                       <span class="text-muted">{{ formatProjectStatus(proj.project_status) }}</span>
+                    </template>
+                    <template #cell-qty_allocated="{ item: proj }">
+                      <span
+                        v-if="proj.project_status === 'canceled'"
+                        class="text-muted"
+                        style="font-style: italic;"
+                        :title="proj.qty_allocated + ' unit(s) returned to inventory when project was cancelled'"
+                      >
+                        ↩ {{ proj.qty_allocated }} returned
+                      </span>
+                      <span v-else class="text-muted">{{ proj.qty_allocated }}</span>
                     </template>
                   </DataTable>
                 </template>

@@ -4,7 +4,7 @@
  * Modal for adding a single BOM item to an existing project BOM.
  * Uses the standard BaseModal pattern per DESIGN_SYSTEM.md.
  */
-import { ref, watch } from 'vue'
+import { ref, computed, watch } from 'vue'
 import BaseModal from './BaseModal.vue'
 import APIService from '../services/APIService'
 
@@ -12,9 +12,12 @@ const props = defineProps({
   show: { type: Boolean, required: true },
   projectId: { type: [Number, String], required: true },
   preSelectedInventoryItem: { type: Object, default: null },
+  editItem: { type: Object, default: null },
 })
 
-const emit = defineEmits(['close', 'added'])
+const emit = defineEmits(['close', 'added', 'updated'])
+
+const isEditMode = computed(() => props.editItem !== null)
 
 // ── Form state ────────────────────────────────────────────────────────────────
 const description = ref('')
@@ -93,7 +96,6 @@ const handleSubmit = async () => {
   isSaving.value = true
   try {
     const payload = {
-      project: props.projectId,
       description: description.value.trim(),
       quantity_needed: quantityNeeded.value,
       status: needsPurchase.value
@@ -104,12 +106,18 @@ const handleSubmit = async () => {
       inventory_item: needsPurchase.value ? null : (selectedInventoryItem.value?.id ?? null),
       notes: notes.value.trim(),
     }
-    const response = await APIService.createBOMItem(payload)
-    emit('added', response.data)
+    if (isEditMode.value) {
+      const response = await APIService.updateBOMItem(props.editItem.id, payload)
+      emit('updated', response.data)
+    } else {
+      payload.project = props.projectId
+      const response = await APIService.createBOMItem(payload)
+      emit('added', response.data)
+    }
     resetForm()
     emit('close')
   } catch (err) {
-    errorMessage.value = err?.response?.data?.detail ?? 'Failed to add BOM item.'
+    errorMessage.value = err?.response?.data?.detail ?? (isEditMode.value ? 'Failed to update BOM item.' : 'Failed to add BOM item.')
   } finally {
     isSaving.value = false
   }
@@ -127,21 +135,38 @@ const resetForm = () => {
   errorMessage.value = ''
 }
 
-// Reset form when modal opens; pre-fill if an inventory item was passed in
+// Reset form when modal opens; pre-fill from editItem or preSelectedInventoryItem.
+// { immediate: true } is required so the form populates when the component is first
+// mounted with show already true (e.g. via v-if + :show set in the same tick).
 watch(() => props.show, (val) => {
   if (val) {
     resetForm()
-    if (props.preSelectedInventoryItem) {
+    if (props.editItem) {
+      // Edit existing BOM item
+      description.value = props.editItem.description ?? ''
+      quantityNeeded.value = props.editItem.quantity_needed ?? 1
+      notes.value = props.editItem.notes ?? ''
+      if (props.editItem.status === 'needs_purchase') {
+        needsPurchase.value = true
+      } else if (props.editItem.inventory_item) {
+        selectedInventoryItem.value = {
+          id: props.editItem.inventory_item,
+          title: props.editItem.inventory_item_title ?? '',
+          quantity: props.editItem.inventory_item_qty ?? 0,
+        }
+        inventoryQuery.value = props.editItem.inventory_item_title ?? ''
+      }
+    } else if (props.preSelectedInventoryItem) {
       description.value = props.preSelectedInventoryItem.title
       selectedInventoryItem.value = props.preSelectedInventoryItem
       inventoryQuery.value = props.preSelectedInventoryItem.title
     }
   }
-})
+}, { immediate: true })
 </script>
 
 <template>
-  <BaseModal :show="show" title="Add BOM Item" @close="emit('close')">
+  <BaseModal :show="show" :title="isEditMode ? 'Edit BOM Item' : 'Add BOM Item'" @close="emit('close')">
     <div class="bom-modal-form">
       <p v-if="errorMessage" class="form-error">{{ errorMessage }}</p>
 
@@ -206,9 +231,6 @@ watch(() => props.show, (val) => {
             </li>
           </ul>
         </div>
-        <p v-if="selectedInventoryItem" class="selected-indicator">
-          ✓ Linked: {{ selectedInventoryItem.title }} ({{ selectedInventoryItem.quantity }} on hand)
-        </p>
       </div>
 
       <!-- Notes -->
@@ -232,7 +254,7 @@ watch(() => props.show, (val) => {
         :disabled="isSaving"
         @click="handleSubmit"
       >
-        {{ isSaving ? 'Adding…' : 'Add Item' }}
+        {{ isSaving ? (isEditMode ? 'Saving…' : 'Adding…') : (isEditMode ? 'Save Changes' : 'Add Item') }}
       </button>
     </template>
   </BaseModal>

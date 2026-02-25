@@ -8,6 +8,7 @@ import InfoModal from '../components/InfoModal.vue'
 import AddInventoryToProjectModal from '../components/AddInventoryToProjectModal.vue'
 import AddBOMItemModal from '../components/AddBOMItemModal.vue'
 import InfoTooltip from '../components/InfoTooltip.vue'
+import DeleteProjectModal from '../components/DeleteProjectModal.vue'
 
 const route = useRoute()
 const router = useRouter()
@@ -49,16 +50,19 @@ const getFileName = (filePath) => {
   return filePath.split('/').pop()
 }
 
-const deleteProject = async () => {
-  if (confirm('Are you sure you want to delete this project? This action cannot be undone.')) {
-    try {
-      await APIService.deleteProject(project.value.id)
-      router.push({ name: 'project-list' })
-    } catch (error) {
-      console.error('Failed to delete project:', error)
-      errorMessage.value = 'Failed to delete project. Please try again.'
-      isErrorModalVisible.value = true
-    }
+const deleteProject = () => {
+  isDeleteProjectModalVisible.value = true
+}
+
+const handleDeleteProjectConfirm = async (restoreInventory) => {
+  isDeleteProjectModalVisible.value = false
+  try {
+    await APIService.deleteProject(project.value.id, restoreInventory)
+    router.push({ name: 'project-list' })
+  } catch (error) {
+    console.error('Failed to delete project:', error)
+    errorMessage.value = 'Failed to delete project. Please try again.'
+    isErrorModalVisible.value = true
   }
 }
 
@@ -170,10 +174,16 @@ const handleInventoryAdded = async () => {
 
 // ── BOM ──────────────────────────────────────────────────────────────────────
 const isAddBOMModalVisible = ref(false)
+const isDeleteProjectModalVisible = ref(false)
+
+const linkedBOMCount = computed(() => {
+  if (!project.value?.bom_items) return 0
+  return project.value.bom_items.filter(
+    (item) => item.inventory_item && item.status !== 'needs_purchase',
+  ).length
+})
 const movingToBOMItem = ref(null)
-const editingBOMItemId = ref(null)
-const bomEditDesc = ref('')
-const bomEditQty = ref(1)
+const editingBOMModalItem = ref(null)
 
 const bomHeaders = computed(() => [
   { text: '#', value: '_rowNum', sortable: false },
@@ -232,35 +242,15 @@ const handleBOMItemAdded = async () => {
   fetchProject()
 }
 
-const startBOMEdit = (item) => {
-  editingBOMItemId.value = item.id
-  bomEditDesc.value = item.description
-  bomEditQty.value = item.quantity_needed
-}
-
-const cancelBOMEdit = () => {
-  editingBOMItemId.value = null
-}
-
-const saveBOMEdit = async (item) => {
-  if (!bomEditDesc.value.trim() || bomEditQty.value < 1) return
-  try {
-    await APIService.updateBOMItem(item.id, {
-      description: bomEditDesc.value.trim(),
-      quantity_needed: bomEditQty.value,
-    })
-    editingBOMItemId.value = null
-    await fetchProject()
-  } catch (error) {
-    console.error('Failed to update BOM item:', error)
-    errorMessage.value = 'Failed to update BOM item. Please try again.'
-    isErrorModalVisible.value = true
-  }
+const openBOMEditModal = (item) => {
+  editingBOMModalItem.value = item
 }
 
 const deleteBOMItem = async (item) => {
-  const invName = item.inventory_item_title ? ` and release ${item.quantity_needed}× ${item.inventory_item_title} back to available stock` : ''
-  if (confirm(`Remove "${item.description}" from this BOM?${invName ? '\n\nThis will ' + invName + '.' : ''}`)) {
+  const returnNote = item.inventory_item_title
+    ? `\n\n${item.quantity_needed}× ${item.inventory_item_title} will be returned to Inventory.`
+    : ''
+  if (confirm(`Remove "${item.description}" from this BOM?${returnNote}`)) {
     try {
       await APIService.deleteBOMItem(item.id)
       await fetchProject()
@@ -514,7 +504,6 @@ onMounted(fetchProject)
               </h3>
               <div class="bom-header-actions">
                 <button
-                  v-if="!project.bom_items || project.bom_items.length === 0"
                   type="button"
                   class="btn btn-sm btn-secondary"
                   @click="openBOMWizard"
@@ -553,36 +542,17 @@ onMounted(fetchProject)
                   <span class="bom-row-num">{{ item._rowNum }}</span>
                 </template>
 
-                <!-- Description (with inline edit) -->
+                <!-- Description -->
                 <template #cell-description="{ item }">
-                  <div v-if="editingBOMItemId === item.id" class="bom-inline-edit">
-                    <input
-                      v-model="bomEditDesc"
-                      type="text"
-                      class="bom-edit-input"
-                      maxlength="255"
-                      @keydown.enter.prevent="saveBOMEdit(item)"
-                      @keydown.escape="cancelBOMEdit"
-                    />
-                  </div>
-                  <div v-else class="bom-desc-cell">
+                  <div class="bom-desc-cell">
                     <span>{{ item.description }}</span>
                     <span v-if="item.notes" class="bom-item-notes">{{ item.notes }}</span>
                   </div>
                 </template>
 
-                <!-- Qty Needed (with inline edit) -->
+                <!-- Qty Needed -->
                 <template #cell-quantity_needed="{ item }">
-                  <input
-                    v-if="editingBOMItemId === item.id"
-                    v-model.number="bomEditQty"
-                    type="number"
-                    min="1"
-                    class="bom-edit-input bom-edit-qty"
-                    @keydown.enter.prevent="saveBOMEdit(item)"
-                    @keydown.escape="cancelBOMEdit"
-                  />
-                  <span v-else>{{ item.quantity_needed }}</span>
+                  <span>{{ item.quantity_needed }}</span>
                 </template>
 
                 <!-- Inventory Item link -->
@@ -611,35 +581,18 @@ onMounted(fetchProject)
                 <!-- Actions -->
                 <template #cell-actions="{ item }">
                   <div class="bom-action-btns">
-                    <template v-if="editingBOMItemId === item.id">
-                      <button
-                        class="btn btn-sm btn-primary bom-save-btn"
-                        @click.stop="saveBOMEdit(item)"
-                      >Save</button>
-                      <button
-                        class="btn-remove-datatable"
-                        @click.stop="cancelBOMEdit"
-                      >Cancel</button>
-                    </template>
-                    <template v-else>
-                      <button
-                        class="btn btn-sm btn-primary bom-edit-btn"
-                        @click.stop="startBOMEdit(item)"
-                      >Edit</button>
-                      <button
-                        class="btn-remove-datatable"
-                        @click.stop="deleteBOMItem(item)"
-                      >Remove</button>
-                    </template>
+                    <button
+                      class="btn btn-sm btn-primary bom-edit-btn"
+                      @click.stop="openBOMEditModal(item)"
+                    >Edit</button>
+                    <button
+                      class="btn-remove-datatable"
+                      @click.stop="deleteBOMItem(item)"
+                    >Remove</button>
                   </div>
                 </template>
               </DataTable>
 
-              <div v-if="project.bom_items && project.bom_items.length > 0" class="bom-footer">
-                <button type="button" class="btn btn-sm btn-secondary" @click="openBOMWizard">
-                  Add Multiple Items
-                </button>
-              </div>
             </div>
           </div>
         </div>
@@ -746,6 +699,7 @@ onMounted(fetchProject)
       @added="handleInventoryAdded"
     />
 
+    <!-- Add / Move-to-BOM modal -->
     <AddBOMItemModal
       v-if="project"
       :show="isAddBOMModalVisible"
@@ -753,6 +707,26 @@ onMounted(fetchProject)
       :pre-selected-inventory-item="movingToBOMItem"
       @close="isAddBOMModalVisible = false; movingToBOMItem = null"
       @added="handleBOMItemAdded"
+    />
+    <!-- Edit BOM item modal -->
+    <AddBOMItemModal
+      v-if="project && editingBOMModalItem"
+      :show="editingBOMModalItem !== null"
+      :project-id="project.id"
+      :edit-item="editingBOMModalItem"
+      @close="editingBOMModalItem = null"
+      @updated="editingBOMModalItem = null; fetchProject()"
+    />
+
+    <!-- Delete project confirmation modal -->
+    <DeleteProjectModal
+      v-if="project"
+      :show="isDeleteProjectModalVisible"
+      :project-name="project.project_name"
+      :project-status="project.status"
+      :linked-b-o-m-count="linkedBOMCount"
+      @close="isDeleteProjectModalVisible = false"
+      @confirm="handleDeleteProjectConfirm"
     />
   </div>
 </template>

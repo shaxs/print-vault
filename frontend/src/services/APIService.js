@@ -91,8 +91,10 @@ export default {
       headers: { 'Content-Type': 'multipart/form-data' },
     })
   },
-  deleteProject(id) {
-    return apiClient.delete(`projects/${id}/`)
+  deleteProject(id, restoreInventory = false) {
+    return apiClient.delete(`projects/${id}/`, {
+      params: { restore_inventory: restoreInventory },
+    })
   },
   downloadProjectFiles(projectId) {
     return apiClient.get(`projects/${projectId}/download-files/`, { responseType: 'blob' })

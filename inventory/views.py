@@ -2511,7 +2511,9 @@ class InventoryItemViewSet(viewsets.ModelViewSet):
         )
 
         qty_needed = sum(b.quantity_needed for b in active_bom_items)
-        qty_available = item.quantity - qty_needed
+        # Under the reservation model, item.quantity already reflects active allocations.
+        # qty_available IS item.quantity; qty_needed is shown for informational breakdown only.
+        qty_available = item.quantity
 
         active_projects = [
             {
@@ -2563,6 +2565,62 @@ class ProjectViewSet(viewsets.ModelViewSet):
     search_fields = ['project_name', 'description', 'status', 'notes']
     ordering_fields = ['project_name', 'status', 'start_date', 'due_date']
 
+    _BOM_ACTIVE_STATUSES = ['Planning', 'In Progress', 'On Hold']
+    _BOM_CANCELLED = 'Canceled'
+
+    def perform_update(self, serializer):
+        """
+        Reservation model: qty_on_hand is decremented when a BOM item is created
+        and restored when deleted or when a project is Cancelled.
+        Here we only handle the Cancelled <-> active transition:
+          - → Cancelled: restore inventory for all linked BOM items
+          - Cancelled → active: re-decrement inventory for all linked BOM items
+        """
+        old_status = serializer.instance.status
+        instance = serializer.save()
+        new_status = instance.status
+
+        bom_items = (
+            ProjectBOMItem.objects
+            .filter(project=instance, inventory_item__isnull=False)
+            .exclude(status='needs_purchase')
+            .select_related('inventory_item')
+        )
+
+        if old_status != self._BOM_CANCELLED and new_status == self._BOM_CANCELLED:
+            # Project cancelled: return reserved stock to inventory
+            for bom_item in bom_items:
+                InventoryItem.objects.filter(pk=bom_item.inventory_item.pk).update(
+                    quantity=F('quantity') + bom_item.quantity_needed
+                )
+        elif old_status == self._BOM_CANCELLED and new_status in self._BOM_ACTIVE_STATUSES:
+            # Cancelled project re-opened: re-reserve stock from inventory
+            for bom_item in bom_items:
+                InventoryItem.objects.filter(pk=bom_item.inventory_item.pk).update(
+                    quantity=F('quantity') - bom_item.quantity_needed
+                )
+
+    def perform_destroy(self, instance):
+        """
+        Reservation model: optionally restore inventory before deletion.
+
+        The frontend sends ?restore_inventory=true when the user chooses to return
+        reserved/used items back to stock. We skip restoration for Cancelled projects
+        because inventory was already returned at cancellation time.
+        """
+        restore = self.request.query_params.get('restore_inventory', 'false').lower() == 'true'
+        if restore and instance.status != self._BOM_CANCELLED:
+            bom_items = (
+                ProjectBOMItem.objects
+                .filter(project=instance, inventory_item__isnull=False)
+                .exclude(status='needs_purchase')
+            )
+            for bom_item in bom_items:
+                InventoryItem.objects.filter(pk=bom_item.inventory_item_id).update(
+                    quantity=F('quantity') + bom_item.quantity_needed
+                )
+        instance.delete()
+
     @action(detail=True, methods=['post'], url_path='remove-inventory')
     def remove_inventory(self, request, pk=None):
         """Remove an inventory item from a project's associated_inventory_items."""
@@ -2602,9 +2660,18 @@ class ProjectBOMItemViewSet(viewsets.ModelViewSet):
       PATCH  /api/projectbomitems/{id}/           — update (description, qty, link, status)
       DELETE /api/projectbomitems/{id}/           — remove a BOM item
       POST   /api/projectbomitems/reorder/        — bulk update sort_order
+
+    Reservation model: creating a BOM item linked to an inventory item immediately
+    decrements qty_on_hand so the item appears "spoken for". Deleting or cancelling
+    the project restores the reservation.
     """
     serializer_class = ProjectBOMItemSerializer
     permission_classes = [AllowAny]
+    _ACTIVE_STATUSES = ['Planning', 'In Progress', 'On Hold']
+
+    def _adjust_inv(self, inventory_item_id, delta):
+        """Adjust qty_on_hand by delta (+restore / -reserve)."""
+        InventoryItem.objects.filter(pk=inventory_item_id).update(quantity=F('quantity') + delta)
 
     def get_queryset(self):
         qs = ProjectBOMItem.objects.select_related('inventory_item', 'project').all()
@@ -2612,6 +2679,54 @@ class ProjectBOMItemViewSet(viewsets.ModelViewSet):
         if project_id:
             qs = qs.filter(project_id=project_id)
         return qs.order_by('sort_order', 'id')
+
+    def perform_create(self, serializer):
+        """Decrement inventory qty when a linked BOM item is created on an active project."""
+        instance = serializer.save()
+        if (
+            instance.inventory_item_id
+            and instance.status != 'needs_purchase'
+            and instance.project.status in self._ACTIVE_STATUSES
+        ):
+            self._adjust_inv(instance.inventory_item_id, -instance.quantity_needed)
+
+    def perform_destroy(self, instance):
+        """Restore inventory qty when a BOM item is deleted from an active project."""
+        if (
+            instance.inventory_item_id
+            and instance.status != 'needs_purchase'
+            and instance.project.status in self._ACTIVE_STATUSES
+        ):
+            self._adjust_inv(instance.inventory_item_id, +instance.quantity_needed)
+        instance.delete()
+
+    def perform_update(self, serializer):
+        """Adjust inventory delta when allocation-relevant fields change."""
+        old = serializer.instance
+        old_inv_id = old.inventory_item_id
+        old_qty = old.quantity_needed
+        old_needs_purchase = old.status == 'needs_purchase'
+
+        instance = serializer.save()
+
+        # Only adjust if the project is active
+        if instance.project.status not in self._ACTIVE_STATUSES:
+            return
+
+        new_inv_id = instance.inventory_item_id
+        new_qty = instance.quantity_needed
+        new_needs_purchase = instance.status == 'needs_purchase'
+
+        # Skip if nothing allocation-relevant changed
+        if old_inv_id == new_inv_id and old_qty == new_qty and old_needs_purchase == new_needs_purchase:
+            return
+
+        # Restore old reservation
+        if old_inv_id and not old_needs_purchase:
+            self._adjust_inv(old_inv_id, +old_qty)
+        # Apply new reservation
+        if new_inv_id and not new_needs_purchase:
+            self._adjust_inv(new_inv_id, -new_qty)
 
     @action(detail=False, methods=['post'], url_path='reorder')
     def reorder(self, request):

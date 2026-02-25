@@ -12,6 +12,7 @@ import { ref, computed, onMounted, nextTick } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import APIService from '../services/APIService'
 import DataTable from '../components/DataTable.vue'
+import AddBOMItemModal from '../components/AddBOMItemModal.vue'
 
 const route = useRoute()
 const router = useRouter()
@@ -169,15 +170,46 @@ const addRow = async () => {
   }
 }
 
-// ── Remove a session row ──────────────────────────────────────────────────────
-const removeSessionItem = async (item) => {
-  const sessionIndex = item._rowNum - 1 - existingItems.value.length
+// ── Remove any item (existing or session) ────────────────────────────────────
+const removeItem = async (item) => {
+  const returnNote = item.inventory_item_title
+    ? `\n\n${item.quantity_needed}× ${item.inventory_item_title} will be returned to Inventory.`
+    : ''
+  if (!confirm(`Remove "${item.description}" from this BOM?${returnNote}`)) return
   try {
     await APIService.deleteBOMItem(item.id)
-    sessionItems.value.splice(sessionIndex, 1)
+    const exIdx = existingItems.value.findIndex(i => i.id === item.id)
+    if (exIdx >= 0) {
+      existingItems.value.splice(exIdx, 1)
+    } else {
+      const seIdx = sessionItems.value.findIndex(i => i.id === item.id)
+      if (seIdx >= 0) sessionItems.value.splice(seIdx, 1)
+    }
   } catch {
     errorBanner.value = 'Failed to remove item.'
   }
+}
+
+// ── Edit an item via modal ───────────────────────────────────────────────────
+const showWizardEditModal = ref(false)
+const wizardEditItem = ref(null)
+
+const openWizardEdit = (item) => {
+  wizardEditItem.value = item
+  showWizardEditModal.value = true
+}
+
+const handleWizardItemUpdated = (updatedItem) => {
+  // Update in-place in whichever array holds this item
+  const exIdx = existingItems.value.findIndex(i => i.id === updatedItem.id)
+  if (exIdx >= 0) {
+    existingItems.value[exIdx] = updatedItem
+  } else {
+    const seIdx = sessionItems.value.findIndex(i => i.id === updatedItem.id)
+    if (seIdx >= 0) sessionItems.value[seIdx] = updatedItem
+  }
+  showWizardEditModal.value = false
+  wizardEditItem.value = null
 }
 
 // ── Done ─────────────────────────────────────────────────────────────────────
@@ -315,9 +347,6 @@ onMounted(async () => {
                 </li>
               </ul>
             </div>
-            <p v-if="selectedInventoryItem && !needsPurchase" class="inv-selected">
-              ✓ {{ selectedInventoryItem.title }} ({{ selectedInventoryItem.quantity }} on hand)
-            </p>
           </div>
 
           <!-- Need to Purchase -->
@@ -357,6 +386,10 @@ onMounted(async () => {
             </button>
           </div>
         </div>
+        <!-- Selected inventory item indicator (separate row, no layout shift) -->
+        <p v-if="selectedInventoryItem && !needsPurchase" class="inv-selected-bar">
+          ✓ Linked: {{ selectedInventoryItem.title }} ({{ selectedInventoryItem.quantity }} on hand)
+        </p>
       </div>
 
       <!-- BOM table -->
@@ -396,13 +429,20 @@ onMounted(async () => {
             </span>
           </template>
           <template #cell-actions="{ item }">
-            <button
-              v-if="item._rowNum > existingItems.length"
-              class="btn-remove-datatable"
-              @click.stop="removeSessionItem(item)"
-            >
-              Remove
-            </button>
+            <div style="display:flex;gap:0.4rem;align-items:center;">
+              <button
+                class="btn-edit-row"
+                @click.stop="openWizardEdit(item)"
+              >
+                Edit
+              </button>
+              <button
+                class="btn-remove-datatable"
+                @click.stop="removeItem(item)"
+              >
+                Remove
+              </button>
+            </div>
           </template>
         </DataTable>
       </div>
@@ -415,6 +455,16 @@ onMounted(async () => {
       </div>
     </div>
   </div>
+
+  <!-- Edit BOM item modal -->
+  <AddBOMItemModal
+    v-if="wizardEditItem"
+    :show="showWizardEditModal"
+    :project-id="projectId"
+    :edit-item="wizardEditItem"
+    @close="showWizardEditModal = false; wizardEditItem = null"
+    @updated="handleWizardItemUpdated"
+  />
 </template>
 
 <style scoped>
@@ -726,6 +776,28 @@ onMounted(async () => {
 .badge-unlinked {
   background: color-mix(in srgb, var(--color-text-soft) 15%, transparent);
   color: var(--color-text-soft);
+}
+
+/* Row action buttons */
+.btn-edit-row {
+  background-color: var(--color-blue);
+  color: white;
+  padding: 5px 10px;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 0.8rem;
+  font-weight: 500;
+  white-space: nowrap;
+  transition: background 0.15s, color 0.15s;
+}
+.btn-edit-row:hover { background-color: #0b5ed7; }
+
+/* Selected inventory item row (below full input bar) */
+.inv-selected-bar {
+  margin: 0.5rem 0 0;
+  font-size: 0.8rem;
+  color: var(--color-green);
 }
 
 /* Footer */
