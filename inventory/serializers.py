@@ -523,7 +523,9 @@ class InventoryItemSerializer(serializers.ModelSerializer):
             # --- New Fields for Consumables ---
             'is_consumable', 'low_stock_threshold',
             # --- Vendor and Model Fields ---
-            'vendor', 'vendor_link', 'model'
+            'vendor', 'vendor_link', 'model',
+            # --- Ordering State ---
+            'is_ordered',
         ]
 
     def create(self, validated_data):
@@ -759,7 +761,7 @@ class ProjectBOMItemInlineSerializer(serializers.ModelSerializer):
         fields = [
             'id', 'description', 'quantity_needed',
             'inventory_item', 'inventory_item_title', 'qty_on_hand',
-            'status', 'notes', 'sort_order', 'allocation_status',
+            'status', 'is_ordered', 'notes', 'sort_order', 'allocation_status',
         ]
 
     def get_allocation_status(self, obj):
@@ -799,7 +801,7 @@ class ProjectBOMItemSerializer(serializers.ModelSerializer):
             'id', 'project', 'description', 'quantity_needed',
             'inventory_item', 'inventory_item_title', 'inventory_item_qty',
             'inventory_item_id_display',
-            'status', 'notes', 'sort_order', 'allocation_status',
+            'status', 'is_ordered', 'notes', 'sort_order', 'allocation_status',
             'created_at', 'updated_at',
         ]
         extra_kwargs = {

@@ -2,7 +2,7 @@
 
 **Print Vault** — User Documentation  
 **Feature**: Bill of Materials  
-**Last Updated**: 2026-02-24
+**Last Updated**: 2026-02-25
 
 ---
 
@@ -117,12 +117,42 @@ This tells you whether your linked inventory item has enough stock:
 | **Covered**        | 🟢 Green  | You have enough on hand for this BOM item                                                                             |
 | **Low**            | 🟡 Yellow | You have some stock, but it's at or below your low-stock threshold                                                    |
 | **Overallocated**  | 🔴 Red    | Your linked inventory item has been over-reserved — the quantity on hand has gone negative across all active projects |
+| **Ordered**        | 🟢 Green  | You are overallocated but have placed a restock order — the shortage is being addressed                               |
 | **Needs Purchase** | ⚪ Gray    | Not linked to inventory; flagged for purchase                                                                         |
 | **Unlinked**       | ⚪ Gray    | Not yet linked to inventory                                                                                           |
 
 > **Tip**: Overallocated doesn't mean something is broken — it means you've committed more of that part than you have. This is expected when planning multiple simultaneous builds. Use it as your shopping signal.
 
 > 📸 *[Screenshot: BOM table on a project page showing all four status badge states—Covered, Low, Overallocated, and Needs Purchase]*
+
+---
+
+## Filtering the BOM Table by Status
+
+Both the **BOM Wizard** and the **Project Detail page** show a row of filter chips above the parts list. Use these to instantly narrow down the view without leaving the page.
+
+### How to Use
+
+Click any chip to show only items matching that status. Click **All** to return to the full list.
+
+| Chip | Shows |
+|------|-------|
+| **All** | Every item in the list (default) |
+| **Covered** | Items with sufficient stock on hand |
+| **Running Low** | Items where stock is at or below the low-stock threshold |
+| **Overallocated** | Items where the allocated quantity exceeds what's on hand |
+| **Needs Purchase** | Items explicitly flagged for purchase (no inventory link) |
+| **Not Linked** | Items not yet connected to any inventory record |
+
+Each chip shows a count of matching items. **Chips are only shown when at least one item matches** — if all your items are Covered, you'll only see the **All** and **Covered** chips.
+
+> 📸 *[Screenshot: BOM table filter chips row with "Overallocated" chip selected, showing a filtered list of only the over-reserved items]*
+
+### Tips
+
+- **In the BOM Wizard**: the filter applies to the items queued in the table below the entry form. Items you add during the current session will appear and be filterable immediately.
+- **On the Project Detail page**: the filter applies to the full saved BOM list.
+- The filter resets to **All** on page reload — it is not persisted.
 
 ---
 
@@ -205,6 +235,16 @@ This gives you a full history of where the part has been used.
 
 > 📸 *[Screenshot: Inventory item detail page showing the BOM Allocation panel with Active Projects and Closed Projects tables, with a cancelled project row showing "↩ 2 returned"]*
 
+### Marking an Item as Ordered
+
+When the **BOM Allocation** summary shows an **Overallocated** status, an **Actions** column appears next to the status badge with a **"Mark as Ordered"** button.
+
+Click **"Mark as Ordered"** to record that you've placed a restock order. The status badge changes from 🔴 **Overallocated** to 🟢 **Ordered** — signalling that the shortage is being addressed.
+
+This flag is stored on the inventory item itself (not per-project), so marking one item as ordered clears the alert for **all projects** that share it. The same "Mark ordered" / "Undo" controls also appear on the **Dashboard shopping list** for overallocated items.
+
+Click **"Undo Ordered"** to revert the status if the order was cancelled or you want to reset the flag.
+
 ---
 
 ## Project Lifecycle and Inventory Impact
@@ -235,7 +275,7 @@ When you change a Cancelled project back to Planning, In Progress, or On Hold:
 
 ### Completing a Project
 
-When you mark a project as **Completed**, no inventory changes occur. The items were physically consumed — they're gone. Your `qty_on_hand` was already decremented when the BOM items were added, and that stands.
+When you mark a project as **Completed**, no inventory changes occur. The items were physically consumed — they're gone. Your `qty_available` was already decremented when the BOM items were added, and that stands.
 
 > If you completed a project but actually had leftover parts, remove those BOM items before completing (or manually adjust your inventory count afterward).
 
@@ -278,7 +318,7 @@ You're planning a Trident build but haven't bought the linear rails yet.
 
 ### Tracking What to Buy
 
-On any BOM table, items marked **Needs Purchase** or showing **Overallocated** are the ones you need to action. Filter or sort the BOM table by status to quickly identify your shopping list.
+On any BOM table, items marked **Needs Purchase** or showing **Overallocated** are the ones you need to action. Use the **status filter chips** at the top of the BOM table to show only those items — click **Needs Purchase** or **Overallocated** to isolate your shopping list without scrolling through the full parts list.
 
 ### Multiple Build Sizes
 
@@ -286,7 +326,31 @@ A Voron Trident comes in 250mm, 300mm, and 350mm variants with different quantit
 
 ---
 
-## Tips
+## Dashboard Shopping List
+
+The **Dashboard** aggregates everything you need to buy into a single shopping list, so you don't have to visit each project or inventory item individually.
+
+### What Appears on the List
+
+Two types of items surface here:
+
+| Reason | Source | Meaning |
+|--------|--------|---------|
+| **Overallocated** | Inventory item | You have more committed to projects than you have in stock — quantity available is negative |
+| **Needs Purchase** | BOM item (unlinked) | A BOM item is flagged for purchase and has no inventory link yet |
+
+### Marking Items as Ordered from the Dashboard
+
+Each row in the shopping list has a **"Mark as Ordered"** button. Click it to record that a restock order has been placed.
+
+- **Overallocated items** — the flag is stored on the **inventory item** itself. Marking it ordered here is the same action as marking it ordered from the inventory detail page. The 🔴 Overallocated badge changes to 🟢 Ordered everywhere it appears.
+- **Needs Purchase items** — the flag is stored on the **BOM item**. Clicking "Mark as Ordered" records the order against that specific BOM line.
+
+Click **"Undo"** on any row to reset the ordered flag if the order was cancelled or you want to clear it.
+
+> **Note**: Ordered items remain on the shopping list so you can track what's in-flight. They're distinguished by the 🟢 Ordered status rather than disappearing from the list.
+
+---
 
 - **Enter descriptions exactly as written in the creator's BOM** — this makes cross-referencing the original BOM document easy later
 - **Don't link items you've already consumed** for a completed project — the system treats "quantity on hand" as what's physically available right now

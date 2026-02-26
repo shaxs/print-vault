@@ -85,6 +85,7 @@ const bomProjectHeaders = [
   { text: 'Project Name', value: 'project_name' },
   { text: 'Qty Allocated', value: 'qty_allocated' },
   { text: 'Project Status', value: 'project_status' },
+  { text: 'Actions', value: 'actions' },
 ]
 
 const closedBOMProjectHeaders = [
@@ -97,7 +98,10 @@ const allocationStatusLabel = computed(() => {
   if (!allocation.value) return null
   const { qty_needed, is_overallocated } = allocation.value
   if (qty_needed === 0) return null
-  if (is_overallocated) return 'Overallocated'
+  if (is_overallocated) {
+    if (item.value?.is_ordered) return 'Ordered'
+    return 'Overallocated'
+  }
   if (item.value?.is_consumable && item.value?.low_stock_threshold) {
     // qty_on_hand now IS the available qty (reservation model)
     if (allocation.value.qty_on_hand <= item.value.low_stock_threshold) return 'Running Low'
@@ -108,6 +112,7 @@ const allocationStatusLabel = computed(() => {
 const allocationStatusClass = computed(() => {
   const s = allocationStatusLabel.value
   if (s === 'Overallocated') return 'alloc-overallocated'
+  if (s === 'Ordered') return 'alloc-ordered'
   if (s === 'Running Low') return 'alloc-low'
   if (s === 'Covered') return 'alloc-covered'
   return ''
@@ -138,6 +143,24 @@ const removeBOMItem = async (proj) => {
     } catch (error) {
       console.error('Failed to remove BOM item:', error)
     }
+  }
+}
+
+const markInventoryOrdered = async () => {
+  try {
+    await APIService.patchInventoryItem(item.value.id, { is_ordered: true })
+    item.value.is_ordered = true
+  } catch (err) {
+    console.error('Failed to mark inventory item as ordered:', err)
+  }
+}
+
+const unmarkInventoryOrdered = async () => {
+  try {
+    await APIService.patchInventoryItem(item.value.id, { is_ordered: false })
+    item.value.is_ordered = false
+  } catch (err) {
+    console.error('Failed to unmark inventory item as ordered:', err)
   }
 }
 
@@ -295,7 +318,7 @@ onMounted(async () => {
               </h3>
             </div>
             <div class="card-body">
-              <!-- Summary: Committed + Status (Qty Available is already in Item Details card) -->
+              <!-- Summary: Committed + Status + Actions -->
               <div class="alloc-summary-grid">
                 <div class="alloc-cell">
                   <span class="alloc-label">Committed to Projects</span>
@@ -306,6 +329,20 @@ onMounted(async () => {
                   <span v-if="allocationStatusLabel" :class="['alloc-badge', allocationStatusClass]">
                     {{ allocationStatusLabel }}
                   </span>
+                  <span v-else class="alloc-value text-muted">—</span>
+                </div>
+                <div class="alloc-cell">
+                  <span class="alloc-label">Actions</span>
+                  <button
+                    v-if="allocation.is_overallocated && !item.is_ordered"
+                    class="btn-action-datatable"
+                    @click="markInventoryOrdered"
+                  >Mark as Ordered</button>
+                  <button
+                    v-else-if="allocation.is_overallocated && item.is_ordered"
+                    class="btn-action-datatable btn-action-undo"
+                    @click="unmarkInventoryOrdered"
+                  >Undo Ordered</button>
                   <span v-else class="alloc-value text-muted">—</span>
                 </div>
               </div>
@@ -326,9 +363,11 @@ onMounted(async () => {
                     <span class="project-status-text">{{ formatProjectStatus(proj.project_status) }}</span>
                   </template>
                   <template #cell-actions="{ item: proj }">
-                    <button @click.stop="removeBOMItem(proj)" class="btn-remove-datatable">
-                      Remove
-                    </button>
+                    <div style="display:flex;gap:0.5rem;align-items:center;flex-wrap:wrap;">
+                      <button @click.stop="removeBOMItem(proj)" class="btn-remove-datatable">
+                        Remove
+                      </button>
+                    </div>
                   </template>
                 </DataTable>
               </div>
@@ -752,7 +791,7 @@ hr {
 /* ── BOM Allocation ─────────────────────────────────────────────────────── */
 .alloc-summary-grid {
   display: grid;
-  grid-template-columns: repeat(4, 1fr);
+  grid-template-columns: repeat(3, 1fr);
   gap: 0;
   border-bottom: 1px solid var(--color-border);
 }
@@ -826,6 +865,14 @@ hr {
   background: color-mix(in srgb, var(--color-red) 15%, transparent);
 }
 
+.alloc-ordered {
+  color: rgb(22, 163, 74);
+}
+
+.alloc-ordered.alloc-badge {
+  background: color-mix(in srgb, rgb(22, 163, 74) 15%, transparent);
+}
+
 .alloc-section {
   padding: 0.75rem 0 0;
 }
@@ -852,5 +899,50 @@ hr {
 
 .text-muted {
   color: var(--color-text-soft);
+}
+
+.bom-alloc-order-link {
+  font-size: 0.8rem;
+  color: var(--color-text-muted);
+  cursor: pointer;
+  text-decoration: underline;
+  text-decoration-color: transparent;
+  transition: color 0.1s, text-decoration-color 0.1s;
+  white-space: nowrap;
+}
+.bom-alloc-order-link:hover {
+  color: var(--color-text);
+  text-decoration-color: var(--color-text);
+}
+.bom-alloc-order-undo {
+  color: rgb(22, 163, 74);
+}
+.bom-alloc-order-undo:hover {
+  color: rgb(15, 118, 56);
+  text-decoration-color: rgb(15, 118, 56);
+}
+
+.btn-action-datatable {
+  background-color: #6c757d;
+  border-color: #6c757d;
+  color: #fff;
+  padding: 5px 10px;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 0.8rem;
+  font-weight: 500;
+  transition: background 0.15s, color 0.15s;
+}
+.btn-action-datatable:hover {
+  background-color: #5c636a;
+  border-color: #565e64;
+}
+.btn-action-undo {
+  background-color: #6c757d;
+  border-color: #6c757d;
+}
+.btn-action-undo:hover {
+  background-color: #5c636a;
 }
 </style>

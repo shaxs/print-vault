@@ -15,7 +15,7 @@ const headers = [
   { text: 'Brand', value: 'brand' },
   { text: 'Part Type', value: 'partType' },
   { text: 'Location', value: 'location' },
-  { text: 'Qty on Hand', value: 'quantity' },
+  { text: 'Qty Available', value: 'quantity' },
   { text: 'Qty Needed', value: 'qtyNeeded' },
   { text: 'Cost', value: 'cost' },
 ]
@@ -68,7 +68,7 @@ const viewItem = (item) => {
       {{ item.quantity }}
     </template>
     <template #cell-qtyNeeded="{ item }">
-      <span v-if="item.qty_needed > 0" :class="item.qty_needed > item.quantity ? 'qty-over' : 'qty-ok'">{{ item.qty_needed }}</span>
+      <span v-if="item.qty_needed > 0" :class="item.quantity < 0 ? 'qty-over' : 'qty-ok'">{{ item.qty_needed }}</span>
       <span v-else class="qty-none">—</span>
     </template>
     <template #cell-cost="{ item }"> ${{ item.cost || '0.00' }} </template>

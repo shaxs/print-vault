@@ -2522,6 +2522,7 @@ class InventoryItemViewSet(viewsets.ModelViewSet):
                 'project_status': b.project.status.lower().replace(' ', '_'),
                 'qty_allocated': b.quantity_needed,
                 'bom_item_id': b.id,
+                'is_ordered': b.is_ordered,
             }
             for b in active_bom_items
         ]
@@ -2532,6 +2533,7 @@ class InventoryItemViewSet(viewsets.ModelViewSet):
                 'project_status': b.project.status.lower().replace(' ', '_'),
                 'qty_allocated': b.quantity_needed,
                 'bom_item_id': b.id,
+                'is_ordered': b.is_ordered,
             }
             for b in closed_bom_items
         ]
@@ -2739,6 +2741,82 @@ class ProjectBOMItemViewSet(viewsets.ModelViewSet):
                 sort_order=item_data['sort_order']
             )
         return Response({'status': 'ok'})
+
+    @action(detail=False, methods=['get'], url_path='shopping_list')
+    def shopping_list(self, request):
+        """
+        Return a consolidated list of all BOM items across active projects
+        that need to be purchased or are overallocated.
+
+        GET /api/projectbomitems/shopping_list/
+
+        Returns two categories:
+          - needs_purchase: BOM items explicitly flagged for purchasing
+          - overallocated: Linked BOM items where the inventory item has
+            insufficient stock (quantity < 0 after all reservations)
+
+        Response rows include project context so the dashboard can render
+        grouped or flat views.
+        """
+        active = self._ACTIVE_STATUSES
+
+        rows = []
+
+        # --- Category 1: Needs Purchase ---
+        needs_purchase_qs = (
+            ProjectBOMItem.objects
+            .filter(project__status__in=active, status='needs_purchase')
+            .select_related('project', 'inventory_item')
+            .order_by('project__project_name', 'description')
+        )
+        for item in needs_purchase_qs:
+            rows.append({
+                'bom_item_id': item.id,
+                'description': item.description,
+                'quantity_needed': item.quantity_needed,
+                'project_id': item.project_id,
+                'project_name': item.project.project_name,
+                'project_status': item.project.status,
+                'reason': 'needs_purchase',
+                'is_ordered': item.is_ordered,
+                'inventory_item_id': None,
+                'inventory_item_name': None,
+                'quantity_on_hand': None,
+                'shortfall': item.quantity_needed,
+                'notes': item.notes,
+            })
+
+        # --- Category 2: Overallocated (linked but inventory is in deficit) ---
+        overallocated_qs = (
+            ProjectBOMItem.objects
+            .filter(
+                project__status__in=active,
+                status='linked',
+                inventory_item__isnull=False,
+                inventory_item__quantity__lt=0,
+            )
+            .select_related('project', 'inventory_item')
+            .order_by('project__project_name', 'description')
+        )
+        for item in overallocated_qs:
+            inv = item.inventory_item
+            rows.append({
+                'bom_item_id': item.id,
+                'description': item.description,
+                'quantity_needed': item.quantity_needed,
+                'project_id': item.project_id,
+                'project_name': item.project.project_name,
+                'project_status': item.project.status,
+                'reason': 'overallocated',
+                'is_ordered': inv.is_ordered,
+                'inventory_item_id': inv.id,
+                'inventory_item_name': inv.title,
+                'quantity_on_hand': inv.quantity,   # negative = total deficit
+                'shortfall': abs(inv.quantity),      # total deficit across all reservations
+                'notes': item.notes,
+            })
+
+        return Response(rows)
 
 
 class LowStockItemsViewSet(ReadOnlyViewSet):

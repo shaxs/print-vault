@@ -749,7 +749,13 @@ class InventoryItem(models.Model):
     vendor = models.ForeignKey(Vendor, on_delete=models.SET_NULL, null=True, blank=True)
     vendor_link = models.URLField(max_length=512, null=True, blank=True)
     model = models.CharField(max_length=255, null=True, blank=True)
-    
+
+    # --- Ordering State ---
+    is_ordered = models.BooleanField(
+        default=False,
+        help_text="True when a replacement/restock order has been placed but not yet received"
+    )
+
     class Meta:
         verbose_name = "Inventory Item"
         verbose_name_plural = "Inventory Items"
@@ -884,6 +890,10 @@ class ProjectBOMItem(models.Model):
     sort_order = models.PositiveIntegerField(
         default=0,
         help_text="Display order within the project BOM"
+    )
+    is_ordered = models.BooleanField(
+        default=False,
+        help_text="True when the item has been ordered but not yet received/linked to inventory"
     )
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)

@@ -22,6 +22,9 @@ export default {
       headers: { 'Content-Type': 'multipart/form-data' },
     })
   },
+  patchInventoryItem(id, data) {
+    return apiClient.patch(`inventoryitems/${id}/`, data)
+  },
   deleteInventoryItem(id) {
     return apiClient.delete(`inventoryitems/${id}/`)
   },
@@ -396,6 +399,9 @@ export default {
   },
   reorderBOMItems(items) {
     return apiClient.post('projectbomitems/reorder/', { items })
+  },
+  getShoppingList() {
+    return apiClient.get('projectbomitems/shopping_list/')
   },
   getInventoryAllocation(inventoryItemId) {
     return apiClient.get(`inventoryitems/${inventoryItemId}/allocation/`)

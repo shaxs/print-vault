@@ -1,5 +1,5 @@
 <script setup>
-import { ref, onMounted, computed, nextTick } from 'vue'
+import { ref, onMounted, computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import APIService from '../services/APIService'
 import DataTable from '../components/DataTable.vue'
@@ -9,6 +9,7 @@ import AddInventoryToProjectModal from '../components/AddInventoryToProjectModal
 import AddBOMItemModal from '../components/AddBOMItemModal.vue'
 import InfoTooltip from '../components/InfoTooltip.vue'
 import DeleteProjectModal from '../components/DeleteProjectModal.vue'
+import QuickAddInventoryModal from '../components/QuickAddInventoryModal.vue'
 
 const route = useRoute()
 const router = useRouter()
@@ -165,6 +166,41 @@ const bomItemsWithIndex = computed(() =>
   (project.value?.bom_items ?? []).map((item, i) => ({ ...item, _rowNum: i + 1 }))
 )
 
+// Status filter chips
+const BOM_CHIP_FILTERS = [
+  { value: 'all', label: 'All' },
+  { value: 'covered', label: 'Covered' },
+  { value: 'low', label: 'Running Low' },
+  { value: 'overallocated', label: 'Overallocated' },
+  { value: 'needs_purchase', label: 'Needs Purchase' },
+  { value: 'unlinked', label: 'Not Linked' },
+]
+
+const bomStatusFilter = ref('all')
+
+const getBomChipStatus = (item) => item.allocation_status ?? item.status ?? 'unlinked'
+
+const bomStatusCounts = computed(() => {
+  const items = project.value?.bom_items ?? []
+  const counts = { all: items.length }
+  for (const item of items) {
+    const s = getBomChipStatus(item)
+    counts[s] = (counts[s] || 0) + 1
+  }
+  return counts
+})
+
+const activeBomChipFilters = computed(() =>
+  BOM_CHIP_FILTERS.filter((f) => f.value === 'all' || (bomStatusCounts.value[f.value] ?? 0) > 0)
+)
+
+const filteredBomItems = computed(() => {
+  if (bomStatusFilter.value === 'all') return bomItemsWithIndex.value
+  return bomItemsWithIndex.value.filter(
+    (item) => getBomChipStatus(item) === bomStatusFilter.value,
+  )
+})
+
 const handleInventoryAdded = async () => {
   isAddInventoryModalVisible.value = false
   infoModalMessage.value = 'Inventory items added successfully!'
@@ -184,6 +220,15 @@ const linkedBOMCount = computed(() => {
 })
 const movingToBOMItem = ref(null)
 const editingBOMModalItem = ref(null)
+
+// Quick Add + Link
+const quickAddBomItem = ref(null)
+const showQuickAddModal = ref(false)
+
+const openQuickAdd = (item) => {
+  quickAddBomItem.value = item
+  showQuickAddModal.value = true
+}
 
 const bomHeaders = computed(() => [
   { text: '#', value: '_rowNum', sortable: false },
@@ -529,14 +574,29 @@ onMounted(fetchProject)
                 to quickly enter all parts, or click <strong>Add Item</strong> to add one at a time.
               </p>
 
-              <DataTable
-                v-else
-                :headers="bomHeaders"
-                :items="bomItemsWithIndex"
-                :visible-columns="bomHeaders.map((h) => h.value)"
-                empty-message="No BOM items yet."
-                class="borderless-table"
-              >
+              <template v-else>
+                <!-- Status filter chips -->
+                <div class="bom-filter-chips">
+                  <button
+                    v-for="f in activeBomChipFilters"
+                    :key="f.value"
+                    :class="['bom-chip', { 'bom-chip-active': bomStatusFilter === f.value }]"
+                    @click="bomStatusFilter = f.value"
+                  >
+                    {{ f.label }}
+                    <span v-if="f.value !== 'all'" class="chip-count">{{
+                      bomStatusCounts[f.value] ?? 0
+                    }}</span>
+                  </button>
+                </div>
+
+                <DataTable
+                  :headers="bomHeaders"
+                  :items="filteredBomItems"
+                  :visible-columns="bomHeaders.map((h) => h.value)"
+                  :empty-message="bomStatusFilter !== 'all' ? 'No items match the selected filter.' : 'No BOM items yet.'"
+                  class="borderless-table"
+                >
                 <!-- Row number -->
                 <template #cell-_rowNum="{ item }">
                   <span class="bom-row-num">{{ item._rowNum }}</span>
@@ -562,6 +622,11 @@ onMounted(fetchProject)
                     class="table-link grey-link"
                     @click="viewInventoryItem(item.inventory_item)"
                   >{{ item.inventory_item_title }}</span>
+                  <a
+                    v-else-if="item.status === 'needs_purchase'"
+                    class="table-link grey-link"
+                    @click.stop="openQuickAdd(item)"
+                  >Quick add inventory item</a>
                   <span v-else class="text-muted">—</span>
                 </template>
 
@@ -592,6 +657,7 @@ onMounted(fetchProject)
                   </div>
                 </template>
               </DataTable>
+              </template>
 
             </div>
           </div>
@@ -727,6 +793,14 @@ onMounted(fetchProject)
       :linked-b-o-m-count="linkedBOMCount"
       @close="isDeleteProjectModalVisible = false"
       @confirm="handleDeleteProjectConfirm"
+    />
+
+    <!-- Quick Add to Inventory + Link modal -->
+    <QuickAddInventoryModal
+      :show="showQuickAddModal"
+      :bom-item="quickAddBomItem"
+      @close="showQuickAddModal = false; quickAddBomItem = null"
+      @linked="() => { showQuickAddModal = false; quickAddBomItem = null; fetchProject() }"
     />
   </div>
 </template>
@@ -1417,6 +1491,53 @@ onMounted(fetchProject)
   font-size: 0.85rem;
 }
 
+.bom-filter-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  padding: 0.6rem 1.25rem;
+  border-bottom: 1px solid var(--color-border);
+  background: var(--color-background-soft);
+}
+
+.bom-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  padding: 0.25rem 0.65rem;
+  border-radius: 20px;
+  border: 1px solid var(--color-border);
+  background: var(--color-background);
+  color: var(--color-text-soft);
+  font-size: 0.8rem;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s, border-color 0.15s;
+}
+
+.bom-chip:hover {
+  border-color: var(--color-blue);
+  color: var(--color-blue);
+}
+
+.bom-chip-active {
+  background: var(--color-blue);
+  border-color: var(--color-blue);
+  color: #fff;
+}
+
+.chip-count {
+  background: rgba(255, 255, 255, 0.25);
+  border-radius: 10px;
+  padding: 0 0.35rem;
+  font-size: 0.75rem;
+  font-weight: 600;
+}
+
+.bom-chip:not(.bom-chip-active) .chip-count {
+  background: var(--color-background-mute);
+  color: var(--color-text-soft);
+}
+
 .bom-desc-cell {
   display: flex;
   flex-direction: column;
@@ -1453,6 +1574,7 @@ onMounted(fetchProject)
   display: flex;
   gap: 0.4rem;
   align-items: center;
+  flex-wrap: wrap;
 }
 
 .bom-edit-btn {
@@ -1460,6 +1582,16 @@ onMounted(fetchProject)
   font-size: 0.8rem;
   line-height: normal;
   border: none;
+}
+
+.bom-quick-add-link {
+  color: var(--color-heading);
+  cursor: pointer;
+  text-decoration: none;
+}
+.bom-quick-add-link:hover {
+  color: var(--color-heading);
+  text-decoration: underline;
 }
 
 .bom-save-btn {

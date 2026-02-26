@@ -13,6 +13,7 @@ import { useRoute, useRouter } from 'vue-router'
 import APIService from '../services/APIService'
 import DataTable from '../components/DataTable.vue'
 import AddBOMItemModal from '../components/AddBOMItemModal.vue'
+import QuickAddInventoryModal from '../components/QuickAddInventoryModal.vue'
 
 const route = useRoute()
 const router = useRouter()
@@ -246,12 +247,44 @@ const tableHeaders = [
   { text: 'Qty', value: 'quantity_needed' },
   { text: 'Inventory Item', value: 'inventory_item_title' },
   { text: 'Status', value: 'status', sortable: false },
-  { text: '', value: 'actions', sortable: false },
+  { text: 'Actions', value: 'actions', sortable: false },
 ]
 
 const allItems = computed(() =>
   [...existingItems.value, ...sessionItems.value].map((item, i) => ({ ...item, _rowNum: i + 1 }))
 )
+
+// ── Status filter ──────────────────────────────────────────────────────────────
+const statusFilter = ref('all')
+
+const STATUS_FILTERS = [
+  { value: 'all', label: 'All' },
+  { value: 'covered', label: 'Covered' },
+  { value: 'low', label: 'Running Low' },
+  { value: 'overallocated', label: 'Overallocated' },
+  { value: 'needs_purchase', label: 'Needs Purchase' },
+  { value: 'unlinked', label: 'Not Linked' },
+]
+
+const getItemStatus = (item) => item.allocation_status ?? item.status ?? 'unlinked'
+
+const statusCounts = computed(() => {
+  const counts = { all: allItems.value.length }
+  for (const item of allItems.value) {
+    const s = getItemStatus(item)
+    counts[s] = (counts[s] || 0) + 1
+  }
+  return counts
+})
+
+const activeStatusFilters = computed(() =>
+  STATUS_FILTERS.filter((f) => f.value === 'all' || statusCounts.value[f.value])
+)
+
+const filteredItems = computed(() => {
+  if (statusFilter.value === 'all') return allItems.value
+  return allItems.value.filter((item) => getItemStatus(item) === statusFilter.value)
+})
 
 onMounted(async () => {
   await loadProject()
@@ -395,7 +428,25 @@ onMounted(async () => {
       <!-- BOM table -->
       <div class="bom-table-section">
         <div class="bom-table-header">
-          <h3>Items Added ({{ allItems.length }})</h3>
+          <h3>
+            Items Added ({{ allItems.length }})
+            <span v-if="statusFilter !== 'all'" class="filter-count-hint">
+              — showing {{ filteredItems.length }}
+            </span>
+          </h3>
+        </div>
+
+        <!-- Status filter chips -->
+        <div v-if="allItems.length > 0" class="bom-filter-chips">
+          <button
+            v-for="f in activeStatusFilters"
+            :key="f.value"
+            :class="['bom-chip', { 'bom-chip-active': statusFilter === f.value }]"
+            @click="statusFilter = f.value"
+          >
+            {{ f.label }}
+            <span v-if="f.value !== 'all'" class="chip-count">{{ statusCounts[f.value] ?? 0 }}</span>
+          </button>
         </div>
 
         <p v-if="allItems.length === 0" class="empty-hint">
@@ -405,9 +456,9 @@ onMounted(async () => {
         <DataTable
           v-else
           :headers="tableHeaders"
-          :items="allItems"
+          :items="filteredItems"
           :visible-columns="tableHeaders.map((h) => h.value)"
-          empty-message=""
+          empty-message="No items match the selected filter."
           class="bom-wizard-table"
         >
           <template #cell-_rowNum="{ item }">
@@ -421,6 +472,11 @@ onMounted(async () => {
           </template>
           <template #cell-inventory_item_title="{ item }">
             <span v-if="item.inventory_item_title">{{ item.inventory_item_title }}</span>
+            <a
+              v-else-if="item.status === 'needs_purchase'"
+              class="bom-quick-add-link"
+              @click.stop="openQuickAdd(item)"
+            >Quick add inventory item</a>
             <span v-else class="text-muted">—</span>
           </template>
           <template #cell-status="{ item }">
@@ -429,7 +485,7 @@ onMounted(async () => {
             </span>
           </template>
           <template #cell-actions="{ item }">
-            <div style="display:flex;gap:0.4rem;align-items:center;">
+            <div style="display:flex;gap:0.4rem;align-items:center;flex-wrap:wrap;">
               <button
                 class="btn-edit-row"
                 @click.stop="openWizardEdit(item)"
@@ -464,6 +520,14 @@ onMounted(async () => {
     :edit-item="wizardEditItem"
     @close="showWizardEditModal = false; wizardEditItem = null"
     @updated="handleWizardItemUpdated"
+  />
+
+  <!-- Quick Add to Inventory + Link modal -->
+  <QuickAddInventoryModal
+    :show="showQuickAddModal"
+    :bom-item="quickAddBomItem"
+    @close="showQuickAddModal = false; quickAddBomItem = null"
+    @linked="(item) => { handleWizardItemUpdated(item); showQuickAddModal = false; quickAddBomItem = null }"
   />
 </template>
 
@@ -574,7 +638,7 @@ onMounted(async () => {
 .input-row {
   display: flex;
   gap: 1rem;
-  align-items: flex-end;
+  align-items: flex-start;
   flex-wrap: wrap;
 }
 
@@ -628,7 +692,9 @@ onMounted(async () => {
   cursor: pointer;
   font-size: 0.9rem;
   color: var(--color-text);
-  padding: 0.5rem 0;
+  padding: 0.5rem 0.75rem;
+  border: 1px solid transparent;
+  box-sizing: border-box;
 }
 
 .inv-search-wrap {
@@ -718,6 +784,59 @@ onMounted(async () => {
   color: var(--color-heading);
 }
 
+.filter-count-hint {
+  font-weight: 400;
+  color: var(--color-text-soft);
+  font-size: 0.9rem;
+}
+
+.bom-filter-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  padding: 0.6rem 1.25rem;
+  border-bottom: 1px solid var(--color-border);
+  background: var(--color-background-soft);
+}
+
+.bom-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  padding: 0.25rem 0.65rem;
+  border-radius: 20px;
+  border: 1px solid var(--color-border);
+  background: var(--color-background);
+  color: var(--color-text-soft);
+  font-size: 0.8rem;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s, border-color 0.15s;
+}
+
+.bom-chip:hover {
+  border-color: var(--color-blue);
+  color: var(--color-blue);
+}
+
+.bom-chip-active {
+  background: var(--color-blue);
+  border-color: var(--color-blue);
+  color: #fff;
+}
+
+.chip-count {
+  background: rgba(255, 255, 255, 0.25);
+  border-radius: 10px;
+  padding: 0 0.35rem;
+  font-size: 0.75rem;
+  font-weight: 600;
+}
+
+.bom-chip:not(.bom-chip-active) .chip-count {
+  background: var(--color-background-mute);
+  color: var(--color-text-soft);
+}
+
 .empty-hint {
   padding: 1.5rem;
   color: var(--color-text-soft);
@@ -792,6 +911,33 @@ onMounted(async () => {
   transition: background 0.15s, color 0.15s;
 }
 .btn-edit-row:hover { background-color: #0b5ed7; }
+
+.bom-quick-add-link {
+  color: var(--color-heading);
+  cursor: pointer;
+  text-decoration: none;
+}
+.bom-quick-add-link:hover {
+  color: var(--color-heading);
+  text-decoration: underline;
+}
+
+.btn-quick-add {
+  background: var(--color-background-mute);
+  color: var(--color-text-muted);
+  border: 1px solid var(--color-border);
+  padding: 5px 8px;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 0.78rem;
+  font-weight: 500;
+  white-space: nowrap;
+  transition: background 0.15s, color 0.15s;
+}
+.btn-quick-add:hover {
+  background: var(--color-background-soft);
+  color: var(--color-text);
+}
 
 /* Selected inventory item row (below full input bar) */
 .inv-selected-bar {
