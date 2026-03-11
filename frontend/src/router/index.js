@@ -149,28 +149,6 @@ const router = createRouter({
       component: () => import('../views/FilamentSpoolEditView.vue'),
     },
 
-    // ── Mockup Routes (delete before merging feature/bom-system) ──────────
-    {
-      path: '/mockup/bom-project',
-      name: 'mockup-bom-project',
-      component: () => import('../mockups/BOM_ProjectDetail.vue'),
-    },
-    {
-      path: '/mockup/bom-rapid-entry',
-      name: 'mockup-bom-rapid-entry',
-      component: () => import('../mockups/BOM_RapidEntry.vue'),
-    },
-    {
-      path: '/mockup/bom-inventory-detail',
-      name: 'mockup-bom-inventory-detail',
-      component: () => import('../mockups/BOM_InventoryDetail.vue'),
-    },
-    {
-      path: '/mockup/bom-inventory-list',
-      name: 'mockup-bom-inventory-list',
-      component: () => import('../mockups/BOM_InventoryList.vue'),
-    },
-
     // Settings Route
     { path: '/settings', name: 'settings', component: SettingsView },
   ],
