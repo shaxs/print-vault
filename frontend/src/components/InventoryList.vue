@@ -15,7 +15,7 @@ const headers = [
   { text: 'Brand', value: 'brand' },
   { text: 'Part Type', value: 'partType' },
   { text: 'Location', value: 'location' },
-  { text: 'Qty Available', value: 'quantity' },
+  { text: 'Physical Stock', value: 'quantity' },
   { text: 'Qty Allocated', value: 'qtyAllocated' },
   { text: 'Qty Needed', value: 'qtyNeeded' },
   { text: 'Cost', value: 'cost' },
