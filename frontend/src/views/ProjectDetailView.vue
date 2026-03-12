@@ -631,18 +631,20 @@ onMounted(fetchProject)
                   <span v-else class="text-muted">—</span>
                 </template>
 
-                <!-- Allocated -->
+                <!-- Allocated: physical quantity available to this project
+                     = quantity_needed + qty_on_hand (qty_on_hand is net after ALL allocations,
+                     so adding back this project's need recovers what's physically available) -->
                 <template #cell-qty_on_hand="{ item }">
-                  <span v-if="item.qty_on_hand !== null">{{ Math.max(0, item.qty_on_hand) }}</span>
+                  <span v-if="item.qty_on_hand !== null">{{ Math.max(0, item.quantity_needed + item.qty_on_hand) }}</span>
                   <span v-else class="text-muted">—</span>
                 </template>
 
-                <!-- Needed (qty_required - usable allocated, floored at 0) -->
+                <!-- Needed: shortfall = max(0, required - allocated) -->
                 <template #cell-qty_needed_calc="{ item }">
                   <template v-if="item.qty_on_hand !== null">
                     <span
-                      :class="item.quantity_needed - Math.max(0, item.qty_on_hand) > 0 ? 'bom-needed-nonzero' : 'bom-needed-zero'"
-                    >{{ Math.max(0, item.quantity_needed - Math.max(0, item.qty_on_hand)) }}</span>
+                      :class="item.quantity_needed - Math.max(0, item.quantity_needed + item.qty_on_hand) > 0 ? 'bom-needed-nonzero' : 'bom-needed-zero'"
+                    >{{ Math.max(0, item.quantity_needed - Math.max(0, item.quantity_needed + item.qty_on_hand)) }}</span>
                   </template>
                   <span v-else class="text-muted">—</span>
                 </template>
