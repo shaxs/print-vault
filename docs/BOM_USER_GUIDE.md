@@ -2,7 +2,7 @@
 
 **Print Vault** — User Documentation  
 **Feature**: Bill of Materials  
-**Last Updated**: 2026-02-25
+**Last Updated**: 2026-03-11
 
 ---
 
@@ -71,7 +71,7 @@ The **BOM Wizard** (`/projects/:id/bom/edit`) is designed for fast, bulk data en
 2. For each part, fill in:
    - **Description** — copy it from the creator's BOM as-is (e.g., `M3×8 SHCS`, `EBB36 CAN Toolhead Board`)
    - **Quantity** — the number you need for your specific build variant (e.g., 300mm, not 250mm)
-   - **Inventory Link** — type to search your inventory and link the part. **Leave this blank if you don't have this item in your inventory yet** — you can always link it later once you've added the item to your inventory
+   - **Inventory Link** — type to search your inventory and link the part. **Leave this blank if you don't have this item in your inventory yet** — you can always link it later once you've added the item to your inventory. If an item is currently over-committed across your active projects, the search result will show **"0 available (overallocated)"** in red — you can still select and link it, and the BOM table will reflect the overallocated status
    - **Needs Purchase toggle** — check this if you know you need to buy this item and don't intend to track it against existing inventory
 3. Click **"Add"** to queue the item — it appears in the table below
 4. Continue adding items until your full BOM is entered
@@ -171,10 +171,23 @@ For example:
 
 If you then add a second project (Box Turtle) and add `M3×8 SHCS × 8` to its BOM:
 
-- Your inventory shows **−2× M3×8 SHCS** (overallocated by 2)
+- The inventory **Qty Available** shows **0** (not −2) — quantities never display below zero
+- The inventory item shows an **OVERALLOCATED** badge so you know the shortage is real
 - Both project BOM tables show an **🔴 Overallocated** badge for that item
 
 This is by design. You can see the problem immediately and decide whether to order more or reprioritize.
+
+### Reading Inventory Quantity Columns
+
+When browsing the **Inventory list**, each item shows three quantity columns:
+
+| Column | What It Shows |
+|--------|---------------|
+| **Qty Available** | Physical stock on hand, floored at 0 — never shows a negative number |
+| **Qty Allocated** | Total quantity currently reserved across all active project BOMs |
+| **Qty Needed** | Shortage amount — shown in red only when you're overallocated (i.e., Allocated > physical stock) |
+
+If **Qty Needed** shows a value, that's how many more units you need to cover all commitments. A blank in that column means you're fully covered.
 
 ### What affects the reserved quantity
 
@@ -215,7 +228,9 @@ Click the **Remove** button on any row. A confirmation dialog appears. If the it
 
 ## Viewing Allocation from Inventory
 
-When you view an inventory item's detail page, scroll down to the **"BOM Allocation"** panel. It shows:
+When you view an inventory item's detail page, the **Qty Available** field always shows a non-negative number — it floors at **0** even when the item is over-committed. When the item is over-reserved across your active projects, a red **OVERALLOCATED** badge appears next to the quantity, making it immediately clear that more stock is needed without showing a confusing negative number.
+
+Scroll down to the **"BOM Allocation"** panel. It shows:
 
 - **Committed to Projects** — total quantity currently reserved across all active projects
 - **Status** — whether the item is covered, low, or overallocated

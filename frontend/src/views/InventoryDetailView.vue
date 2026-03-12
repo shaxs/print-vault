@@ -323,9 +323,19 @@ onMounted(async () => {
             <div class="card-body">
               <!-- Summary: Committed + Status + Actions -->
               <div class="alloc-summary-grid">
+                <!-- Physical Stock: only shown when overallocated so user knows starting point -->
+                <div v-if="allocation.is_overallocated" class="alloc-cell">
+                  <span class="alloc-label">Physical Stock</span>
+                  <span class="alloc-value">{{ allocation.qty_available + allocation.qty_needed }}</span>
+                </div>
                 <div class="alloc-cell">
                   <span class="alloc-label">Committed to Projects</span>
                   <span :class="['alloc-value', allocationStatusClass]">{{ allocation.qty_needed }}</span>
+                </div>
+                <!-- Qty to Buy: only shown when overallocated -->
+                <div v-if="allocation.is_overallocated" class="alloc-cell">
+                  <span class="alloc-label">Qty to Buy</span>
+                  <span class="alloc-value alloc-overallocated">{{ Math.max(0, -allocation.qty_available) }}</span>
                 </div>
                 <div class="alloc-cell">
                   <span class="alloc-label">Status</span>
@@ -811,7 +821,7 @@ hr {
 /* ── BOM Allocation ─────────────────────────────────────────────────────── */
 .alloc-summary-grid {
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
+  grid-template-columns: repeat(auto-fit, minmax(110px, 1fr));
   gap: 0;
   border-bottom: 1px solid var(--color-border);
 }
