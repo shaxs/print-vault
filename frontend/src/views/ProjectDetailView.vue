@@ -1554,11 +1554,25 @@ onMounted(fetchProject)
   width: 100%;
 }
 
+/* Column widths: keep small cols tight, give description the bulk */
+.bom-detail-table :deep(th:nth-child(1)),
+.bom-detail-table :deep(td:nth-child(1)) { width: 3%; }     /* # */
+.bom-detail-table :deep(th:nth-child(3)),
+.bom-detail-table :deep(td:nth-child(3)) { width: 8%; }     /* Qty Required */
+.bom-detail-table :deep(th:nth-child(4)),
+.bom-detail-table :deep(td:nth-child(4)) { width: 22%; }    /* Inventory Item */
+.bom-detail-table :deep(th:nth-child(5)),
+.bom-detail-table :deep(td:nth-child(5)) { width: 12%; }    /* Status */
+.bom-detail-table :deep(th:nth-child(6)),
+.bom-detail-table :deep(td:nth-child(6)) { width: 13%; }    /* Actions */
+/* col 2 (Description) takes the remaining ~42% automatically */
+
 .cell-truncate {
-  display: block;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
   overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  white-space: normal;
 }
 
 .bom-item-notes {
