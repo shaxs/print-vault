@@ -784,6 +784,12 @@ onMounted(async () => {
   text-align: left;
 }
 
+.bom-wizard-table :deep(th) {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .bom-wizard-table :deep(thead tr:first-child th) { border-top: none; }
 .bom-wizard-table :deep(tbody tr:last-child td) { border-bottom: 1px solid var(--color-border); }
 

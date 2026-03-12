@@ -233,7 +233,7 @@ const openQuickAdd = (item) => {
 const bomHeaders = computed(() => [
   { text: '#', value: '_rowNum', sortable: false },
   { text: 'Description', value: 'description' },
-  { text: 'Qty Required', value: 'quantity_needed' },
+  { text: 'Qty', value: 'quantity_needed' },
   { text: 'Inventory Item', value: 'inventory_item_title' },
   { text: 'Status', value: 'allocation_status', sortable: false },
   { text: 'Actions', value: 'actions', sortable: false },
@@ -1552,6 +1552,13 @@ onMounted(fetchProject)
 .bom-detail-table :deep(table) {
   table-layout: fixed;
   width: 100%;
+}
+
+/* Prevent th text from overflowing into adjacent columns */
+.bom-detail-table :deep(th) {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 /* Column widths: keep small cols tight, give description the bulk */
