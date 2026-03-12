@@ -1554,13 +1554,6 @@ onMounted(fetchProject)
   width: 100%;
 }
 
-/* Prevent th text from overflowing into adjacent columns */
-.bom-detail-table :deep(th) {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
 /* Column widths: keep small cols tight, give description the bulk */
 .bom-detail-table :deep(th:nth-child(1)),
 .bom-detail-table :deep(td:nth-child(1)) { width: 3%; }     /* # */
