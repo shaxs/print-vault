@@ -2,7 +2,7 @@
 
 **Print Vault** — User Documentation  
 **Feature**: Bill of Materials  
-**Last Updated**: 2026-03-11
+**Last Updated**: 2026-03-12
 
 ---
 
@@ -172,7 +172,7 @@ For example:
 If you then add a second project (Box Turtle) and add `M3×8 SHCS × 8` to its BOM:
 
 - The inventory **Qty Available** shows **0** (not −2) — quantities never display below zero
-- The inventory item shows an **OVERALLOCATED** badge so you know the shortage is real
+- The **BOM Allocation** panel on the inventory item's detail page shows an 🔴 **Overallocated** status badge — and surfaces **Physical Stock** and **Qty to Buy** breakdowns so you can act immediately
 - Both project BOM tables show an **🔴 Overallocated** badge for that item
 
 This is by design. You can see the problem immediately and decide whether to order more or reprioritize.
@@ -183,11 +183,15 @@ When browsing the **Inventory list**, each item shows three quantity columns:
 
 | Column | What It Shows |
 |--------|---------------|
-| **Qty Available** | Physical stock on hand, floored at 0 — never shows a negative number |
+| **Physical Stock** | Total units you own — what's on your shelf regardless of allocations |
 | **Qty Allocated** | Total quantity currently reserved across all active project BOMs |
-| **Qty Needed** | Shortage amount — shown in red only when you're overallocated (i.e., Allocated > physical stock) |
+| **Qty Needed** | Shortage amount — shown in red only when you're overallocated (i.e., Allocated > Physical Stock) |
+
+> **Example**: Physical Stock = 8, Qty Allocated = 12, Qty Needed = 4 → you own 8, need 12 for your projects, short by 4.
 
 If **Qty Needed** shows a value, that's how many more units you need to cover all commitments. A blank in that column means you're fully covered.
+
+> **Note**: The inventory **detail page** shows a separate "Qty Available" field — this is a different number. It represents how many units are freely available to assign to *new* projects (Physical Stock minus existing allocations, floored at 0). When overallocated, that value is 0 even though you may have physical stock on hand.
 
 ### What affects the reserved quantity
 
@@ -228,12 +232,21 @@ Click the **Remove** button on any row. A confirmation dialog appears. If the it
 
 ## Viewing Allocation from Inventory
 
-When you view an inventory item's detail page, the **Qty Available** field always shows a non-negative number — it floors at **0** even when the item is over-committed. When the item is over-reserved across your active projects, a red **OVERALLOCATED** badge appears next to the quantity, making it immediately clear that more stock is needed without showing a confusing negative number.
+When you view an inventory item's detail page, the **Qty Available** field always shows a non-negative number — it floors at **0** even when the item is over-committed.
 
 Scroll down to the **"BOM Allocation"** panel. It shows:
 
 - **Committed to Projects** — total quantity currently reserved across all active projects
 - **Status** — whether the item is covered, low, or overallocated
+
+When the status is **Overallocated**, two additional cells appear in the summary:
+
+- **Physical Stock** — the total number of units you physically own before any builds consume them (i.e., how many are on the shelf right now)
+- **Qty to Buy** — how many more units you need to purchase to cover all active project commitments, shown in red
+
+> **Example**: You own 4 motors and have 12 committed across active projects. Physical Stock shows **4**, Qty to Buy shows **8**.
+
+These fields give you an immediate answer to "how short am I and how many do I need to order?" without any manual calculation.
 
 ### Active Projects Table
 
@@ -249,6 +262,23 @@ Shows projects that are **Completed** or **Cancelled** that previously had this 
 This gives you a full history of where the part has been used.
 
 > 📸 *[Screenshot: Inventory item detail page showing the BOM Allocation panel with Active Projects and Closed Projects tables, with a cancelled project row showing "↩ 2 returned"]*
+
+### Updating Your Stock Count
+
+When you open the **Edit** form for an inventory item, the **Quantity** field shows your **physical stock count** — the actual number of units on your shelf, not the NET value after reservations.
+
+If the item has active BOM reservations, a hint appears below the field:
+
+> *"X unit(s) currently reserved by active project BOMs. Enter your actual physical stock on hand."*
+
+This means:
+
+- **Enter what you physically have.** Don't subtract BOM commitments yourself — the system handles that automatically.
+- When you save, Print Vault converts the number you entered into the correct internal NET value (physical count minus active reservations).
+
+> **Example**: You have 4 motors on hand. Your active project BOMs have reserved 12. The form shows **4**. If you purchase 4 more and enter **8**, the system will correctly update the reservation balance.
+
+This conversion happens silently — you always work in real-world quantities.
 
 ### Marking an Item as Ordered
 
