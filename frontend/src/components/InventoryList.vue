@@ -16,6 +16,7 @@ const headers = [
   { text: 'Part Type', value: 'partType' },
   { text: 'Location', value: 'location' },
   { text: 'Qty Available', value: 'quantity' },
+  { text: 'Qty Allocated', value: 'qtyAllocated' },
   { text: 'Qty Needed', value: 'qtyNeeded' },
   { text: 'Cost', value: 'cost' },
 ]
@@ -65,10 +66,14 @@ const viewItem = (item) => {
       {{ item.location ? item.location.name : 'N/A' }}
     </template>
     <template #cell-quantity="{ item }">
-      {{ item.quantity }}
+      {{ item.quantity + item.qty_needed }}
+    </template>
+    <template #cell-qtyAllocated="{ item }">
+      <span v-if="item.qty_needed > 0" class="qty-allocated">{{ item.qty_needed }}</span>
+      <span v-else class="qty-none">—</span>
     </template>
     <template #cell-qtyNeeded="{ item }">
-      <span v-if="item.qty_needed > 0" :class="item.quantity < 0 ? 'qty-over' : 'qty-ok'">{{ item.qty_needed }}</span>
+      <span v-if="item.quantity < 0" class="qty-over">{{ Math.abs(item.quantity) }}</span>
       <span v-else class="qty-none">—</span>
     </template>
     <template #cell-cost="{ item }"> ${{ item.cost || '0.00' }} </template>
@@ -79,9 +84,8 @@ const viewItem = (item) => {
   color: var(--color-red);
   font-weight: 600;
 }
-.qty-ok {
-  color: var(--color-green);
-  font-weight: 600;
+.qty-allocated {
+  color: var(--color-text-soft);
 }
 .qty-none {
   color: var(--color-text-soft);

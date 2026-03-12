@@ -233,9 +233,10 @@ const openQuickAdd = (item) => {
 const bomHeaders = computed(() => [
   { text: '#', value: '_rowNum', sortable: false },
   { text: 'Description', value: 'description' },
-  { text: 'Qty Needed', value: 'quantity_needed' },
+  { text: 'Qty Required', value: 'quantity_needed' },
   { text: 'Inventory Item', value: 'inventory_item_title' },
-  { text: 'On Hand', value: 'qty_on_hand' },
+  { text: 'Allocated', value: 'qty_on_hand' },
+  { text: 'Needed', value: 'qty_needed_calc', sortable: false },
   { text: 'Status', value: 'allocation_status', sortable: false },
   { text: 'Actions', value: 'actions', sortable: false },
 ])
@@ -610,7 +611,7 @@ onMounted(fetchProject)
                   </div>
                 </template>
 
-                <!-- Qty Needed -->
+                <!-- Qty Required -->
                 <template #cell-quantity_needed="{ item }">
                   <span>{{ item.quantity_needed }}</span>
                 </template>
@@ -630,9 +631,19 @@ onMounted(fetchProject)
                   <span v-else class="text-muted">—</span>
                 </template>
 
-                <!-- Qty On Hand -->
+                <!-- Allocated -->
                 <template #cell-qty_on_hand="{ item }">
                   <span v-if="item.qty_on_hand !== null">{{ item.qty_on_hand }}</span>
+                  <span v-else class="text-muted">—</span>
+                </template>
+
+                <!-- Needed (qty_required - allocated, floored at 0) -->
+                <template #cell-qty_needed_calc="{ item }">
+                  <template v-if="item.qty_on_hand !== null">
+                    <span
+                      :class="item.quantity_needed - item.qty_on_hand > 0 ? 'bom-needed-nonzero' : 'bom-needed-zero'"
+                    >{{ Math.max(0, item.quantity_needed - item.qty_on_hand) }}</span>
+                  </template>
                   <span v-else class="text-muted">—</span>
                 </template>
 
@@ -1489,6 +1500,15 @@ onMounted(fetchProject)
 .bom-row-num {
   color: var(--color-text-soft);
   font-size: 0.85rem;
+}
+
+.bom-needed-nonzero {
+  color: var(--color-red, #e53e3e);
+  font-weight: 600;
+}
+
+.bom-needed-zero {
+  color: var(--color-text-soft);
 }
 
 .bom-filter-chips {
