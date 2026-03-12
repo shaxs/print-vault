@@ -245,7 +245,10 @@ onMounted(async () => {
                 </div>
                 <div class="info-item">
                   <span class="label">Qty Available: </span>
-                  <span class="value">{{ item.quantity }}</span>
+                  <span class="value" :class="{ 'qty-overallocated': item.quantity < 0 }">
+                    {{ Math.max(0, item.quantity) }}
+                    <span v-if="item.quantity < 0" class="overallocated-badge">Overallocated</span>
+                  </span>
                 </div>
                 <div class="info-item">
                   <span class="label">Cost: </span>
@@ -603,6 +606,23 @@ onMounted(async () => {
   overflow-wrap: break-word;
   min-width: 0;
   flex: 1;
+}
+
+.qty-overallocated {
+  color: var(--color-red, #e53e3e);
+}
+
+.overallocated-badge {
+  display: inline-block;
+  margin-left: 0.5rem;
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--color-red, #e53e3e);
+  background: var(--color-red-subtle, rgba(229, 62, 62, 0.1));
+  padding: 0.1rem 0.4rem;
+  border-radius: 4px;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
 }
 
 @media (max-width: 768px) {

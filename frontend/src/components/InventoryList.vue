@@ -66,7 +66,7 @@ const viewItem = (item) => {
       {{ item.location ? item.location.name : 'N/A' }}
     </template>
     <template #cell-quantity="{ item }">
-      {{ item.quantity + item.qty_needed }}
+      {{ Math.max(0, item.quantity) }}
     </template>
     <template #cell-qtyAllocated="{ item }">
       <span v-if="item.qty_needed > 0" class="qty-allocated">{{ item.qty_needed }}</span>

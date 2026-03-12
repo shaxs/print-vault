@@ -376,7 +376,9 @@ onMounted(async () => {
                   @mousedown.prevent="selectInventoryItem(result)"
                 >
                   <span class="result-title">{{ result.title }}</span>
-                  <span class="result-qty">{{ result.quantity }} on hand</span>
+                  <span class="result-qty" :class="result.quantity < 0 ? 'result-qty-overallocated' : ''">
+                    {{ result.quantity < 0 ? '0 available (overallocated)' : result.quantity + ' available' }}
+                  </span>
                 </li>
               </ul>
             </div>
@@ -421,7 +423,7 @@ onMounted(async () => {
         </div>
         <!-- Selected inventory item indicator (separate row, no layout shift) -->
         <p v-if="selectedInventoryItem && !needsPurchase" class="inv-selected-bar">
-          ✓ Linked: {{ selectedInventoryItem.title }} ({{ selectedInventoryItem.quantity }} on hand)
+          ✓ Linked: {{ selectedInventoryItem.title }} ({{ selectedInventoryItem.quantity < 0 ? '0 available — overallocated' : selectedInventoryItem.quantity + ' available' }})
         </p>
       </div>
 
@@ -465,13 +467,13 @@ onMounted(async () => {
             <span class="row-num">{{ item._rowNum }}</span>
           </template>
           <template #cell-description="{ item }">
-            <div>
-              <span>{{ item.description }}</span>
-              <span v-if="item.notes" class="item-notes">{{ item.notes }}</span>
+            <div style="min-width:0">
+              <span class="cell-truncate" :title="item.description">{{ item.description }}</span>
+              <span v-if="item.notes" class="item-notes cell-truncate" :title="item.notes">{{ item.notes }}</span>
             </div>
           </template>
           <template #cell-inventory_item_title="{ item }">
-            <span v-if="item.inventory_item_title">{{ item.inventory_item_title }}</span>
+            <span v-if="item.inventory_item_title" class="cell-truncate" :title="item.inventory_item_title">{{ item.inventory_item_title }}</span>
             <a
               v-else-if="item.status === 'needs_purchase'"
               class="bom-quick-add-link"
@@ -741,6 +743,7 @@ onMounted(async () => {
 
 .result-title { color: var(--color-heading); }
 .result-qty { font-size: 0.8rem; color: var(--color-text-soft); }
+.result-qty-overallocated { color: var(--color-red, #e53e3e); font-weight: 600; }
 
 .inv-selected {
   font-size: 0.8rem;
@@ -763,6 +766,19 @@ onMounted(async () => {
 
 .btn-add:hover:not(:disabled) { opacity: 0.9; }
 .btn-add:disabled { opacity: 0.5; cursor: not-allowed; }
+
+/* Prevent long item names from causing horizontal scroll */
+.bom-wizard-table :deep(table) {
+  table-layout: fixed;
+  width: 100%;
+}
+
+.cell-truncate {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 
 /* Table section */
 .bom-table-section {

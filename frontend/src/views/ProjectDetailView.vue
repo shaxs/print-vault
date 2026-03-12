@@ -235,8 +235,6 @@ const bomHeaders = computed(() => [
   { text: 'Description', value: 'description' },
   { text: 'Qty Required', value: 'quantity_needed' },
   { text: 'Inventory Item', value: 'inventory_item_title' },
-  { text: 'Allocated', value: 'qty_on_hand' },
-  { text: 'Needed', value: 'qty_needed_calc', sortable: false },
   { text: 'Status', value: 'allocation_status', sortable: false },
   { text: 'Actions', value: 'actions', sortable: false },
 ])
@@ -596,7 +594,7 @@ onMounted(fetchProject)
                   :items="filteredBomItems"
                   :visible-columns="bomHeaders.map((h) => h.value)"
                   :empty-message="bomStatusFilter !== 'all' ? 'No items match the selected filter.' : 'No BOM items yet.'"
-                  class="borderless-table"
+                  class="borderless-table bom-detail-table"
                 >
                 <!-- Row number -->
                 <template #cell-_rowNum="{ item }">
@@ -606,8 +604,8 @@ onMounted(fetchProject)
                 <!-- Description -->
                 <template #cell-description="{ item }">
                   <div class="bom-desc-cell">
-                    <span>{{ item.description }}</span>
-                    <span v-if="item.notes" class="bom-item-notes">{{ item.notes }}</span>
+                    <span class="cell-truncate" :title="item.description">{{ item.description }}</span>
+                    <span v-if="item.notes" class="bom-item-notes cell-truncate" :title="item.notes">{{ item.notes }}</span>
                   </div>
                 </template>
 
@@ -620,7 +618,8 @@ onMounted(fetchProject)
                 <template #cell-inventory_item_title="{ item }">
                   <span
                     v-if="item.inventory_item_title"
-                    class="table-link grey-link"
+                    class="table-link grey-link cell-truncate"
+                    :title="item.inventory_item_title"
                     @click="viewInventoryItem(item.inventory_item)"
                   >{{ item.inventory_item_title }}</span>
                   <a
@@ -628,29 +627,6 @@ onMounted(fetchProject)
                     class="table-link grey-link"
                     @click.stop="openQuickAdd(item)"
                   >Quick add inventory item</a>
-                  <span v-else class="text-muted">—</span>
-                </template>
-
-                <!-- Allocated: min(required, max(0, required + net))
-                     - qty_on_hand is NET (physical minus ALL active allocations)
-                     - Adding quantity_needed back recovers physical available to this project
-                     - Capped at quantity_needed so it never exceeds the requirement
-                     e.g. required=8, net=-4 -> min(8, max(0,4)) = 4 -->
-                <template #cell-qty_on_hand="{ item }">
-                  <span v-if="item.qty_on_hand !== null">{{
-                    Math.min(item.quantity_needed, Math.max(0, item.quantity_needed + item.qty_on_hand))
-                  }}</span>
-                  <span v-else class="text-muted">—</span>
-                </template>
-
-                <!-- Needed: required - allocated
-                     e.g. required=8, allocated=4 -> needed=4 -->
-                <template #cell-qty_needed_calc="{ item }">
-                  <template v-if="item.qty_on_hand !== null">
-                    <span :class="item.qty_on_hand < 0 ? 'bom-needed-nonzero' : 'bom-needed-zero'">{{
-                      item.quantity_needed - Math.min(item.quantity_needed, Math.max(0, item.quantity_needed + item.qty_on_hand))
-                    }}</span>
-                  </template>
                   <span v-else class="text-muted">—</span>
                 </template>
 
@@ -1569,6 +1545,20 @@ onMounted(fetchProject)
   display: flex;
   flex-direction: column;
   gap: 0.15rem;
+  min-width: 0;
+}
+
+/* Prevent long BOM names from forcing horizontal scroll */
+.bom-detail-table :deep(table) {
+  table-layout: fixed;
+  width: 100%;
+}
+
+.cell-truncate {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .bom-item-notes {
