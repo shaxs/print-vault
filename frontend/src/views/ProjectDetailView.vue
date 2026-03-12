@@ -631,20 +631,25 @@ onMounted(fetchProject)
                   <span v-else class="text-muted">—</span>
                 </template>
 
-                <!-- Allocated: physical quantity available to this project
-                     = quantity_needed + qty_on_hand (qty_on_hand is net after ALL allocations,
-                     so adding back this project's need recovers what's physically available) -->
+                <!-- Allocated: min(required, max(0, required + net))
+                     - qty_on_hand is NET (physical minus ALL active allocations)
+                     - Adding quantity_needed back recovers physical available to this project
+                     - Capped at quantity_needed so it never exceeds the requirement
+                     e.g. required=8, net=-4 -> min(8, max(0,4)) = 4 -->
                 <template #cell-qty_on_hand="{ item }">
-                  <span v-if="item.qty_on_hand !== null">{{ Math.max(0, item.quantity_needed + item.qty_on_hand) }}</span>
+                  <span v-if="item.qty_on_hand !== null">{{
+                    Math.min(item.quantity_needed, Math.max(0, item.quantity_needed + item.qty_on_hand))
+                  }}</span>
                   <span v-else class="text-muted">—</span>
                 </template>
 
-                <!-- Needed: shortfall = max(0, required - allocated) -->
+                <!-- Needed: required - allocated
+                     e.g. required=8, allocated=4 -> needed=4 -->
                 <template #cell-qty_needed_calc="{ item }">
                   <template v-if="item.qty_on_hand !== null">
-                    <span
-                      :class="item.quantity_needed - Math.max(0, item.quantity_needed + item.qty_on_hand) > 0 ? 'bom-needed-nonzero' : 'bom-needed-zero'"
-                    >{{ Math.max(0, item.quantity_needed - Math.max(0, item.quantity_needed + item.qty_on_hand)) }}</span>
+                    <span :class="item.qty_on_hand < 0 ? 'bom-needed-nonzero' : 'bom-needed-zero'">{{
+                      item.quantity_needed - Math.min(item.quantity_needed, Math.max(0, item.quantity_needed + item.qty_on_hand))
+                    }}</span>
                   </template>
                   <span v-else class="text-muted">—</span>
                 </template>
