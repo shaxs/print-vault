@@ -735,7 +735,7 @@ class InventoryItem(models.Model):
     title = models.CharField(max_length=255, null=False)
     brand = models.ForeignKey(Brand, on_delete=models.SET_NULL, null=True, blank=True)
     part_type = models.ForeignKey(PartType, on_delete=models.SET_NULL, null=True, blank=True)
-    quantity = models.IntegerField(default=1, validators=[MinValueValidator(0)])
+    quantity = models.IntegerField(default=1)  # Can be negative when over-reserved by active project BOMs
     cost = models.DecimalField(max_digits=10, decimal_places=2, null=True, blank=True)
     location = models.ForeignKey(Location, on_delete=models.SET_NULL, null=True)
     photo = models.ImageField(upload_to='inventory_photos/', null=True, blank=True)

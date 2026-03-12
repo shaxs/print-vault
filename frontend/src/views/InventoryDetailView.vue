@@ -245,10 +245,7 @@ onMounted(async () => {
                 </div>
                 <div class="info-item">
                   <span class="label">Qty Available: </span>
-                  <span class="value" :class="{ 'qty-overallocated': item.quantity < 0 }">
-                    {{ Math.max(0, item.quantity) }}
-                    <span v-if="item.quantity < 0" class="overallocated-badge">Overallocated</span>
-                  </span>
+                  <span class="value">{{ Math.max(0, item.quantity) }}</span>
                 </div>
                 <div class="info-item">
                   <span class="label">Cost: </span>
