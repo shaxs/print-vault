@@ -66,19 +66,21 @@ class InventoryItemModelTest(TestCase):
         item = InventoryItem.objects.create(title="Test Item")
         self.assertEqual(item.quantity, 1)
     
-    def test_inventory_item_quantity_validation(self):
-        """Test that quantity cannot be negative"""
+    def test_inventory_item_quantity_can_be_negative(self):
+        """Test that quantity can be negative (overallocated state via BOM reservations).
+        
+        MinValueValidator(0) was removed in migration 0041 to support the BOM
+        reservation model where NET quantity = physical stock - active allocations.
+        Negative NET values indicate overallocation across projects.
+        """
         item = InventoryItem.objects.create(
             title="Test Item",
-            quantity=-5  # This violates MinValueValidator(0)
+            location=self.location,
+            quantity=-8  # Overallocated: -8 NET = physical 4 with 12 committed
         )
-        
-        # Validation happens during full_clean(), not during save()
-        with self.assertRaises(ValidationError) as cm:
-            item.full_clean()
-        
-        # Check that the error is for quantity field
-        self.assertIn('quantity', cm.exception.error_dict)
+        # full_clean() should NOT raise for negative quantities
+        item.full_clean()  # Should not raise
+        self.assertEqual(item.quantity, -8)
     
     def test_inventory_item_quantity_zero_allowed(self):
         """Test that quantity of 0 is allowed"""
