@@ -73,9 +73,9 @@ The **BOM Wizard** (`/projects/:id/bom/edit`) is designed for fast, bulk data en
    - **Quantity** — the number you need for your specific build variant (e.g., 300mm, not 250mm)
    - **Inventory Link** — type to search your inventory and link the part. **Leave this blank if you don't have this item in your inventory yet** — you can always link it later once you've added the item to your inventory. If an item is currently over-committed across your active projects, the search result will show **"0 available (overallocated)"** in red — you can still select and link it, and the BOM table will reflect the overallocated status
    - **Needs Purchase toggle** — check this if you know you need to buy this item and don't intend to track it against existing inventory
-3. Click **"Add"** to queue the item — it appears in the table below
+3. Click **"Add"** to queue the item — it appears in the table below; changes are saved to the API immediately
 4. Continue adding items until your full BOM is entered
-5. Click **"Save All"** (or the equivalent submit action) to commit everything
+5. When you're finished, click **"Done"** to exit the wizard and return to the project detail page
 
 > 📸 *[Screenshot: BOM Wizard showing the entry form at the top and a partially filled parts list below]*
 

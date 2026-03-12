@@ -822,6 +822,19 @@ class ProjectBOMItemSerializer(serializers.ModelSerializer):
             return 'low'
         return 'covered'
 
+    def validate(self, data):
+        status = data.get('status', getattr(self.instance, 'status', None))
+        inventory_item = data.get('inventory_item', getattr(self.instance, 'inventory_item', None))
+        if status == 'linked' and not inventory_item:
+            raise serializers.ValidationError(
+                {'inventory_item': 'An inventory item is required when status is "linked".'}
+            )
+        if status in ('needs_purchase', 'unlinked') and inventory_item:
+            raise serializers.ValidationError(
+                {'inventory_item': f'inventory_item must be null when status is "{status}".'}
+            )
+        return data
+
 
 # ============================================================================
 # PRINT TRACKER SERIALIZERS

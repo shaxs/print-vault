@@ -2478,7 +2478,10 @@ class InventoryItemViewSet(viewsets.ModelViewSet):
             .annotate(
                 qty_needed=Sum(
                     'bom_items__quantity_needed',
-                    filter=Q(bom_items__project__status__in=self.ACTIVE_BOM_STATUSES),
+                    filter=Q(
+                        bom_items__project__status__in=self.ACTIVE_BOM_STATUSES,
+                        bom_items__status='linked',
+                    ),
                 )
             )
             .order_by('title')
@@ -2493,18 +2496,19 @@ class InventoryItemViewSet(viewsets.ModelViewSet):
         - overallocation flag
         - active & closed project breakdowns
         """
-        from django.db.models import Sum
         ACTIVE_STATUSES = ['Planning', 'In Progress', 'On Hold']
         CLOSED_STATUSES = ['Completed', 'Canceled']
 
         item = self.get_object()
 
-        active_bom_items = (
+        # Evaluate to lists once to avoid double DB hits (used in both qty calc and list comprehension)
+        # Only status='linked' rows reserve inventory; needs_purchase rows are excluded.
+        active_bom_items = list(
             ProjectBOMItem.objects
-            .filter(inventory_item=item, project__status__in=ACTIVE_STATUSES)
+            .filter(inventory_item=item, project__status__in=ACTIVE_STATUSES, status='linked')
             .select_related('project')
         )
-        closed_bom_items = (
+        closed_bom_items = list(
             ProjectBOMItem.objects
             .filter(inventory_item=item, project__status__in=CLOSED_STATUSES)
             .select_related('project')
@@ -2687,7 +2691,7 @@ class ProjectBOMItemViewSet(viewsets.ModelViewSet):
         instance = serializer.save()
         if (
             instance.inventory_item_id
-            and instance.status != 'needs_purchase'
+            and instance.status == 'linked'
             and instance.project.status in self._ACTIVE_STATUSES
         ):
             self._adjust_inv(instance.inventory_item_id, -instance.quantity_needed)
@@ -2696,7 +2700,7 @@ class ProjectBOMItemViewSet(viewsets.ModelViewSet):
         """Restore inventory qty when a BOM item is deleted from an active project."""
         if (
             instance.inventory_item_id
-            and instance.status != 'needs_purchase'
+            and instance.status == 'linked'
             and instance.project.status in self._ACTIVE_STATUSES
         ):
             self._adjust_inv(instance.inventory_item_id, +instance.quantity_needed)
@@ -2707,7 +2711,7 @@ class ProjectBOMItemViewSet(viewsets.ModelViewSet):
         old = serializer.instance
         old_inv_id = old.inventory_item_id
         old_qty = old.quantity_needed
-        old_needs_purchase = old.status == 'needs_purchase'
+        old_is_linked = old.status == 'linked'
 
         instance = serializer.save()
 
@@ -2717,17 +2721,17 @@ class ProjectBOMItemViewSet(viewsets.ModelViewSet):
 
         new_inv_id = instance.inventory_item_id
         new_qty = instance.quantity_needed
-        new_needs_purchase = instance.status == 'needs_purchase'
+        new_is_linked = instance.status == 'linked'
 
         # Skip if nothing allocation-relevant changed
-        if old_inv_id == new_inv_id and old_qty == new_qty and old_needs_purchase == new_needs_purchase:
+        if old_inv_id == new_inv_id and old_qty == new_qty and old_is_linked == new_is_linked:
             return
 
         # Restore old reservation
-        if old_inv_id and not old_needs_purchase:
+        if old_inv_id and old_is_linked:
             self._adjust_inv(old_inv_id, +old_qty)
         # Apply new reservation
-        if new_inv_id and not new_needs_purchase:
+        if new_inv_id and new_is_linked:
             self._adjust_inv(new_inv_id, -new_qty)
 
     @action(detail=False, methods=['post'], url_path='reorder')
@@ -2737,6 +2741,11 @@ class ProjectBOMItemViewSet(viewsets.ModelViewSet):
         if not items:
             return Response({'error': 'items list required'}, status=status.HTTP_400_BAD_REQUEST)
         for item_data in items:
+            if not isinstance(item_data, dict) or 'id' not in item_data or 'sort_order' not in item_data:
+                return Response(
+                    {'error': 'each item must have "id" and "sort_order" keys'},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
             ProjectBOMItem.objects.filter(id=item_data['id']).update(
                 sort_order=item_data['sort_order']
             )

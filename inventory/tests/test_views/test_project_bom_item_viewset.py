@@ -230,7 +230,7 @@ class TestBOMItemUpdate:
         assert new_inv_item.quantity == 16  # new item decremented: 20 - 4
 
     def test_set_needs_purchase_restores_inventory(self, api_client, active_project, inv_item):
-        """Changing status to needs_purchase restores the existing reservation."""
+        """Changing status to needs_purchase (with inventory_item cleared) restores the reservation."""
         bom_item = ProjectBOMItemFactory(
             project=active_project,
             inventory_item=inv_item,
@@ -240,13 +240,15 @@ class TestBOMItemUpdate:
         inv_item.quantity = 6
         inv_item.save()
 
-        api_client.patch(
+        # Serializer requires inventory_item=null when switching to needs_purchase
+        response = api_client.patch(
             f'/api/projectbomitems/{bom_item.pk}/',
-            {'status': 'needs_purchase'},
+            {'status': 'needs_purchase', 'inventory_item': None},
             format='json',
         )
+        assert response.status_code == 200
         inv_item.refresh_from_db()
-        assert inv_item.quantity == 10  # restored (needs_purchase never reserves)
+        assert inv_item.quantity == 10  # restored because linked reservation was released
 
     def test_update_description_no_inventory_change(self, api_client, active_project, inv_item):
         """Updating non-allocation fields doesn't touch inventory."""
