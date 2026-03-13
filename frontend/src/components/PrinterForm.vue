@@ -413,13 +413,13 @@ onMounted(async () => {
     </div>
 
     <div class="form-actions">
-      <button type="submit" class="btn btn-primary">Save Printer Details</button>
       <RouterLink
         :to="isEditMode ? `/printers/${printer.id}` : '/printers'"
         class="btn btn-secondary"
       >
         Cancel
       </RouterLink>
+      <button type="submit" class="btn btn-primary">Save Printer Details</button>
     </div>
   </form>
 </template>

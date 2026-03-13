@@ -42,7 +42,9 @@ class TestInventoryItemSerializerRead:
             'id', 'title', 'brand', 'part_type', 'quantity',
             'cost', 'location', 'photo', 'notes',
             'associated_projects', 'is_consumable', 'low_stock_threshold',
-            'vendor', 'vendor_link', 'model'
+            'vendor', 'vendor_link', 'model',
+            # BOM system additions
+            'is_ordered', 'qty_needed'
         }
         assert set(serializer.data.keys()) == expected_fields
 

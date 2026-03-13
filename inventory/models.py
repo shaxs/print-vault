@@ -735,7 +735,7 @@ class InventoryItem(models.Model):
     title = models.CharField(max_length=255, null=False)
     brand = models.ForeignKey(Brand, on_delete=models.SET_NULL, null=True, blank=True)
     part_type = models.ForeignKey(PartType, on_delete=models.SET_NULL, null=True, blank=True)
-    quantity = models.IntegerField(default=1, validators=[MinValueValidator(0)])
+    quantity = models.IntegerField(default=1)  # Can be negative when over-reserved by active project BOMs
     cost = models.DecimalField(max_digits=10, decimal_places=2, null=True, blank=True)
     location = models.ForeignKey(Location, on_delete=models.SET_NULL, null=True)
     photo = models.ImageField(upload_to='inventory_photos/', null=True, blank=True)
@@ -749,7 +749,13 @@ class InventoryItem(models.Model):
     vendor = models.ForeignKey(Vendor, on_delete=models.SET_NULL, null=True, blank=True)
     vendor_link = models.URLField(max_length=512, null=True, blank=True)
     model = models.CharField(max_length=255, null=True, blank=True)
-    
+
+    # --- Ordering State ---
+    is_ordered = models.BooleanField(
+        default=False,
+        help_text="True when a replacement/restock order has been placed but not yet received"
+    )
+
     class Meta:
         verbose_name = "Inventory Item"
         verbose_name_plural = "Inventory Items"
@@ -831,6 +837,74 @@ class ProjectPrinters(models.Model):
         verbose_name_plural = "Project Printer Links"
     def __str__(self):
         return f"{self.project.project_name} - {self.printer.title}"
+
+
+# ============================================================================
+# BILL OF MATERIALS MODELS
+# ============================================================================
+
+class ProjectBOMItem(models.Model):
+    """
+    A single line item in a project's Bill of Materials.
+    Represents a hardware/purchased part needed for a project build.
+    May be linked to an existing InventoryItem, marked as needs_purchase,
+    or left unlinked until the user associates it with inventory.
+    """
+    STATUS_CHOICES = [
+        ('linked', 'Linked'),
+        ('unlinked', 'Unlinked'),
+        ('needs_purchase', 'Needs Purchase'),
+    ]
+
+    project = models.ForeignKey(
+        Project, related_name='bom_items', on_delete=models.CASCADE
+    )
+    description = models.CharField(
+        max_length=255,
+        help_text="Part description as written in the creator's BOM (e.g., 'M3x8 SHCS')"
+    )
+    quantity_needed = models.PositiveIntegerField(
+        default=1,
+        validators=[MinValueValidator(1)],
+        help_text="Quantity required for this build"
+    )
+    inventory_item = models.ForeignKey(
+        InventoryItem,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='bom_items',
+        help_text="Optional link to an existing inventory item"
+    )
+    status = models.CharField(
+        max_length=20,
+        choices=STATUS_CHOICES,
+        default='unlinked',
+        help_text="linked=associated to inventory / unlinked=not yet matched / needs_purchase=flag to buy"
+    )
+    notes = models.TextField(
+        blank=True,
+        default='',
+        help_text="Optional notes for this BOM item (e.g., variant notes from creator)"
+    )
+    sort_order = models.PositiveIntegerField(
+        default=0,
+        help_text="Display order within the project BOM"
+    )
+    is_ordered = models.BooleanField(
+        default=False,
+        help_text="True when the item has been ordered but not yet received/linked to inventory"
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name = "Project BOM Item"
+        verbose_name_plural = "Project BOM Items"
+        ordering = ['sort_order', 'id']
+
+    def __str__(self):
+        return f"{self.project.project_name} — {self.description}"
 
 
 # ============================================================================

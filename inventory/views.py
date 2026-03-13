@@ -19,7 +19,7 @@ from rest_framework.views import APIView
 from django.conf import settings
 from django.db import connection, models
 from django_filters.rest_framework import DjangoFilterBackend
-from django.db.models import F
+from django.db.models import F, Sum, Q
 from rest_framework.decorators import action
 
 logger = logging.getLogger(__name__)
@@ -27,12 +27,12 @@ logger = logging.getLogger(__name__)
 from .models import (
     Brand, PartType, Location, Material, MaterialPhoto, MaterialFeature, Vendor, Printer, Mod, ModFile,
     InventoryItem, Project, ProjectLink, ProjectFile, ProjectInventory, ProjectPrinters,
-    Tracker, TrackerFile, AlertDismissal, FilamentSpool
+    ProjectBOMItem, Tracker, TrackerFile, AlertDismissal, FilamentSpool
 )
 from .serializers import (
     BrandSerializer, PartTypeSerializer, LocationSerializer, MaterialSerializer, MaterialPhotoSerializer, MaterialFeatureSerializer, VendorSerializer, PrinterSerializer, ModSerializer, ModFileSerializer,
     InventoryItemSerializer, ProjectSerializer, ProjectLinkSerializer, ProjectFileSerializer,
-    ProjectInventorySerializer, ProjectPrintersSerializer,
+    ProjectInventorySerializer, ProjectPrintersSerializer, ProjectBOMItemSerializer,
     TrackerSerializer, TrackerFileSerializer, TrackerCreateSerializer, TrackerListSerializer,
     FilamentSpoolSerializer
 )
@@ -905,21 +905,36 @@ class DashboardDataView(APIView):
             blocked_printers = project.associated_printers.filter(
                 status__in=['Under Repair', 'Sold', 'Archived']
             )
-            
-            is_blocked = blocked_printers.exists()
+            total_printers = project.associated_printers.count()
+
+            is_blocked = False
+            is_partially_blocked = False
             is_overdue = False
             is_at_risk = False
-            
-            if is_blocked:
-                # Build reason message for blocked status
+
+            if blocked_printers.exists():
+                # Build reason message
                 printer_names = list(blocked_printers.values_list('title', 'status'))
                 if len(printer_names) == 1:
                     blocked_reason = f"Printer '{printer_names[0][0]}' is {printer_names[0][1]}"
                 else:
                     reasons = [f"{name} ({status})" for name, status in printer_names]
                     blocked_reason = f"Printers: {', '.join(reasons)}"
-                health_statuses.append('blocked')
-                health_reasons.append(blocked_reason)
+
+                if blocked_printers.count() == total_printers:
+                    # All printers unavailable → fully blocked
+                    is_blocked = True
+                    health_statuses.append('blocked')
+                    health_reasons.append(blocked_reason)
+                else:
+                    # Only some printers unavailable → partially blocked
+                    is_partially_blocked = True
+                    partial_msg = (
+                        f"{blocked_printers.count()} of {total_printers} printers unavailable"
+                        f" ({blocked_reason})"
+                    )
+                    health_statuses.append('partially-blocked')
+                    health_reasons.append(partial_msg)
             
             # Check due date
             if project.due_date:
@@ -938,11 +953,13 @@ class DashboardDataView(APIView):
             if not health_statuses:
                 health_statuses.append('healthy')
             
-            # Primary health is the most critical (overdue > blocked > at-risk > healthy)
+            # Primary health is the most critical (overdue > blocked > partially-blocked > at-risk > healthy)
             if is_overdue:
                 primary_health = 'overdue'
             elif is_blocked:
                 primary_health = 'blocked'
+            elif is_partially_blocked:
+                primary_health = 'partially-blocked'
             elif is_at_risk:
                 primary_health = 'at-risk'
             else:
@@ -2443,13 +2460,98 @@ class ProjectFileViewSet(viewsets.ModelViewSet):
     permission_classes = [AllowAny]
 
 class InventoryItemViewSet(viewsets.ModelViewSet):
-    queryset = InventoryItem.objects.select_related('brand', 'part_type', 'location').prefetch_related('associated_projects').all().order_by('title')
+    queryset = InventoryItem.objects.none()  # Required for DRF router basename; actual data from get_queryset()
     serializer_class = InventoryItemSerializer
     permission_classes = [AllowAny]
     filter_backends = [DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter]
     filterset_class = InventoryItemFilter
     search_fields = ['title', 'brand__name', 'part_type__name', 'location__name', 'notes']
     ordering_fields = ['title', 'quantity', 'cost']
+
+    ACTIVE_BOM_STATUSES = ['Planning', 'In Progress', 'On Hold']
+
+    def get_queryset(self):
+        return (
+            InventoryItem.objects
+            .select_related('brand', 'part_type', 'location')
+            .prefetch_related('associated_projects')
+            .annotate(
+                qty_needed=Sum(
+                    'bom_items__quantity_needed',
+                    filter=Q(
+                        bom_items__project__status__in=self.ACTIVE_BOM_STATUSES,
+                        bom_items__status='linked',
+                    ),
+                )
+            )
+            .order_by('title')
+        )
+
+    @action(detail=True, methods=['get'], url_path='allocation')
+    def allocation(self, request, pk=None):
+        """
+        GET /api/inventoryitems/{id}/allocation/
+        Returns allocation summary for an inventory item:
+        - qty on hand, qty needed across active projects, qty available
+        - overallocation flag
+        - active & closed project breakdowns
+        """
+        ACTIVE_STATUSES = ['Planning', 'In Progress', 'On Hold']
+        CLOSED_STATUSES = ['Completed', 'Canceled']
+
+        item = self.get_object()
+
+        # Evaluate to lists once to avoid double DB hits (used in both qty calc and list comprehension)
+        # Only status='linked' rows reserve inventory; needs_purchase rows are excluded.
+        active_bom_items = list(
+            ProjectBOMItem.objects
+            .filter(inventory_item=item, project__status__in=ACTIVE_STATUSES, status='linked')
+            .select_related('project')
+        )
+        closed_bom_items = list(
+            ProjectBOMItem.objects
+            .filter(inventory_item=item, project__status__in=CLOSED_STATUSES)
+            .select_related('project')
+        )
+
+        qty_needed = sum(b.quantity_needed for b in active_bom_items)
+        # Under the reservation model, item.quantity already reflects active allocations.
+        # qty_available IS item.quantity; qty_needed is shown for informational breakdown only.
+        qty_available = item.quantity
+
+        active_projects = [
+            {
+                'id': b.project.id,
+                'project_name': b.project.project_name,
+                'project_status': b.project.status.lower().replace(' ', '_'),
+                'qty_allocated': b.quantity_needed,
+                'bom_item_id': b.id,
+                'is_ordered': b.is_ordered,
+            }
+            for b in active_bom_items
+        ]
+        closed_projects = [
+            {
+                'id': b.project.id,
+                'project_name': b.project.project_name,
+                'project_status': b.project.status.lower().replace(' ', '_'),
+                'qty_allocated': b.quantity_needed,
+                'bom_item_id': b.id,
+                'is_ordered': b.is_ordered,
+            }
+            for b in closed_bom_items
+        ]
+
+        return Response({
+            'qty_on_hand': item.quantity,
+            'qty_needed': qty_needed,
+            'qty_available': qty_available,
+            'is_overallocated': qty_available < 0,
+            'low_stock_threshold': item.low_stock_threshold,
+            'is_consumable': item.is_consumable,
+            'active_projects': active_projects,
+            'closed_projects': closed_projects,
+        })
 
 class PrinterViewSet(viewsets.ModelViewSet):
     queryset = Printer.objects.select_related('manufacturer').prefetch_related('mods__files', 'associated_projects').all().order_by('title')
@@ -2469,6 +2571,76 @@ class ProjectViewSet(viewsets.ModelViewSet):
     search_fields = ['project_name', 'description', 'status', 'notes']
     ordering_fields = ['project_name', 'status', 'start_date', 'due_date']
 
+    _BOM_ACTIVE_STATUSES = ['Planning', 'In Progress', 'On Hold']
+    _BOM_CANCELLED = 'Canceled'
+
+    def perform_update(self, serializer):
+        """
+        Reservation model: qty_on_hand is decremented when a BOM item is created
+        and restored when deleted or when a project is Cancelled.
+        Here we only handle the Cancelled <-> active transition:
+          - → Cancelled: restore inventory for all linked BOM items
+          - Cancelled → active: re-decrement inventory for all linked BOM items
+        """
+        old_status = serializer.instance.status
+        instance = serializer.save()
+        new_status = instance.status
+
+        bom_items = (
+            ProjectBOMItem.objects
+            .filter(project=instance, inventory_item__isnull=False)
+            .exclude(status='needs_purchase')
+            .select_related('inventory_item')
+        )
+
+        if old_status != self._BOM_CANCELLED and new_status == self._BOM_CANCELLED:
+            # Project cancelled: return reserved stock to inventory
+            for bom_item in bom_items:
+                InventoryItem.objects.filter(pk=bom_item.inventory_item.pk).update(
+                    quantity=F('quantity') + bom_item.quantity_needed
+                )
+        elif old_status == self._BOM_CANCELLED and new_status in self._BOM_ACTIVE_STATUSES:
+            # Cancelled project re-opened: re-reserve stock from inventory
+            for bom_item in bom_items:
+                InventoryItem.objects.filter(pk=bom_item.inventory_item.pk).update(
+                    quantity=F('quantity') - bom_item.quantity_needed
+                )
+
+    def perform_destroy(self, instance):
+        """
+        Reservation model: optionally restore inventory before deletion.
+
+        The frontend sends ?restore_inventory=true when the user chooses to return
+        reserved/used items back to stock. We skip restoration for Cancelled projects
+        because inventory was already returned at cancellation time.
+        """
+        restore = self.request.query_params.get('restore_inventory', 'false').lower() == 'true'
+        if restore and instance.status != self._BOM_CANCELLED:
+            bom_items = (
+                ProjectBOMItem.objects
+                .filter(project=instance, inventory_item__isnull=False)
+                .exclude(status='needs_purchase')
+            )
+            for bom_item in bom_items:
+                InventoryItem.objects.filter(pk=bom_item.inventory_item_id).update(
+                    quantity=F('quantity') + bom_item.quantity_needed
+                )
+        instance.delete()
+
+    @action(detail=True, methods=['post'], url_path='remove-inventory')
+    def remove_inventory(self, request, pk=None):
+        """Remove an inventory item from a project's associated_inventory_items."""
+        project = self.get_object()
+        inventory_item_id = request.data.get('inventory_item_id')
+        if not inventory_item_id:
+            return Response({'error': 'inventory_item_id required'}, status=status.HTTP_400_BAD_REQUEST)
+        try:
+            pi = ProjectInventory.objects.get(project=project, inventory_item_id=inventory_item_id)
+            pi.delete()
+            return Response(status=status.HTTP_204_NO_CONTENT)
+        except ProjectInventory.DoesNotExist:
+            return Response({'error': 'Inventory item not associated with this project'}, status=status.HTTP_404_NOT_FOUND)
+
 class ProjectInventoryViewSet(viewsets.ModelViewSet):
     queryset = ProjectInventory.objects.all()
     serializer_class = ProjectInventorySerializer
@@ -2479,7 +2651,183 @@ class ProjectPrintersViewSet(viewsets.ModelViewSet):
     serializer_class = ProjectPrintersSerializer
     permission_classes = [AllowAny]
 
-# --- New ViewSet for Low Stock Items ---
+
+# ============================================================================
+# BILL OF MATERIALS VIEWSETS
+# ============================================================================
+
+class ProjectBOMItemViewSet(viewsets.ModelViewSet):
+    """
+    CRUD ViewSet for ProjectBOMItem.
+
+    Endpoints:
+      GET    /api/projectbomitems/?project={id}   — list BOM items for a project
+      POST   /api/projectbomitems/                — create a BOM item
+      PATCH  /api/projectbomitems/{id}/           — update (description, qty, link, status)
+      DELETE /api/projectbomitems/{id}/           — remove a BOM item
+      POST   /api/projectbomitems/reorder/        — bulk update sort_order
+
+    Reservation model: creating a BOM item linked to an inventory item immediately
+    decrements qty_on_hand so the item appears "spoken for". Deleting or cancelling
+    the project restores the reservation.
+    """
+    serializer_class = ProjectBOMItemSerializer
+    permission_classes = [AllowAny]
+    _ACTIVE_STATUSES = ['Planning', 'In Progress', 'On Hold']
+
+    def _adjust_inv(self, inventory_item_id, delta):
+        """Adjust qty_on_hand by delta (+restore / -reserve)."""
+        InventoryItem.objects.filter(pk=inventory_item_id).update(quantity=F('quantity') + delta)
+
+    def get_queryset(self):
+        qs = ProjectBOMItem.objects.select_related('inventory_item', 'project').all()
+        project_id = self.request.query_params.get('project')
+        if project_id:
+            qs = qs.filter(project_id=project_id)
+        return qs.order_by('sort_order', 'id')
+
+    def perform_create(self, serializer):
+        """Decrement inventory qty when a linked BOM item is created on an active project."""
+        instance = serializer.save()
+        if (
+            instance.inventory_item_id
+            and instance.status == 'linked'
+            and instance.project.status in self._ACTIVE_STATUSES
+        ):
+            self._adjust_inv(instance.inventory_item_id, -instance.quantity_needed)
+
+    def perform_destroy(self, instance):
+        """Restore inventory qty when a BOM item is deleted from an active project."""
+        if (
+            instance.inventory_item_id
+            and instance.status == 'linked'
+            and instance.project.status in self._ACTIVE_STATUSES
+        ):
+            self._adjust_inv(instance.inventory_item_id, +instance.quantity_needed)
+        instance.delete()
+
+    def perform_update(self, serializer):
+        """Adjust inventory delta when allocation-relevant fields change."""
+        old = serializer.instance
+        old_inv_id = old.inventory_item_id
+        old_qty = old.quantity_needed
+        old_is_linked = old.status == 'linked'
+
+        instance = serializer.save()
+
+        # Only adjust if the project is active
+        if instance.project.status not in self._ACTIVE_STATUSES:
+            return
+
+        new_inv_id = instance.inventory_item_id
+        new_qty = instance.quantity_needed
+        new_is_linked = instance.status == 'linked'
+
+        # Skip if nothing allocation-relevant changed
+        if old_inv_id == new_inv_id and old_qty == new_qty and old_is_linked == new_is_linked:
+            return
+
+        # Restore old reservation
+        if old_inv_id and old_is_linked:
+            self._adjust_inv(old_inv_id, +old_qty)
+        # Apply new reservation
+        if new_inv_id and new_is_linked:
+            self._adjust_inv(new_inv_id, -new_qty)
+
+    @action(detail=False, methods=['post'], url_path='reorder')
+    def reorder(self, request):
+        """Bulk update sort_order for BOM items within a project."""
+        items = request.data.get('items', [])
+        if not items:
+            return Response({'error': 'items list required'}, status=status.HTTP_400_BAD_REQUEST)
+        for item_data in items:
+            if not isinstance(item_data, dict) or 'id' not in item_data or 'sort_order' not in item_data:
+                return Response(
+                    {'error': 'each item must have "id" and "sort_order" keys'},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            ProjectBOMItem.objects.filter(id=item_data['id']).update(
+                sort_order=item_data['sort_order']
+            )
+        return Response({'status': 'ok'})
+
+    @action(detail=False, methods=['get'], url_path='shopping_list')
+    def shopping_list(self, request):
+        """
+        Return a consolidated list of all BOM items across active projects
+        that need to be purchased or are overallocated.
+
+        GET /api/projectbomitems/shopping_list/
+
+        Returns two categories:
+          - needs_purchase: BOM items explicitly flagged for purchasing
+          - overallocated: Linked BOM items where the inventory item has
+            insufficient stock (quantity < 0 after all reservations)
+
+        Response rows include project context so the dashboard can render
+        grouped or flat views.
+        """
+        active = self._ACTIVE_STATUSES
+
+        rows = []
+
+        # --- Category 1: Needs Purchase ---
+        needs_purchase_qs = (
+            ProjectBOMItem.objects
+            .filter(project__status__in=active, status='needs_purchase')
+            .select_related('project', 'inventory_item')
+            .order_by('project__project_name', 'description')
+        )
+        for item in needs_purchase_qs:
+            rows.append({
+                'bom_item_id': item.id,
+                'description': item.description,
+                'quantity_needed': item.quantity_needed,
+                'project_id': item.project_id,
+                'project_name': item.project.project_name,
+                'project_status': item.project.status,
+                'reason': 'needs_purchase',
+                'is_ordered': item.is_ordered,
+                'inventory_item_id': None,
+                'inventory_item_name': None,
+                'quantity_on_hand': None,
+                'shortfall': item.quantity_needed,
+                'notes': item.notes,
+            })
+
+        # --- Category 2: Overallocated (linked but inventory is in deficit) ---
+        overallocated_qs = (
+            ProjectBOMItem.objects
+            .filter(
+                project__status__in=active,
+                status='linked',
+                inventory_item__isnull=False,
+                inventory_item__quantity__lt=0,
+            )
+            .select_related('project', 'inventory_item')
+            .order_by('project__project_name', 'description')
+        )
+        for item in overallocated_qs:
+            inv = item.inventory_item
+            rows.append({
+                'bom_item_id': item.id,
+                'description': item.description,
+                'quantity_needed': item.quantity_needed,
+                'project_id': item.project_id,
+                'project_name': item.project.project_name,
+                'project_status': item.project.status,
+                'reason': 'overallocated',
+                'is_ordered': inv.is_ordered,
+                'inventory_item_id': inv.id,
+                'inventory_item_name': inv.title,
+                'quantity_on_hand': inv.quantity,   # negative = total deficit
+                'shortfall': abs(inv.quantity),      # total deficit across all reservations
+                'notes': item.notes,
+            })
+
+        return Response(rows)
+
+
 class LowStockItemsViewSet(ReadOnlyViewSet):
     """
     A viewset that returns a list of all inventory items that are

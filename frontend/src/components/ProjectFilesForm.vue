@@ -53,8 +53,8 @@ const cancel = () => {
       </ul>
     </div>
     <div class="form-actions">
-      <button type="submit" class="btn btn-sm btn-primary">Save Files</button>
       <button type="button" @click="cancel" class="btn btn-sm btn-secondary">Cancel</button>
+      <button type="submit" class="btn btn-sm btn-primary">Save Files</button>
     </div>
   </form>
 </template>

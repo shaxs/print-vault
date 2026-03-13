@@ -22,6 +22,9 @@ export default {
       headers: { 'Content-Type': 'multipart/form-data' },
     })
   },
+  patchInventoryItem(id, data) {
+    return apiClient.patch(`inventoryitems/${id}/`, data)
+  },
   deleteInventoryItem(id) {
     return apiClient.delete(`inventoryitems/${id}/`)
   },
@@ -91,8 +94,10 @@ export default {
       headers: { 'Content-Type': 'multipart/form-data' },
     })
   },
-  deleteProject(id) {
-    return apiClient.delete(`projects/${id}/`)
+  deleteProject(id, restoreInventory = false) {
+    return apiClient.delete(`projects/${id}/`, {
+      params: { restore_inventory: restoreInventory },
+    })
   },
   downloadProjectFiles(projectId) {
     return apiClient.get(`projects/${projectId}/download-files/`, { responseType: 'blob' })
@@ -377,5 +382,28 @@ export default {
   },
   deleteFilamentSpool(id) {
     return apiClient.delete(`filament-spools/${id}/`)
+  },
+
+  // Bill of Materials (BOM)
+  getBOMItems(projectId) {
+    return apiClient.get('projectbomitems/', { params: { project: projectId } })
+  },
+  createBOMItem(data) {
+    return apiClient.post('projectbomitems/', data)
+  },
+  updateBOMItem(id, data) {
+    return apiClient.patch(`projectbomitems/${id}/`, data)
+  },
+  deleteBOMItem(id) {
+    return apiClient.delete(`projectbomitems/${id}/`)
+  },
+  reorderBOMItems(items) {
+    return apiClient.post('projectbomitems/reorder/', { items })
+  },
+  getShoppingList() {
+    return apiClient.get('projectbomitems/shopping_list/')
+  },
+  getInventoryAllocation(inventoryItemId) {
+    return apiClient.get(`inventoryitems/${inventoryItemId}/allocation/`)
   },
 }

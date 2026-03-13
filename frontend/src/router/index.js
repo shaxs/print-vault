@@ -12,6 +12,8 @@ import MaintenanceEditView from '../views/MaintenanceEditView.vue'
 import ProjectListView from '../views/ProjectListView.vue'
 import ProjectCreateView from '../views/ProjectCreateView.vue'
 import ProjectDetailView from '../views/ProjectDetailView.vue'
+// BOM feature
+import BomWizardView from '../views/BomWizardView.vue'
 import ProjectEditView from '../views/ProjectEditView.vue'
 import SettingsView from '../views/SettingsView.vue'
 import DashboardView from '../views/DashboardView.vue'
@@ -64,6 +66,12 @@ const router = createRouter({
     { path: '/projects/create', name: 'project-create', component: ProjectCreateView },
     { path: '/projects/:id', name: 'project-detail', component: ProjectDetailView },
     { path: '/projects/:id/edit', name: 'project-edit', component: ProjectEditView },
+    {
+      path: '/projects/:id/bom/edit',
+      name: 'bom-wizard',
+      component: BomWizardView,
+      props: true,
+    },
     {
       path: '/projects/:id/manage-files',
       name: 'project-manage-files',

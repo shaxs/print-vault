@@ -1,9 +1,10 @@
 <script setup>
-import { ref, onMounted, watch } from 'vue'
+import { ref, onMounted, watch, computed } from 'vue'
 import { useRouter, RouterLink } from 'vue-router'
 import APIService from '@/services/APIService.js'
 import Multiselect from 'vue-multiselect'
 import 'vue-multiselect/dist/vue-multiselect.css'
+import BaseModal from './BaseModal.vue'
 
 const props = defineProps({
   initialData: { type: Object, default: null },
@@ -12,6 +13,17 @@ const props = defineProps({
 const router = useRouter()
 const project = ref({})
 const isEditMode = ref(false)
+const originalStatus = ref(null)
+const showCancelConfirmModal = ref(false)
+const showReopenConfirmModal = ref(false)
+const pendingRedirectToBOM = ref(false)
+
+const cancelBOMCount = computed(() => {
+  if (!props.initialData?.bom_items) return 0
+  return props.initialData.bom_items.filter(
+    (item) => item.inventory_item && item.status === 'linked',
+  ).length
+})
 const photoFile = ref(null)
 const photoPreview = ref(null)
 const allInventoryItems = ref([])
@@ -25,6 +37,7 @@ watch(
   (newData) => {
     if (newData) {
       project.value = { ...newData }
+      originalStatus.value = newData.status
       project.value.inventory_item_ids = newData.associated_inventory_items.map((item) => item.id)
       project.value.printer_ids = newData.associated_printers.map((printer) => printer.id)
       project.value.tracker_ids = newData.trackers
@@ -87,7 +100,41 @@ const formatMaterialName = (material) => {
   return `${brandName} ${material.name}${diameter}`.trim()
 }
 
-const saveProject = async () => {
+const saveProject = async (redirectToBOM = false) => {
+  // Warn user when cancelling a project that has BOM items linked to inventory
+  if (
+    isEditMode.value &&
+    project.value.status === 'Canceled' &&
+    originalStatus.value !== 'Canceled'
+  ) {
+    pendingRedirectToBOM.value = redirectToBOM
+    showCancelConfirmModal.value = true
+    return
+  }
+  // Warn user when re-opening a cancelled project (inventory will be re-reserved)
+  if (
+    isEditMode.value &&
+    originalStatus.value === 'Canceled' &&
+    ['Planning', 'In Progress', 'On Hold'].includes(project.value.status)
+  ) {
+    pendingRedirectToBOM.value = redirectToBOM
+    showReopenConfirmModal.value = true
+    return
+  }
+  await _performSave(redirectToBOM)
+}
+
+const proceedAfterCancelConfirm = async () => {
+  showCancelConfirmModal.value = false
+  await _performSave(pendingRedirectToBOM.value)
+}
+
+const proceedAfterReopenConfirm = async () => {
+  showReopenConfirmModal.value = false
+  await _performSave(pendingRedirectToBOM.value)
+}
+
+const _performSave = async (redirectToBOM = false) => {
   const formData = new FormData()
   for (const key in project.value) {
     if (key === 'inventory_item_ids' || key === 'printer_ids' || key === 'tracker_ids') {
@@ -118,7 +165,11 @@ const saveProject = async () => {
     } else {
       savedProject = await APIService.createProject(formData)
     }
-    router.push(`/projects/${savedProject.data.id}`)
+    if (redirectToBOM) {
+      router.push({ name: 'bom-wizard', params: { id: savedProject.data.id } })
+    } else {
+      router.push(`/projects/${savedProject.data.id}`)
+    }
   } catch (error) {
     console.error('Error saving project:', error)
   }
@@ -143,7 +194,7 @@ onMounted(async () => {
 </script>
 
 <template>
-  <form @submit.prevent="saveProject" class="item-form">
+  <form @submit.prevent="saveProject(false)" class="item-form">
     <div class="form-group">
       <label for="project_name">Project Name</label>
       <input id="project_name" v-model="project.project_name" type="text" required />
@@ -290,15 +341,84 @@ onMounted(async () => {
       <textarea id="notes" v-model="project.notes"></textarea>
     </div>
     <div class="form-actions">
-      <button type="submit" class="btn btn-primary">Save Project</button>
       <RouterLink
         :to="isEditMode ? `/projects/${project.id}` : '/projects'"
         class="btn btn-secondary"
       >
         Cancel
       </RouterLink>
+      <button
+        v-if="!isEditMode"
+        type="button"
+        class="btn btn-success"
+        @click="saveProject(true)"
+      >
+        Save &amp; Create BOM
+      </button>
+      <button type="submit" class="btn btn-primary">Save Project</button>
     </div>
   </form>
+
+  <!-- Cancel project confirmation modal -->
+  <BaseModal
+    :show="showCancelConfirmModal"
+    title="Cancel Project"
+    @close="showCancelConfirmModal = false"
+  >
+    <div class="cancel-confirm-content">
+      <div class="warning-box">
+        <span class="warning-icon">⚠️</span>
+        <div>
+          <p class="warning-title">Cancel "{{ project.project_name }}"?</p>
+          <p class="warning-subtitle">The project status will be set to Canceled.</p>
+        </div>
+      </div>
+      <p v-if="cancelBOMCount > 0" class="cancel-note">
+        <strong>{{ cancelBOMCount }}</strong>
+        inventory-linked BOM
+        {{ cancelBOMCount === 1 ? 'item' : 'items' }}
+        will be returned to available stock.
+      </p>
+      <p v-else class="cancel-note">
+        No inventory-linked BOM items to return.
+      </p>
+      <p class="cancel-hint">You can re-open the project later if needed.</p>
+    </div>
+    <template #footer>
+      <button @click="showCancelConfirmModal = false" class="btn btn-secondary">Go Back</button>
+      <button @click="proceedAfterCancelConfirm" class="btn btn-warning">Yes, Cancel Project</button>
+    </template>
+  </BaseModal>
+
+  <!-- Re-open project confirmation modal -->
+  <BaseModal
+    :show="showReopenConfirmModal"
+    title="Re-open Project"
+    @close="showReopenConfirmModal = false"
+  >
+    <div class="cancel-confirm-content">
+      <div class="reopen-box">
+        <span class="warning-icon">ℹ️</span>
+        <div>
+          <p class="warning-title">Re-open "{{ project.project_name }}"?</p>
+          <p class="warning-subtitle">The project status will be set to {{ project.status }}.</p>
+        </div>
+      </div>
+      <p v-if="cancelBOMCount > 0" class="cancel-note">
+        <strong>{{ cancelBOMCount }}</strong>
+        previously allocated inventory
+        {{ cancelBOMCount === 1 ? 'item' : 'items' }}
+        will be re-reserved for this project, reducing available stock.
+      </p>
+      <p v-else class="cancel-note">
+        No inventory-linked BOM items to re-reserve.
+      </p>
+    </div>
+    <template #footer>
+      <button @click="showReopenConfirmModal = false" class="btn btn-secondary">Go Back</button>
+      <button @click="proceedAfterReopenConfirm" class="btn btn-primary">Yes, Re-open Project</button>
+    </template>
+  </BaseModal>
 </template>
 
 <style>
@@ -445,5 +565,75 @@ select {
 
 .add-material-btn {
   margin-bottom: 2rem;
+}
+
+/* Cancel Project Modal Styles */
+.cancel-confirm-content {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.warning-box {
+  display: flex;
+  gap: 12px;
+  padding: 12px;
+  background-color: rgba(239, 68, 68, 0.1);
+  border: 1px solid rgba(239, 68, 68, 0.3);
+  border-radius: 6px;
+}
+
+.warning-icon {
+  font-size: 24px;
+  flex-shrink: 0;
+}
+
+.warning-title {
+  margin: 0 0 4px 0;
+  font-weight: 600;
+  color: var(--color-heading);
+  font-size: 15px;
+}
+
+.warning-subtitle {
+  margin: 0;
+  color: var(--color-text);
+  font-size: 14px;
+}
+
+.cancel-note {
+  margin: 0;
+  font-size: 14px;
+  color: var(--color-text);
+  padding: 10px 12px;
+  background-color: var(--color-background-soft);
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+}
+
+.cancel-hint {
+  margin: 0;
+  font-size: 13px;
+  color: var(--color-text);
+  opacity: 0.7;
+}
+
+.btn-warning {
+  background-color: var(--color-warning, #f59e0b);
+  color: #fff;
+  border: none;
+}
+
+.btn-warning:hover {
+  background-color: var(--color-warning-dark, #d97706);
+}
+
+.reopen-box {
+  display: flex;
+  gap: 12px;
+  padding: 12px;
+  background-color: rgba(59, 130, 246, 0.1);
+  border: 1px solid rgba(59, 130, 246, 0.3);
+  border-radius: 6px;
 }
 </style>

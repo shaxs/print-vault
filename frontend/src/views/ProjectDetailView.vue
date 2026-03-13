@@ -6,6 +6,10 @@ import DataTable from '../components/DataTable.vue'
 import ErrorModal from '../components/ErrorModal.vue'
 import InfoModal from '../components/InfoModal.vue'
 import AddInventoryToProjectModal from '../components/AddInventoryToProjectModal.vue'
+import AddBOMItemModal from '../components/AddBOMItemModal.vue'
+import InfoTooltip from '../components/InfoTooltip.vue'
+import DeleteProjectModal from '../components/DeleteProjectModal.vue'
+import QuickAddInventoryModal from '../components/QuickAddInventoryModal.vue'
 
 const route = useRoute()
 const router = useRouter()
@@ -47,16 +51,19 @@ const getFileName = (filePath) => {
   return filePath.split('/').pop()
 }
 
-const deleteProject = async () => {
-  if (confirm('Are you sure you want to delete this project? This action cannot be undone.')) {
-    try {
-      await APIService.deleteProject(project.value.id)
-      router.push({ name: 'project-list' })
-    } catch (error) {
-      console.error('Failed to delete project:', error)
-      errorMessage.value = 'Failed to delete project. Please try again.'
-      isErrorModalVisible.value = true
-    }
+const deleteProject = () => {
+  isDeleteProjectModalVisible.value = true
+}
+
+const handleDeleteProjectConfirm = async (restoreInventory) => {
+  isDeleteProjectModalVisible.value = false
+  try {
+    await APIService.deleteProject(project.value.id, restoreInventory)
+    router.push({ name: 'project-list' })
+  } catch (error) {
+    console.error('Failed to delete project:', error)
+    errorMessage.value = 'Failed to delete project. Please try again.'
+    isErrorModalVisible.value = true
   }
 }
 
@@ -154,11 +161,149 @@ const existingInventoryIds = computed(() => {
   return project.value?.associated_inventory_items?.map((item) => item.id) || []
 })
 
+// BOM items with sequential row numbers (DataTable doesn't expose index in slots)
+const bomItemsWithIndex = computed(() =>
+  (project.value?.bom_items ?? []).map((item, i) => ({ ...item, _rowNum: i + 1 }))
+)
+
+// Status filter chips
+const BOM_CHIP_FILTERS = [
+  { value: 'all', label: 'All' },
+  { value: 'covered', label: 'Covered' },
+  { value: 'low', label: 'Running Low' },
+  { value: 'overallocated', label: 'Overallocated' },
+  { value: 'needs_purchase', label: 'Needs Purchase' },
+  { value: 'unlinked', label: 'Not Linked' },
+]
+
+const bomStatusFilter = ref('all')
+
+const getBomChipStatus = (item) => item.allocation_status ?? item.status ?? 'unlinked'
+
+const bomStatusCounts = computed(() => {
+  const items = project.value?.bom_items ?? []
+  const counts = { all: items.length }
+  for (const item of items) {
+    const s = getBomChipStatus(item)
+    counts[s] = (counts[s] || 0) + 1
+  }
+  return counts
+})
+
+const activeBomChipFilters = computed(() =>
+  BOM_CHIP_FILTERS.filter((f) => f.value === 'all' || (bomStatusCounts.value[f.value] ?? 0) > 0)
+)
+
+const filteredBomItems = computed(() => {
+  if (bomStatusFilter.value === 'all') return bomItemsWithIndex.value
+  return bomItemsWithIndex.value.filter(
+    (item) => getBomChipStatus(item) === bomStatusFilter.value,
+  )
+})
+
 const handleInventoryAdded = async () => {
   isAddInventoryModalVisible.value = false
   infoModalMessage.value = 'Inventory items added successfully!'
   isInfoModalVisible.value = true
   await fetchProject() // Refresh the project data
+}
+
+// ── BOM ──────────────────────────────────────────────────────────────────────
+const isAddBOMModalVisible = ref(false)
+const isDeleteProjectModalVisible = ref(false)
+
+const linkedBOMCount = computed(() => {
+  if (!project.value?.bom_items) return 0
+  return project.value.bom_items.filter(
+    (item) => item.inventory_item && item.status === 'linked',
+  ).length
+})
+const movingToBOMItem = ref(null)
+const editingBOMModalItem = ref(null)
+
+// Quick Add + Link
+const quickAddBomItem = ref(null)
+const showQuickAddModal = ref(false)
+
+const openQuickAdd = (item) => {
+  quickAddBomItem.value = item
+  showQuickAddModal.value = true
+}
+
+const bomHeaders = computed(() => [
+  { text: '#', value: '_rowNum', sortable: false },
+  { text: 'Description', value: 'description' },
+  { text: 'Qty', value: 'quantity_needed' },
+  { text: 'Inventory Item', value: 'inventory_item_title' },
+  { text: 'Status', value: 'allocation_status', sortable: false },
+  { text: 'Actions', value: 'actions', sortable: false },
+])
+
+const BOM_STATUS_LABELS = {
+  covered: 'Covered',
+  low: 'Running Low',
+  overallocated: 'Overallocated',
+  needs_purchase: 'Purchase',
+  unlinked: 'Not Linked',
+}
+
+const BOM_STATUS_CLASSES = {
+  covered: 'bom-status-covered',
+  low: 'bom-status-low',
+  overallocated: 'bom-status-overallocated',
+  needs_purchase: 'bom-status-purchase',
+  unlinked: 'bom-status-unlinked',
+}
+
+const getBOMStatusLabel = (status) => BOM_STATUS_LABELS[status] ?? status
+const getBOMStatusClass = (status) => BOM_STATUS_CLASSES[status] ?? ''
+
+const openBOMWizard = () => {
+  router.push({ name: 'bom-wizard', params: { id: project.value.id } })
+}
+
+const moveToBOM = (inventoryItem) => {
+  movingToBOMItem.value = inventoryItem
+  isAddBOMModalVisible.value = true
+}
+
+const viewInventoryItem = (inventoryItemId) => {
+  if (inventoryItemId) router.push({ name: 'item-detail', params: { id: inventoryItemId } })
+}
+
+const handleBOMItemAdded = async () => {
+  if (movingToBOMItem.value) {
+    // Item was moved from associated inventory → BOM; remove the association
+    try {
+      await APIService.removeInventoryFromProject(project.value.id, movingToBOMItem.value.id)
+    } catch (e) {
+      // Non-critical: item may not have been in associated inventory list
+      console.warn('Could not remove inventory association during BOM move:', e)
+    }
+    movingToBOMItem.value = null
+    isAddBOMModalVisible.value = false
+  }
+  fetchProject()
+}
+
+const openBOMEditModal = (item) => {
+  editingBOMModalItem.value = item
+}
+
+const deleteBOMItem = async (item) => {
+  const returnNote = item.inventory_item_title
+    ? `\n\n${item.quantity_needed}× ${item.inventory_item_title} will be returned to Inventory.`
+    : ''
+  if (confirm(`Remove "${item.description}" from this BOM?${returnNote}`)) {
+    try {
+      await APIService.deleteBOMItem(item.id)
+      await fetchProject()
+    } catch (error) {
+      console.error('Failed to delete BOM item:', error)
+      errorMessage.value = 'Failed to remove BOM item. Please try again.'
+      isErrorModalVisible.value = true
+    }
+  }
 }
 
 onMounted(fetchProject)
@@ -185,6 +330,7 @@ onMounted(fetchProject)
           </div>
         </div>
         <div class="header-actions">
+          <button @click="router.push({ name: 'project-list' })" class="btn btn-secondary">&larr; Back to Projects</button>
           <router-link
             :to="{ name: 'project-edit', params: { id: project.id } }"
             class="btn btn-primary"
@@ -376,16 +522,157 @@ onMounted(fetchProject)
                   type="button"
                   class="btn btn-sm btn-primary"
                 >
-                  + New Tracker
+                  New Tracker
                 </button>
               </div>
             </div>
           </div>
         </div>
 
+        <!-- ── Bill of Materials ─────────────────────────────────── -->
+        <div v-if="project" class="bom-section">
+          <div class="card">
+            <div class="card-header bom-card-header">
+              <h3>
+                Bill of Materials
+                <InfoTooltip>
+                  <strong>Associated Inventory Items</strong> are items from your inventory linked
+                  to this project for reference. No quantity is tracked — it's a soft relationship
+                  that helps you remember which inventory relates to this project.<br /><br />
+                  A <strong>Bill of Materials (BOM)</strong> is a structured requirements list.
+                  Each BOM entry specifies a quantity needed and is compared against your on-hand
+                  stock to show allocation status (Covered, Low, Needs Purchase, etc.).<br /><br />
+                  An inventory item can only be linked to a project as one or the other —
+                  <strong>not both</strong>.
+                </InfoTooltip>
+              </h3>
+              <div class="bom-header-actions">
+                <button
+                  type="button"
+                  class="btn btn-sm btn-secondary"
+                  @click="openBOMWizard"
+                >
+                  BOM Wizard
+                </button>
+                <button
+                  type="button"
+                  class="btn btn-sm btn-primary"
+                  @click="isAddBOMModalVisible = true"
+                >
+                  Add Item
+                </button>
+              </div>
+            </div>
+            <div class="card-body table-card-body">
+              <p
+                v-if="!project.bom_items || project.bom_items.length === 0"
+                class="bom-empty-state"
+              >
+                No BOM items yet.
+                <button class="btn-link" @click="openBOMWizard">Use the BOM Wizard</button>
+                to quickly enter all parts, or click <strong>Add Item</strong> to add one at a time.
+              </p>
+
+              <template v-else>
+                <!-- Status filter chips -->
+                <div class="bom-filter-chips">
+                  <button
+                    v-for="f in activeBomChipFilters"
+                    :key="f.value"
+                    :class="['bom-chip', { 'bom-chip-active': bomStatusFilter === f.value }]"
+                    @click="bomStatusFilter = f.value"
+                  >
+                    {{ f.label }}
+                    <span v-if="f.value !== 'all'" class="chip-count">{{
+                      bomStatusCounts[f.value] ?? 0
+                    }}</span>
+                  </button>
+                </div>
+
+                <DataTable
+                  :headers="bomHeaders"
+                  :items="filteredBomItems"
+                  :visible-columns="bomHeaders.map((h) => h.value)"
+                  :empty-message="bomStatusFilter !== 'all' ? 'No items match the selected filter.' : 'No BOM items yet.'"
+                  class="borderless-table bom-detail-table"
+                >
+                <!-- Row number -->
+                <template #cell-_rowNum="{ item }">
+                  <span class="bom-row-num">{{ item._rowNum }}</span>
+                </template>
+
+                <!-- Description -->
+                <template #cell-description="{ item }">
+                  <div class="bom-desc-cell">
+                    <span class="cell-truncate" :title="item.description">{{ item.description }}</span>
+                    <span v-if="item.notes" class="bom-item-notes cell-truncate" :title="item.notes">{{ item.notes }}</span>
+                  </div>
+                </template>
+
+                <!-- Qty Required -->
+                <template #cell-quantity_needed="{ item }">
+                  <span>{{ item.quantity_needed }}</span>
+                </template>
+
+                <!-- Inventory Item link -->
+                <template #cell-inventory_item_title="{ item }">
+                  <span
+                    v-if="item.inventory_item_title"
+                    class="table-link grey-link cell-truncate"
+                    :title="item.inventory_item_title"
+                    @click="viewInventoryItem(item.inventory_item)"
+                  >{{ item.inventory_item_title }}</span>
+                  <a
+                    v-else-if="item.status === 'needs_purchase'"
+                    class="table-link grey-link"
+                    @click.stop="openQuickAdd(item)"
+                  >Quick add inventory item</a>
+                  <span v-else class="text-muted">—</span>
+                </template>
+
+                <!-- Allocation status badge -->
+                <template #cell-allocation_status="{ item }">
+                  <span :class="['bom-status-badge', getBOMStatusClass(item.allocation_status)]">
+                    {{ getBOMStatusLabel(item.allocation_status) }}
+                  </span>
+                </template>
+
+                <!-- Actions -->
+                <template #cell-actions="{ item }">
+                  <div class="bom-action-btns">
+                    <button
+                      class="btn btn-sm btn-primary bom-edit-btn"
+                      @click.stop="openBOMEditModal(item)"
+                    >Edit</button>
+                    <button
+                      class="btn-remove-datatable"
+                      @click.stop="deleteBOMItem(item)"
+                    >Remove</button>
+                  </div>
+                </template>
+              </DataTable>
+              </template>
+
+            </div>
+          </div>
+        </div>
+
+        <!-- ── Associated Inventory Items ──────────────────────── -->
         <div v-if="project" class="details-container inventory-full-width">
           <div class="card-header">
-            <h3>Associated Inventory Items</h3>
+            <h3>
+              Associated Inventory Items
+              <InfoTooltip>
+                <strong>Associated Inventory Items</strong> are items from your inventory linked
+                to this project for reference. No quantity is tracked — it's a soft relationship
+                that helps you remember which inventory relates to this project.<br /><br />
+                A <strong>Bill of Materials (BOM)</strong> is a structured requirements list.
+                Each BOM entry specifies a quantity needed and is compared against your on-hand
+                stock to show allocation status (Covered, Low, Needs Purchase, etc.).<br /><br />
+                An inventory item can only be linked to a project as one or the other —
+                <strong>not both</strong>.
+              </InfoTooltip>
+            </h3>
             <button
               @click="isAddInventoryModalVisible = true"
               type="button"
@@ -415,9 +702,14 @@ onMounted(fetchProject)
             </template>
             <template #cell-cost="{ item }"> ${{ item.cost || '0.00' }} </template>
             <template #cell-actions="{ item }">
-              <button @click.stop="removeInventoryItem(item)" class="btn-remove-datatable">
-                Remove
-              </button>
+              <div class="action-group">
+                <button @click.stop="moveToBOM(item)" class="btn btn-sm btn-secondary">
+                  Move to BOM
+                </button>
+                <button @click.stop="removeInventoryItem(item)" class="btn-remove-datatable">
+                  Remove
+                </button>
+              </div>
             </template>
           </DataTable>
         </div>
@@ -466,11 +758,64 @@ onMounted(fetchProject)
       @close="isAddInventoryModalVisible = false"
       @added="handleInventoryAdded"
     />
+
+    <!-- Add / Move-to-BOM modal -->
+    <AddBOMItemModal
+      v-if="project"
+      :show="isAddBOMModalVisible"
+      :project-id="project.id"
+      :pre-selected-inventory-item="movingToBOMItem"
+      @close="isAddBOMModalVisible = false; movingToBOMItem = null"
+      @added="handleBOMItemAdded"
+    />
+    <!-- Edit BOM item modal -->
+    <AddBOMItemModal
+      v-if="project && editingBOMModalItem"
+      :show="editingBOMModalItem !== null"
+      :project-id="project.id"
+      :edit-item="editingBOMModalItem"
+      @close="editingBOMModalItem = null"
+      @updated="editingBOMModalItem = null; fetchProject()"
+    />
+
+    <!-- Delete project confirmation modal -->
+    <DeleteProjectModal
+      v-if="project"
+      :show="isDeleteProjectModalVisible"
+      :project-name="project.project_name"
+      :project-status="project.status"
+      :linked-b-o-m-count="linkedBOMCount"
+      @close="isDeleteProjectModalVisible = false"
+      @confirm="handleDeleteProjectConfirm"
+    />
+
+    <!-- Quick Add to Inventory + Link modal -->
+    <QuickAddInventoryModal
+      :show="showQuickAddModal"
+      :bom-item="quickAddBomItem"
+      @close="showQuickAddModal = false; quickAddBomItem = null"
+      @linked="() => { showQuickAddModal = false; quickAddBomItem = null; fetchProject() }"
+    />
   </div>
 </template>
 
 <style scoped>
 /* Cleaned up CSS for ProjectDetailView.vue */
+
+/* Inline action button groups in DataTable cells */
+.action-group {
+  display: flex;
+  gap: 0.4rem;
+  align-items: center;
+  justify-content: flex-end;
+}
+.action-group .btn.btn-sm {
+  padding: 5px 10px;
+  font-size: 0.8rem;
+  border-radius: 4px;
+  border: none;
+  line-height: normal;
+}
 
 .page-container {
   padding: 2rem;
@@ -1096,5 +1441,240 @@ onMounted(fetchProject)
   background: rgba(0, 0, 0, 0.5);
   padding: 0.5rem 1rem;
   border-radius: 8px;
+}
+
+/* ── Bill of Materials ──────────────────────────────────────────────────── */
+.bom-section {
+  grid-column: 1 / -1;
+  margin-top: 0;
+}
+
+.bom-card-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.bom-card-header h3 {
+  margin: 0;
+}
+
+.bom-header-actions {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.bom-empty-state {
+  padding: 1.5rem;
+  color: var(--color-text-soft);
+  font-size: 0.95rem;
+}
+
+.btn-link {
+  background: none;
+  border: none;
+  color: var(--color-heading);
+  cursor: pointer;
+  padding: 0;
+  font-size: inherit;
+  text-decoration: underline;
+}
+
+.bom-row-num {
+  color: var(--color-text-soft);
+  font-size: 0.85rem;
+}
+
+.bom-needed-nonzero {
+  color: var(--color-red, #e53e3e);
+  font-weight: 600;
+}
+
+.bom-needed-zero {
+  color: var(--color-text-soft);
+}
+
+.bom-filter-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  padding: 0.6rem 1.25rem;
+  border-bottom: 1px solid var(--color-border);
+  background: var(--color-background-soft);
+}
+
+.bom-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  padding: 0.25rem 0.65rem;
+  border-radius: 20px;
+  border: 1px solid var(--color-border);
+  background: var(--color-background);
+  color: var(--color-text-soft);
+  font-size: 0.8rem;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s, border-color 0.15s;
+}
+
+.bom-chip:hover {
+  border-color: var(--color-blue);
+  color: var(--color-blue);
+}
+
+.bom-chip-active {
+  background: var(--color-blue);
+  border-color: var(--color-blue);
+  color: #fff;
+}
+
+.chip-count {
+  background: rgba(255, 255, 255, 0.25);
+  border-radius: 10px;
+  padding: 0 0.35rem;
+  font-size: 0.75rem;
+  font-weight: 600;
+}
+
+.bom-chip:not(.bom-chip-active) .chip-count {
+  background: var(--color-background-mute);
+  color: var(--color-text-soft);
+}
+
+.bom-desc-cell {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  min-width: 0;
+}
+
+/* Prevent long BOM names from forcing horizontal scroll */
+.bom-detail-table :deep(table) {
+  table-layout: fixed;
+  width: 100%;
+}
+
+/* Column widths: keep small cols tight, give description the bulk */
+.bom-detail-table :deep(th:nth-child(1)),
+.bom-detail-table :deep(td:nth-child(1)) { width: 3%; }     /* # */
+.bom-detail-table :deep(th:nth-child(3)),
+.bom-detail-table :deep(td:nth-child(3)) { width: 8%; }     /* Qty Required */
+.bom-detail-table :deep(th:nth-child(4)),
+.bom-detail-table :deep(td:nth-child(4)) { width: 22%; }    /* Inventory Item */
+.bom-detail-table :deep(th:nth-child(5)),
+.bom-detail-table :deep(td:nth-child(5)) { width: 12%; }    /* Status */
+.bom-detail-table :deep(th:nth-child(6)),
+.bom-detail-table :deep(td:nth-child(6)) { width: 13%; }    /* Actions */
+/* col 2 (Description) takes the remaining ~42% automatically */
+
+.cell-truncate {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  white-space: normal;
+}
+
+.bom-item-notes {
+  font-size: 0.8rem;
+  color: var(--color-text-soft);
+  font-style: italic;
+}
+
+.bom-inline-edit {
+  display: flex;
+  gap: 0.25rem;
+}
+
+.bom-edit-input {
+  padding: 4px 8px;
+  border: 1px solid var(--color-border);
+  border-radius: 4px;
+  background: var(--color-background);
+  color: var(--color-text);
+  font-size: 0.875rem;
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.bom-edit-qty {
+  max-width: 70px;
+}
+
+.bom-action-btns {
+  display: flex;
+  gap: 0.4rem;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.bom-edit-btn {
+  padding: 5px 10px;
+  font-size: 0.8rem;
+  line-height: normal;
+  border: none;
+}
+
+.bom-quick-add-link {
+  color: var(--color-heading);
+  cursor: pointer;
+  text-decoration: none;
+}
+.bom-quick-add-link:hover {
+  color: var(--color-heading);
+  text-decoration: underline;
+}
+
+.bom-save-btn {
+  padding: 5px 10px;
+  font-size: 0.8rem;
+  line-height: normal;
+  border: none;
+}
+
+/* Status badges */
+.bom-status-badge {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 12px;
+  font-size: 0.78rem;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.bom-status-covered {
+  background: color-mix(in srgb, var(--color-green) 15%, transparent);
+  color: var(--color-green);
+}
+
+.bom-status-low {
+  background: color-mix(in srgb, var(--color-alert-warning) 15%, transparent);
+  color: var(--color-alert-warning);
+}
+
+.bom-status-overallocated {
+  background: color-mix(in srgb, var(--color-red) 15%, transparent);
+  color: var(--color-red);
+}
+
+.bom-status-purchase {
+  background: color-mix(in srgb, var(--color-blue) 15%, transparent);
+  color: var(--color-blue);
+}
+
+.bom-status-unlinked {
+  background: color-mix(in srgb, var(--color-text-soft) 15%, transparent);
+  color: var(--color-text-soft);
+}
+
+.bom-footer {
+  padding: 0.75rem 1rem;
+  border-top: 1px solid var(--color-border);
+  display: flex;
+  justify-content: flex-start;
+}
+
+.text-muted {
+  color: var(--color-text-soft);
 }
 </style>

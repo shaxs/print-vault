@@ -5,7 +5,7 @@ from django.utils import timezone
 from .models import (
     Brand, PartType, Location, Material, MaterialPhoto, MaterialFeature, Vendor, Printer, Mod, ModFile,
     InventoryItem, Project, ProjectLink, ProjectFile, ProjectInventory, ProjectPrinters,
-    Tracker, TrackerFile, FilamentSpool
+    ProjectBOMItem, Tracker, TrackerFile, FilamentSpool
 )
 from .services.storage_manager import StorageManager, InsufficientStorageError, StoragePermissionError
 from .services.file_download_service import (
@@ -508,16 +508,24 @@ class InventoryItemSerializer(serializers.ModelSerializer):
     project_ids = serializers.PrimaryKeyRelatedField(
         many=True, queryset=Project.objects.all(), source='associated_projects', write_only=True, required=False
     )
+    qty_needed = serializers.SerializerMethodField()
+
+    def get_qty_needed(self, obj):
+        """Return total quantity needed across all active-project BOM items. 0 if none."""
+        return getattr(obj, 'qty_needed', None) or 0
+
     class Meta:
         model = InventoryItem
         fields = [
-            'id', 'title', 'brand', 'part_type', 'quantity', 
+            'id', 'title', 'brand', 'part_type', 'quantity', 'qty_needed',
             'cost', 'location', 'photo', 'notes',
             'associated_projects', 'project_ids',
             # --- New Fields for Consumables ---
             'is_consumable', 'low_stock_threshold',
             # --- Vendor and Model Fields ---
-            'vendor', 'vendor_link', 'model'
+            'vendor', 'vendor_link', 'model',
+            # --- Ordering State ---
+            'is_ordered',
         ]
 
     def create(self, validated_data):
@@ -627,9 +635,10 @@ class ProjectSerializer(serializers.ModelSerializer):
     total_cost = serializers.SerializerMethodField()
     links = ProjectLinkSerializer(many=True, read_only=True)
     files = ProjectFileSerializer(many=True, read_only=True)
-    trackers = serializers.SerializerMethodField()  # Add trackers to project detail
-    materials_display = serializers.SerializerMethodField()  # Enriched materials with blueprint data
-    filaments_used = FilamentSpoolSerializer(many=True, read_only=True)  # Assigned spools
+    trackers = serializers.SerializerMethodField()
+    materials_display = serializers.SerializerMethodField()
+    filaments_used = FilamentSpoolSerializer(many=True, read_only=True)
+    bom_items = serializers.SerializerMethodField()
 
     inventory_item_ids = serializers.PrimaryKeyRelatedField(many=True, queryset=InventoryItem.objects.all(), source='associated_inventory_items', write_only=True, required=False)
     printer_ids = serializers.PrimaryKeyRelatedField(many=True, queryset=Printer.objects.all(), source='associated_printers', write_only=True, required=False)
@@ -641,7 +650,7 @@ class ProjectSerializer(serializers.ModelSerializer):
             'id', 'project_name', 'description', 'status', 'start_date', 'due_date',
             'notes', 'photo', 'associated_inventory_items', 'associated_printers', 
             'total_cost', 'inventory_item_ids', 'printer_ids', 'links', 'files', 'trackers', 'tracker_ids',
-            'materials', 'materials_display', 'filaments_used'
+            'materials', 'materials_display', 'filaments_used', 'bom_items',
         ]
     
     def get_total_cost(self, obj):
@@ -652,6 +661,11 @@ class ProjectSerializer(serializers.ModelSerializer):
         """Return list of trackers associated with this project."""
         from .serializers import TrackerListSerializer
         return TrackerListSerializer(obj.trackers.all(), many=True).data
+
+    def get_bom_items(self, obj):
+        """Return BOM line items for this project."""
+        from .serializers import ProjectBOMItemInlineSerializer
+        return ProjectBOMItemInlineSerializer(obj.bom_items.all(), many=True).data
 
     def get_materials_display(self, obj):
         """Enrich materials array with full Material blueprint data."""
@@ -719,6 +733,107 @@ class ProjectPrintersSerializer(serializers.ModelSerializer):
     class Meta:
         model = ProjectPrinters
         fields = '__all__'
+
+
+# ============================================================================
+# BILL OF MATERIALS SERIALIZERS
+# ============================================================================
+
+ACTIVE_PROJECT_STATUSES = ['Planning', 'In Progress', 'On Hold']
+CLOSED_PROJECT_STATUSES = ['Completed', 'Canceled']
+
+
+class ProjectBOMItemInlineSerializer(serializers.ModelSerializer):
+    """
+    Lightweight serializer for embedding BOM items within a ProjectSerializer response.
+    Includes inventory display fields and computed allocation status.
+    """
+    inventory_item_title = serializers.CharField(
+        source='inventory_item.title', read_only=True, default=None
+    )
+    qty_on_hand = serializers.IntegerField(
+        source='inventory_item.quantity', read_only=True, default=None
+    )
+    allocation_status = serializers.SerializerMethodField()
+
+    class Meta:
+        model = ProjectBOMItem
+        fields = [
+            'id', 'description', 'quantity_needed',
+            'inventory_item', 'inventory_item_title', 'qty_on_hand',
+            'status', 'is_ordered', 'notes', 'sort_order', 'allocation_status',
+        ]
+
+    def get_allocation_status(self, obj):
+        if obj.status == 'needs_purchase':
+            return 'needs_purchase'
+        if not obj.inventory_item:
+            return 'unlinked'
+        inv = obj.inventory_item
+        # Reservation model: inv.quantity already deducts active BOM allocations.
+        qty_available = inv.quantity
+        if qty_available < 0:
+            return 'overallocated'
+        if inv.is_consumable and inv.low_stock_threshold and qty_available <= inv.low_stock_threshold:
+            return 'low'
+        return 'covered'
+
+
+class ProjectBOMItemSerializer(serializers.ModelSerializer):
+    """
+    Full serializer for the dedicated /api/projectbomitems/ endpoint.
+    Supports create/update with full field set.
+    """
+    inventory_item_title = serializers.CharField(
+        source='inventory_item.title', read_only=True, default=None
+    )
+    inventory_item_qty = serializers.IntegerField(
+        source='inventory_item.quantity', read_only=True, default=None
+    )
+    inventory_item_id_display = serializers.IntegerField(
+        source='inventory_item.id', read_only=True, default=None
+    )
+    allocation_status = serializers.SerializerMethodField()
+
+    class Meta:
+        model = ProjectBOMItem
+        fields = [
+            'id', 'project', 'description', 'quantity_needed',
+            'inventory_item', 'inventory_item_title', 'inventory_item_qty',
+            'inventory_item_id_display',
+            'status', 'is_ordered', 'notes', 'sort_order', 'allocation_status',
+            'created_at', 'updated_at',
+        ]
+        extra_kwargs = {
+            'project': {'required': True},
+        }
+
+    def get_allocation_status(self, obj):
+        if obj.status == 'needs_purchase':
+            return 'needs_purchase'
+        if not obj.inventory_item:
+            return 'unlinked'
+        inv = obj.inventory_item
+        # Reservation model: inv.quantity already deducts active BOM allocations.
+        qty_available = inv.quantity
+        if qty_available < 0:
+            return 'overallocated'
+        if inv.is_consumable and inv.low_stock_threshold and qty_available <= inv.low_stock_threshold:
+            return 'low'
+        return 'covered'
+
+    def validate(self, data):
+        status = data.get('status', getattr(self.instance, 'status', None))
+        inventory_item = data.get('inventory_item', getattr(self.instance, 'inventory_item', None))
+        if status == 'linked' and not inventory_item:
+            raise serializers.ValidationError(
+                {'inventory_item': 'An inventory item is required when status is "linked".'}
+            )
+        if status in ('needs_purchase', 'unlinked') and inventory_item:
+            raise serializers.ValidationError(
+                {'inventory_item': f'inventory_item must be null when status is "{status}".'}
+            )
+        return data
 
 
 # ============================================================================

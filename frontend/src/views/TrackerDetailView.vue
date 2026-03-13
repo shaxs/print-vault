@@ -989,10 +989,11 @@ onMounted(() => {
             </div>
           </div>
           <div class="header-actions">
+            <button @click="router.push({ name: 'tracker-list' })" class="btn btn-secondary">&larr; Back to Trackers</button>
             <button @click="openFilterModal" class="btn btn-secondary">Filter</button>
             <div class="search-container">
               <input
-                type="search"
+                type="text"
                 v-model="searchQuery"
                 placeholder="Search files..."
                 class="search-input"
@@ -1529,10 +1530,10 @@ onMounted(() => {
                   {{ deletingFile ? 'Deleting...' : 'Delete' }}
                 </button>
                 <div class="form-actions-right">
-                  <button type="submit" class="btn btn-primary">Save Changes</button>
                   <button @click="closeEditFileModal" type="button" class="btn btn-secondary">
                     Cancel
                   </button>
+                  <button type="submit" class="btn btn-primary">Save Changes</button>
                 </div>
               </div>
             </form>

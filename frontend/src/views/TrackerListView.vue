@@ -198,7 +198,6 @@ onMounted(() => {
                 Remove Filters
               </button>
               <div class="form-actions-right">
-                <button type="submit" class="btn btn-primary">Apply Filters</button>
                 <button
                   @click="isFilterModalVisible = false"
                   type="button"
@@ -206,6 +205,7 @@ onMounted(() => {
                 >
                   Cancel
                 </button>
+                <button type="submit" class="btn btn-primary">Apply Filters</button>
               </div>
             </div>
           </form>

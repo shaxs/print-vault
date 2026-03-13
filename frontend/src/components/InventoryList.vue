@@ -15,7 +15,9 @@ const headers = [
   { text: 'Brand', value: 'brand' },
   { text: 'Part Type', value: 'partType' },
   { text: 'Location', value: 'location' },
-  { text: 'Quantity', value: 'quantity' },
+  { text: 'Physical Stock', value: 'quantity' },
+  { text: 'Qty Allocated', value: 'qtyAllocated' },
+  { text: 'Qty Needed', value: 'qtyNeeded' },
   { text: 'Cost', value: 'cost' },
 ]
 
@@ -64,8 +66,28 @@ const viewItem = (item) => {
       {{ item.location ? item.location.name : 'N/A' }}
     </template>
     <template #cell-quantity="{ item }">
-      {{ item.quantity }}
+      {{ Math.max(0, (item.quantity ?? 0) + (item.qty_needed ?? 0)) }}
+    </template>
+    <template #cell-qtyAllocated="{ item }">
+      <span v-if="item.qty_needed > 0" class="qty-allocated">{{ item.qty_needed }}</span>
+      <span v-else class="qty-none">—</span>
+    </template>
+    <template #cell-qtyNeeded="{ item }">
+      <span v-if="item.quantity < 0" class="qty-over">{{ Math.abs(item.quantity) }}</span>
+      <span v-else class="qty-none">—</span>
     </template>
     <template #cell-cost="{ item }"> ${{ item.cost || '0.00' }} </template>
   </DataTable>
 </template>
+<style scoped>
+.qty-over {
+  color: var(--color-red);
+  font-weight: 600;
+}
+.qty-allocated {
+  color: var(--color-text-soft);
+}
+.qty-none {
+  color: var(--color-text-soft);
+}
+</style>

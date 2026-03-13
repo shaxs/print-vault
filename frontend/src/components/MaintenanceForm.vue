@@ -75,8 +75,8 @@ const saveMaintenance = async () => {
     </div>
 
     <div class="form-actions">
-      <button type="submit" class="btn btn-primary">Save Maintenance</button>
       <RouterLink :to="`/printers/${initialData.id}`" class="btn btn-secondary">Cancel</RouterLink>
+      <button type="submit" class="btn btn-primary">Save Maintenance</button>
     </div>
   </form>
 </template>

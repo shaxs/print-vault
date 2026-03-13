@@ -105,7 +105,9 @@ class TestProjectSerializer:
             'notes', 'photo', 'associated_inventory_items', 'associated_printers',
             'total_cost', 'links', 'files', 'trackers',
             # Material tracking fields (Phase 10)
-            'materials', 'materials_display', 'filaments_used'
+            'materials', 'materials_display', 'filaments_used',
+            # BOM system
+            'bom_items'
         }
         assert set(serializer.data.keys()) == expected_fields
     

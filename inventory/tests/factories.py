@@ -11,7 +11,7 @@ from faker import Faker
 from inventory.models import (
     Brand, PartType, Location, Material, MaterialFeature, Vendor, Printer, Mod, ModFile,
     InventoryItem, Project, ProjectLink, ProjectFile, ProjectInventory, ProjectPrinters,
-    Tracker, TrackerFile, FilamentSpool
+    Tracker, TrackerFile, FilamentSpool, ProjectBOMItem
 )
 
 fake = Faker()
@@ -399,3 +399,21 @@ class ModFileFactory(DjangoModelFactory):
     
     mod = factory.SubFactory(ModFactory)
     name = factory.Sequence(lambda n: f"mod_file_{n}.stl")
+
+
+# ============================================================================
+# BOM FACTORY
+# ============================================================================
+
+class ProjectBOMItemFactory(DjangoModelFactory):
+    """Factory for ProjectBOMItem model."""
+    class Meta:
+        model = ProjectBOMItem
+
+    project = factory.SubFactory(ProjectFactory, status='Planning')
+    description = factory.Sequence(lambda n: f"BOM Item {n}")
+    quantity_needed = 1
+    status = 'unlinked'
+    inventory_item = None
+    notes = ''
+    sort_order = factory.Sequence(lambda n: n)

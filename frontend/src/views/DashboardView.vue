@@ -2,6 +2,7 @@
 import { ref, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import BaseModal from '@/components/BaseModal.vue'
+import QuickAddInventoryModal from '@/components/QuickAddInventoryModal.vue'
 import APIService from '@/services/APIService'
 
 const router = useRouter()
@@ -19,6 +20,58 @@ const filamentData = ref({
   total_spool_count: 0,
   favorite_materials: [],
 })
+const shoppingList = ref([])
+const showAllShoppingList = ref(false)
+
+// Quick Add + Link (from shopping list)
+const quickAddBomItem = ref(null)
+const showQuickAddModal = ref(false)
+
+const openQuickAdd = (item) => {
+  // Build a minimal bomItem shape expected by QuickAddInventoryModal
+  quickAddBomItem.value = {
+    id: item.bom_item_id,
+    description: item.description,
+    quantity_needed: item.quantity_needed,
+    project_id: item.project_id,
+  }
+  showQuickAddModal.value = true
+}
+
+const handleQuickAddLinked = (updatedBomItem) => {
+  // Remove the linked item from the shopping list instantly
+  shoppingList.value = shoppingList.value.filter(
+    (row) => row.bom_item_id !== updatedBomItem.id,
+  )
+  showQuickAddModal.value = false
+  quickAddBomItem.value = null
+}
+
+const markOrdered = async (item) => {
+  try {
+    if (item.reason === 'overallocated') {
+      await APIService.patchInventoryItem(item.inventory_item_id, { is_ordered: true })
+    } else {
+      await APIService.updateBOMItem(item.bom_item_id, { is_ordered: true })
+    }
+    item.is_ordered = true
+  } catch (err) {
+    console.error('Failed to mark as ordered:', err)
+  }
+}
+
+const unmarkOrdered = async (item) => {
+  try {
+    if (item.reason === 'overallocated') {
+      await APIService.patchInventoryItem(item.inventory_item_id, { is_ordered: false })
+    } else {
+      await APIService.updateBOMItem(item.bom_item_id, { is_ordered: false })
+    }
+    item.is_ordered = false
+  } catch (err) {
+    console.error('Failed to unmark ordered:', err)
+  }
+}
 const notificationsExpanded = ref(false)
 const showAllAlerts = ref(false)
 const loading = ref(true)
@@ -44,6 +97,21 @@ const visibleAlerts = computed(() => {
   return allAlerts.value.slice(0, 3)
 })
 
+const visibleShoppingList = computed(() => {
+  if (showAllShoppingList.value) {
+    return shoppingList.value   // everything
+  }
+  return shoppingList.value.slice(0, 5)
+})
+
+const shoppingListOrderedCount = computed(
+  () => shoppingList.value.filter((i) => i.is_ordered).length,
+)
+
+const shoppingListToggleVisible = computed(() => {
+  return shoppingList.value.length > 5
+})
+
 // Get progress bar color (consistent with TrackerDetailView)
 const getProgressColor = (percentage) => {
   if (percentage === 0) return 'var(--color-progress-none)' // gray
@@ -65,6 +133,7 @@ const getHealthClass = (health) => {
   const classes = {
     healthy: 'health-healthy',
     'at-risk': 'health-at-risk',
+    'partially-blocked': 'health-partially-blocked',
     blocked: 'health-blocked',
     overdue: 'health-overdue',
   }
@@ -76,6 +145,7 @@ const getHealthLabel = (health) => {
   const labels = {
     healthy: 'Healthy',
     'at-risk': 'At Risk',
+    'partially-blocked': 'Partially Blocked',
     blocked: 'Blocked',
     overdue: 'Overdue',
   }
@@ -98,13 +168,15 @@ const loadDashboard = async () => {
   try {
     loading.value = true
     error.value = null
-    const [dashboardRes, lowStockRes, activeSpoolsRes, favoritesRes] = await Promise.all([
+    const [dashboardRes, lowStockRes, activeSpoolsRes, favoritesRes, shoppingListRes] = await Promise.all([
       APIService.getDashboard(),
       APIService.getMaterials({ low_stock: true, type: 'blueprint' }),
       APIService.getFilamentSpools({ status: 'in_use' }),
       APIService.getMaterials({ favorites: true }),
+      APIService.getShoppingList(),
     ])
     dashboardData.value = dashboardRes.data
+    shoppingList.value = shoppingListRes.data || []
     filamentData.value = {
       low_stock_materials: (lowStockRes.data.results || lowStockRes.data).slice(0, 5),
       active_spools: (activeSpoolsRes.data.results || activeSpoolsRes.data).slice(0, 5),
@@ -442,6 +514,108 @@ onMounted(() => {
         </div>
       </div>
 
+      <!-- BOM Shopping List -->
+      <div class="bom-shopping-list">
+        <div class="section-header">
+          <h3 class="section-title">
+            BOM Shopping List
+            <span v-if="shoppingList.length > 0" class="shopping-list-count">{{ shoppingList.length }}</span>
+          </h3>
+          <button @click="router.push('/projects')" class="btn btn-sm btn-secondary">
+            View Projects
+          </button>
+        </div>
+
+        <div v-if="shoppingList.length > 0">
+          <div class="shopping-list">
+            <div
+              v-for="item in visibleShoppingList"
+              :key="item.bom_item_id"
+              class="shopping-item"
+              :class="{ 'shopping-item--ordered': item.is_ordered }"
+            >
+              <!-- Reason / State Badge -->
+              <div
+                class="shopping-badge"
+                :class="item.is_ordered ? 'badge-ordered' : (item.reason === 'overallocated' ? 'badge-short' : 'badge-buy')"
+              >
+                {{ item.is_ordered ? 'Ordered' : (item.reason === 'overallocated' ? 'Short' : 'Buy') }}
+              </div>
+
+              <!-- Description + Project -->
+              <div class="shopping-item-main">
+                <div
+                  class="shopping-desc"
+                  :class="{ 'shopping-desc--link': item.reason === 'overallocated' && item.inventory_item_id }"
+                  @click="item.reason === 'overallocated' && item.inventory_item_id ? router.push(`/item/${item.inventory_item_id}`) : null"
+                >{{ item.description }}</div>
+                <div class="shopping-meta">
+                  <span
+                    class="shopping-project-link"
+                    @click="navigateToProject(item.project_id)"
+                  >{{ item.project_name }}</span>
+                  <span class="shopping-project-status">{{ item.project_status }}</span>
+                </div>
+                <div v-if="item.notes" class="shopping-notes">{{ item.notes }}</div>
+              </div>
+
+              <!-- Qty / Shortfall / Actions -->
+              <div class="shopping-item-right">
+                <div class="shopping-qty">Need: {{ item.quantity_needed }}</div>
+                <div class="shopping-shortfall">
+                  <span
+                    v-if="item.reason === 'needs_purchase'"
+                    class="shortfall-label shortfall-buy"
+                  >Not in inventory</span>
+                  <span
+                    v-else
+                    class="shortfall-label shortfall-short"
+                    :title="`Inventory: ${item.inventory_item_name}`"
+                    @click="router.push(`/item/${item.inventory_item_id}`)"
+                  >Short by {{ item.shortfall }}</span>
+                </div>
+                <div class="shopping-actions">
+                  <template v-if="item.reason === 'needs_purchase' || item.reason === 'overallocated'">
+                    <span
+                      v-if="!item.is_ordered"
+                      class="shopping-order-link"
+                      @click="markOrdered(item)"
+                    >Mark ordered</span>
+                    <span
+                      v-else
+                      class="shopping-order-link shopping-order-undo"
+                      @click="unmarkOrdered(item)"
+                    >Undo</span>
+                  </template>
+                  <button
+                    v-if="item.reason === 'needs_purchase'"
+                    class="shopping-quick-add-btn"
+                    title="Add to inventory and link"
+                    @click="openQuickAdd(item)"
+                  >+ Add to Inv</button>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div
+            v-if="shoppingListToggleVisible"
+            class="shopping-list-toggle"
+            @click="showAllShoppingList = !showAllShoppingList"
+          >
+            <span v-if="!showAllShoppingList">
+              + {{ shoppingList.length - 5 }} more items
+              <span v-if="shoppingListOrderedCount > 0" class="shopping-toggle-ordered-note">({{ shoppingListOrderedCount }} ordered)</span>
+            </span>
+            <span v-else>Show less</span>
+          </div>
+        </div>
+
+        <div v-else class="empty-state">
+          <p>All BOM items covered — no purchases needed!</p>
+        </div>
+      </div>
+
       <!-- Filament Management -->
       <div class="filament-overview">
         <div class="section-header">
@@ -557,6 +731,14 @@ onMounted(() => {
         <button @click="confirmDismissAll" class="btn btn-sm btn-primary">Dismiss All</button>
       </template>
     </BaseModal>
+
+    <!-- Quick Add to Inventory + Link (from Shopping List) -->
+    <QuickAddInventoryModal
+      :show="showQuickAddModal"
+      :bom-item="quickAddBomItem"
+      @close="showQuickAddModal = false; quickAddBomItem = null"
+      @linked="handleQuickAddLinked"
+    />
   </div>
 </template>
 
@@ -1069,6 +1251,11 @@ onMounted(() => {
   color: var(--color-health-at-risk);
 }
 
+.health-partially-blocked {
+  background: color-mix(in srgb, var(--color-health-partially-blocked), transparent 85%);
+  color: var(--color-health-partially-blocked);
+}
+
 .health-blocked {
   background: color-mix(in srgb, var(--color-health-blocked), transparent 85%);
   color: var(--color-health-blocked);
@@ -1151,6 +1338,246 @@ onMounted(() => {
   margin: 0;
   font-style: italic;
   line-height: 1.5;
+}
+
+/* BOM Shopping List */
+.bom-shopping-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.shopping-list-count {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(245, 158, 11, 0.2);
+  color: rgb(217, 119, 6);
+  border-radius: 9999px;
+  font-size: 0.75rem;
+  font-weight: 700;
+  padding: 0.1rem 0.6rem;
+  margin-left: 0.5rem;
+  vertical-align: middle;
+}
+
+.shopping-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.shopping-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.75rem;
+  padding: 0.875rem 1rem;
+  background: var(--color-background-soft);
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  transition: border-color 0.15s;
+}
+
+.shopping-item:hover {
+  border-color: var(--color-brand);
+}
+
+.shopping-item--ordered {
+  opacity: 0.65;
+}
+.shopping-item--ordered:hover {
+  opacity: 1;
+}
+
+.shopping-badge {
+  flex-shrink: 0;
+  padding: 0.2rem 0.6rem;
+  border-radius: 4px;
+  font-size: 0.7rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  margin-top: 0.15rem;
+}
+
+.badge-buy {
+  background: rgba(245, 158, 11, 0.15);
+  color: rgb(217, 119, 6);
+  border: 1px solid rgba(245, 158, 11, 0.35);
+}
+
+.badge-short {
+  background: rgba(239, 68, 68, 0.12);
+  color: rgb(220, 38, 38);
+  border: 1px solid rgba(239, 68, 68, 0.35);
+}
+
+.badge-ordered {
+  background: rgba(34, 197, 94, 0.12);
+  color: rgb(22, 163, 74);
+  border: 1px solid rgba(34, 197, 94, 0.35);
+}
+
+.shopping-item-main {
+  flex: 1;
+  min-width: 0;
+}
+
+.shopping-desc {
+  font-weight: 600;
+  color: var(--color-heading);
+  font-size: 0.9rem;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.shopping-desc--link {
+  cursor: pointer;
+  text-decoration: underline;
+  text-decoration-color: transparent;
+  transition: text-decoration-color 0.1s;
+}
+.shopping-desc--link:hover {
+  text-decoration-color: var(--color-heading);
+}
+
+.shopping-meta {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-top: 0.2rem;
+}
+
+.shopping-project-link {
+  font-size: 0.8rem;
+  color: var(--color-brand);
+  cursor: pointer;
+  text-decoration: underline;
+  text-decoration-color: transparent;
+  transition: text-decoration-color 0.1s;
+}
+
+.shopping-project-link:hover {
+  text-decoration-color: var(--color-brand);
+}
+
+.shopping-project-status {
+  font-size: 0.75rem;
+  color: var(--color-text-muted);
+  background: var(--color-background-mute);
+  padding: 0.1rem 0.45rem;
+  border-radius: 4px;
+}
+
+.shopping-notes {
+  margin-top: 0.25rem;
+  font-size: 0.78rem;
+  color: var(--color-text-muted);
+  font-style: italic;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.shopping-item-right {
+  flex-shrink: 0;
+  text-align: right;
+}
+
+.shopping-qty {
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--color-text);
+}
+
+.shortfall-label {
+  display: block;
+  font-size: 0.75rem;
+  margin-top: 0.15rem;
+}
+
+.shortfall-buy {
+  color: var(--color-text-muted);
+}
+
+.shortfall-short {
+  color: rgb(220, 38, 38);
+  cursor: pointer;
+  text-decoration: underline;
+  text-decoration-color: transparent;
+  transition: text-decoration-color 0.1s;
+}
+
+.shortfall-short:hover {
+  text-decoration-color: rgb(220, 38, 38);
+}
+
+.shopping-list-toggle {
+  text-align: center;
+  padding: 0.5rem;
+  font-size: 0.8rem;
+  color: var(--color-brand);
+  cursor: pointer;
+  user-select: none;
+}
+
+.shopping-list-toggle:hover {
+  text-decoration: underline;
+}
+
+.shopping-quick-add-btn {
+  padding: 3px 8px;
+  background: var(--color-background-mute);
+  color: var(--color-text-muted);
+  border: 1px solid var(--color-border);
+  border-radius: 4px;
+  font-size: 0.72rem;
+  font-weight: 500;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background 0.12s, color 0.12s;
+}
+
+.shopping-quick-add-btn:hover {
+  background: var(--color-background-soft);
+  color: var(--color-text);
+}
+
+.shopping-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  flex-wrap: wrap;
+  margin-top: 0.35rem;
+}
+
+.shopping-order-link {
+  font-size: 0.72rem;
+  color: var(--color-text-muted);
+  cursor: pointer;
+  text-decoration: underline;
+  text-decoration-color: transparent;
+  transition: color 0.1s, text-decoration-color 0.1s;
+  white-space: nowrap;
+}
+.shopping-order-link:hover {
+  color: var(--color-text);
+  text-decoration-color: var(--color-text);
+}
+
+.shopping-order-undo {
+  color: rgb(22, 163, 74);
+}
+.shopping-order-undo:hover {
+  color: rgb(15, 118, 56);
+  text-decoration-color: rgb(15, 118, 56);
+}
+
+.shopping-toggle-ordered-note {
+  font-size: 0.75rem;
+  color: var(--color-text-muted);
+  margin-left: 0.2rem;
 }
 
 /* Filament Overview */

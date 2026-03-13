@@ -72,8 +72,8 @@
     </div>
 
     <div class="form-actions">
-      <button type="submit" class="btn btn-primary">Save Changes</button>
       <button type="button" @click="$emit('cancel')" class="btn btn-secondary">Cancel</button>
+      <button type="submit" class="btn btn-primary">Save Changes</button>
     </div>
   </form>
 </template>

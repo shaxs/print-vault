@@ -18,6 +18,8 @@ const photoFile = ref(null)
 const photoPreview = ref(null)
 const saveDirection = ref(null) // 'next', 'back', or null for normal save
 const saveAndAddAnother = ref(false)
+// Track active BOM reservations so we can display physical qty and convert back on save
+const bomReserved = ref(0)
 
 // Check if we're in filtered navigation mode
 const hasFilteredNav = computed(() => {
@@ -44,8 +46,11 @@ watch(
   () => props.initialData,
   (newData) => {
     if (newData) {
+      bomReserved.value = newData.qty_needed ?? 0
       item.value = {
         ...newData,
+        // Show physical quantity (NET + reservations) so users aren't confused by negative numbers
+        quantity: (newData.quantity ?? 0) + bomReserved.value,
         is_consumable: newData.is_consumable || false,
         low_stock_threshold:
           newData.low_stock_threshold === null ? null : newData.low_stock_threshold,
@@ -53,6 +58,7 @@ watch(
       item.value.project_ids = newData.associated_projects?.map((p) => p.id) || []
       isEditMode.value = true
     } else {
+      bomReserved.value = 0
       item.value = {
         title: '',
         brand: null,
@@ -118,7 +124,7 @@ const clearForm = () => {
 const saveItem = async () => {
   const formData = new FormData()
   formData.append('title', item.value.title || '')
-  formData.append('quantity', item.value.quantity || 0)
+  formData.append('quantity', (item.value.quantity ?? 0) - bomReserved.value)
   if (item.value.cost) formData.append('cost', item.value.cost)
   if (item.value.notes) formData.append('notes', item.value.notes)
   if (item.value.model) formData.append('model', item.value.model)
@@ -396,6 +402,9 @@ onMounted(async () => {
     <div class="form-group">
       <label for="quantity">Quantity</label>
       <input id="quantity" v-model.number="item.quantity" type="number" min="0" />
+      <p v-if="bomReserved > 0" class="qty-bom-hint">
+        {{ bomReserved }} unit(s) currently reserved by active project BOMs. Enter your actual physical stock on hand.
+      </p>
     </div>
 
     <div class="form-group">
@@ -509,6 +518,12 @@ textarea {
 }
 .photo-preview {
   margin-top: 15px;
+}
+.qty-bom-hint {
+  margin: 0.35rem 0 0;
+  font-size: 0.8rem;
+  color: var(--color-text-soft);
+  font-style: italic;
 }
 .photo-preview img {
   max-width: 200px;

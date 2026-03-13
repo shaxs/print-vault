@@ -274,15 +274,15 @@ const confirmRestore = async () => {
         Are you sure?
       </p>
       <template #footer>
-        <button @click="proceedToFinalRestore" class="btn btn-danger btn-sm">
-          Yes, Delete and Restore
-        </button>
         <button
           @click="isInitialRestoreModalVisible = false"
           type="button"
           class="btn btn-secondary btn-sm"
         >
           Cancel
+        </button>
+        <button @click="proceedToFinalRestore" class="btn btn-danger btn-sm">
+          Yes, Delete and Restore
         </button>
       </template>
     </BaseModal>
@@ -331,10 +331,10 @@ const confirmRestore = async () => {
       </div>
 
       <template #footer>
+        <button @click="cancelValidationWarning" class="btn btn-secondary btn-sm">Cancel</button>
         <button @click="proceedWithPartialImport" class="btn btn-warning btn-sm">
           Proceed with Partial Import
         </button>
-        <button @click="cancelValidationWarning" class="btn btn-secondary btn-sm">Cancel</button>
       </template>
     </BaseModal>
 
@@ -358,6 +358,9 @@ const confirmRestore = async () => {
         >
       </div>
       <template #footer>
+        <button @click="cancelFinalRestore" type="button" class="btn btn-secondary btn-sm">
+          Cancel
+        </button>
         <button
           @click="confirmRestore"
           :disabled="isFinalRestoreDisabled || isRestoring"
@@ -365,9 +368,6 @@ const confirmRestore = async () => {
         >
           <span v-if="isRestoring">Restoring...</span>
           <span v-else>Permanently Restore Data</span>
-        </button>
-        <button @click="cancelFinalRestore" type="button" class="btn btn-secondary btn-sm">
-          Cancel
         </button>
       </template>
     </BaseModal>
@@ -385,7 +385,6 @@ const confirmRestore = async () => {
     >
       <p>This will delete ALL data and files. This action is permanent and cannot be undone.</p>
       <template #footer>
-        <button @click="proceedToFinalDelete" class="btn btn-danger btn-sm">Yes, Proceed</button>
         <button
           @click="isInitialDeleteModalVisible = false"
           type="button"
@@ -393,6 +392,7 @@ const confirmRestore = async () => {
         >
           Cancel
         </button>
+        <button @click="proceedToFinalDelete" class="btn btn-danger btn-sm">Yes, Proceed</button>
       </template>
     </BaseModal>
     <BaseModal
@@ -415,15 +415,15 @@ const confirmRestore = async () => {
         >
       </div>
       <template #footer>
+        <button @click="cancelFinalDelete" type="button" class="btn btn-secondary btn-sm">
+          Cancel
+        </button>
         <button
           @click="handleFinalDelete"
           :disabled="isFinalDeleteDisabled"
           class="btn btn-danger btn-sm"
         >
           Permanently Delete Everything
-        </button>
-        <button @click="cancelFinalDelete" type="button" class="btn btn-secondary btn-sm">
-          Cancel
         </button>
       </template>
     </BaseModal>

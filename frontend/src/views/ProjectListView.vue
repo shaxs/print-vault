@@ -9,6 +9,7 @@ import ColumnConfigModal from '../components/ColumnConfigModal.vue'
 const route = useRoute()
 const router = useRouter()
 const allProjectColumns = ref([
+  { text: 'Photo', value: 'photo', defaultVisible: true },
   { text: 'Project Name', value: 'projectName', defaultVisible: true },
   { text: 'Status', value: 'status', defaultVisible: true },
   { text: 'Description', value: 'description', defaultVisible: false },
@@ -175,7 +176,6 @@ onMounted(() => {
                 Remove Filters
               </button>
               <div class="form-actions-right">
-                <button type="submit" class="btn btn-primary">Apply Filters</button>
                 <button
                   @click="isFilterModalVisible = false"
                   type="button"
@@ -183,6 +183,7 @@ onMounted(() => {
                 >
                   Cancel
                 </button>
+                <button type="submit" class="btn btn-primary">Apply Filters</button>
               </div>
             </div>
           </form>
