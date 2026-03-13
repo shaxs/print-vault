@@ -21,7 +21,7 @@ const pendingRedirectToBOM = ref(false)
 const cancelBOMCount = computed(() => {
   if (!props.initialData?.bom_items) return 0
   return props.initialData.bom_items.filter(
-    (item) => item.inventory_item && item.status !== 'needs_purchase',
+    (item) => item.inventory_item && item.status === 'linked',
   ).length
 })
 const photoFile = ref(null)

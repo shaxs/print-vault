@@ -215,7 +215,7 @@ const isDeleteProjectModalVisible = ref(false)
 const linkedBOMCount = computed(() => {
   if (!project.value?.bom_items) return 0
   return project.value.bom_items.filter(
-    (item) => item.inventory_item && item.status !== 'needs_purchase',
+    (item) => item.inventory_item && item.status === 'linked',
   ).length
 })
 const movingToBOMItem = ref(null)

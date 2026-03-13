@@ -37,6 +37,8 @@ Print Vault was initially built with a core principle: **you should be able to a
 
 - **Organized Project Tracking:** Move beyond folders of STLs. Organize your prints into projects, linking the exact inventory parts and printers used. Track project status and keep all related files and notes in one cohesive view.
 
+- **_NEW_** **Bill of Materials (BOM) System:** Attach a structured parts list to any project and link each item directly to your inventory. Print Vault immediately reserves those quantities so you always know exactly what you have committed across all active builds — before you start ordering. See at a glance what's covered, what's low, what's overallocated, and what still needs to be purchased. Includes a fast-entry BOM Wizard for bulk data entry, status filter chips to isolate items needing action, and a Dashboard shopping list that aggregates everything you need to buy in one place.
+
 * **Smart Print Tracker:** Automatically import entire **GitHub repositories** with one click, manually add files from **direct download URLs**, or **upload files from your computer**. Mix and match all three methods in a single tracker. Organize files by category, track your print queue, and mark items as printed. Keep your entire printing pipeline organized in one place.
 
   > 💡 **Tip:** Creating trackers works best on a desktop or tablet. Use your phone to view trackers and mark items as printed.
@@ -85,10 +87,10 @@ Print Vault is actively maintained and under continuous development. While built
 
 ### Planned Enhancements
 
-- Filament Integration Into other areas of the application including assigning specific filaments to a print tracker, marking what filament you use to print a project or a printer
+- ~~Filament Integration Into other areas of the application including assigning specific filaments to a print tracker, marking what filament you use to print a project or a printer~~
 - NFC tag support for rapid spool identification and updates
 - Moonraker/Klipper integration
-- Project BOM importer with inventory mapping
+- ~~Project BOM importer with inventory mapping~~
 - Print Tracker updates including support for more sites like Printables
 - Revamped Backup and restore functionality
 - Enhanced inventory management with barcode/QR code scanning

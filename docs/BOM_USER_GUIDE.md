@@ -19,7 +19,7 @@ Print Vault's **BOM system** lets you:
 
 The key idea: once you link a BOM item to an inventory item, Print Vault **immediately reserves** that quantity in your stock. If you're building two projects that both need an EBB36 CAN board, the system will warn you that you're over-reserved before you even start ordering.
 
-> 📸 *[Screenshot: Project detail page showing the BOM section alongside the Associated Inventory Items section]*
+[![Project detail page showing the BOM section alongside the Associated Inventory Items section](images/bom1.png)](images/bom1.png)
 
 ---
 
@@ -51,13 +51,13 @@ When saving, you have two options:
 - **Save** — saves the project and takes you to the project detail page
 - **Save and Create BOM** — saves the project and immediately opens the BOM Wizard so you can start entering parts right away (recommended if you have the creator's BOM in front of you)
 
-> 📸 *[Screenshot: New project form showing the Status dropdown and the "Save and Create BOM" button]*
+[![New project form showing the Status dropdown and the Save and Create BOM button](images/bom2.png)](images/bom2.png)
 
 ### Step 2: Open the Project and Go to the BOM Section
 
 From your project's detail page, scroll down to the **Bill of Materials** section. If no items have been added yet, you'll see an empty table with an **"Add Item"** button and a **"BOM Wizard"** button in the header.
 
-> 📸 *[Screenshot: Project detail page with the empty BOM section visible, highlighting the Add Item and BOM Wizard buttons]*
+[![Project detail page with the empty BOM section visible, highlighting the Add Item and BOM Wizard buttons](images/bom3.png)](images/bom3.png)
 
 ---
 
@@ -77,7 +77,7 @@ The **BOM Wizard** (`/projects/:id/bom/edit`) is designed for fast, bulk data en
 4. Continue adding items until your full BOM is entered
 5. When you're finished, click **"Done"** to exit the wizard and return to the project detail page
 
-> 📸 *[Screenshot: BOM Wizard showing the entry form at the top and a partially filled parts list below]*
+[![BOM Wizard showing the entry form at the top and a partially filled parts list below](images/bom4.png)](images/bom4.png)
 
 **While in the Wizard:**
 
@@ -92,7 +92,7 @@ After the initial wizard session, you can continue adding items one at a time di
 2. Fill in description, quantity, and optionally link to inventory — **leave the inventory link blank if the item isn't in your inventory yet**
 3. Click **"Add Item"** to save
 
-> 📸 *[Screenshot: Add BOM Item modal showing the description, quantity, inventory typeahead, and Needs Purchase toggle]*
+[![Add BOM Item modal showing the description, quantity, inventory typeahead, and Needs Purchase toggle](images/bom5.png)](images/bom5.png)
 
 ---
 
@@ -123,7 +123,7 @@ This tells you whether your linked inventory item has enough stock:
 
 > **Tip**: Overallocated doesn't mean something is broken — it means you've committed more of that part than you have. This is expected when planning multiple simultaneous builds. Use it as your shopping signal.
 
-> 📸 *[Screenshot: BOM table on a project page showing all four status badge states—Covered, Low, Overallocated, and Needs Purchase]*
+[![BOM table on a project page showing all four status badge states — Covered, Low, Overallocated, and Needs Purchase](images/bom6.png)](images/bom6.png)
 
 ---
 
@@ -146,7 +146,7 @@ Click any chip to show only items matching that status. Click **All** to return 
 
 Each chip shows a count of matching items. **Chips are only shown when at least one item matches** — if all your items are Covered, you'll only see the **All** and **Covered** chips.
 
-> 📸 *[Screenshot: BOM table filter chips row with "Overallocated" chip selected, showing a filtered list of only the over-reserved items]*
+[![BOM table filter chips row with Overallocated chip selected, showing a filtered list of only the over-reserved items](images/bom7.png)](images/bom7.png)
 
 ### Tips
 
@@ -261,7 +261,7 @@ Shows projects that are **Completed** or **Cancelled** that previously had this 
 
 This gives you a full history of where the part has been used.
 
-> 📸 *[Screenshot: Inventory item detail page showing the BOM Allocation panel with Active Projects and Closed Projects tables, with a cancelled project row showing "↩ 2 returned"]*
+[![Inventory item detail page showing the BOM Allocation panel with Active Projects and Closed Projects tables, with a cancelled project row showing returned quantity](images/bom8.png)](images/bom8.png)
 
 ### Updating Your Stock Count
 
@@ -302,19 +302,17 @@ When you set a project's status to **Canceled**:
 2. Click **"Yes, Cancel Project"** to proceed, or **"Go Back"** to abort
 3. All reserved inventory quantities are immediately restored
 
-> 📸 *[Screenshot: Cancel Project confirmation modal showing the project name and the inventory items that will be returned to stock]*
+[![Cancel Project confirmation modal showing the project name and the inventory items that will be returned to stock](images/bom9.png)](images/bom9.png)
 
 The cancelled project's BOM items will appear in the **Closed Projects** section of each linked inventory item's allocation panel, marked as `↩ returned`.
 
 ### Re-opening a Cancelled Project
 
-When you change a Cancelled project back to Planning, In Progress, or On Hold:
+When you change a Cancelled project back to Planning, In Progress, or On Hold, simply save the edited project. There is no separate confirmation step — the status change happens immediately when you hit **Save**.
 
-1. A confirmation modal warns you that inventory items will be **re-reserved**
-2. Click **"Yes, Re-open Project"** to proceed
-3. All previously linked BOM items immediately re-allocate their quantities from inventory
-
-> 📸 *[Screenshot: Re-open Project confirmation modal showing the number of items that will be re-reserved]*
+Print Vault automatically re-reserves all previously linked BOM items:
+- All `linked` BOM items that were returned to stock when the project was cancelled will be re-decremented from your inventory
+- The project's BOM items reappear in the **Active Projects** section of each linked inventory item's allocation panel
 
 > This may trigger overallocated warnings if your stock levels have changed since the project was cancelled.
 
@@ -337,7 +335,7 @@ When you click **Delete** from a project's detail page, a confirmation modal app
 
 For **Cancelled** projects: no option is shown — inventory was already returned when the project was cancelled. The delete just removes the record.
 
-> 📸 *[Screenshot: Delete Project modal showing the project name, the return-to-stock checkbox, and the Delete/Cancel buttons]*
+[![Delete Project modal showing the project name, the return-to-stock checkbox, and the Delete and Cancel buttons](images/bom10.png)](images/bom10.png)
 
 ---
 
