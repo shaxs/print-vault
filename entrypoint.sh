@@ -14,6 +14,10 @@ echo "Database is ready."
 echo "Running database migrations..."
 python manage.py migrate --settings=backend.production
 
+# Reset sequences to prevent primary key conflicts after DB restores or imports.
+echo "Resetting database sequences..."
+python manage.py sqlsequencereset inventory | python manage.py dbshell --settings=backend.production
+
 # Collect all static files into the designated directory.
 echo "Collecting static files..."
 python manage.py collectstatic --settings=backend.production --noinput
