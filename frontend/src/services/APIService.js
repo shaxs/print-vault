@@ -29,6 +29,14 @@ export default {
     return apiClient.delete(`inventoryitems/${id}/`)
   },
 
+  importInventoryItems(file) {
+    const formData = new FormData()
+    formData.append('file', file)
+    return apiClient.post('inventoryitems/import/', formData, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    })
+  },
+
   // Printers
   getPrinters(params) {
     return apiClient.get('printers/', { params })

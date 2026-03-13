@@ -12,6 +12,7 @@ from datetime import date, timedelta
 from django.http import HttpResponse
 from django.utils import timezone
 from rest_framework import viewsets, filters, mixins
+from rest_framework.parsers import MultiPartParser
 from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
 from rest_framework import status
@@ -2552,6 +2553,113 @@ class InventoryItemViewSet(viewsets.ModelViewSet):
             'active_projects': active_projects,
             'closed_projects': closed_projects,
         })
+
+    @action(detail=False, methods=['post'], url_path='import', parser_classes=[MultiPartParser])
+    def import_items(self, request):
+        """
+        POST /api/inventoryitems/import/
+        Bulk-import inventory items from a CSV file upload.
+
+        Accepts multipart/form-data with a single 'file' field (CSV).
+
+        CSV columns (header row required):
+            title (required), brand, part_type, location, vendor,
+            vendor_link, model, quantity, cost, notes
+
+        Returns:
+            { created: int, skipped: int, errors: [{row, title, error}] }
+        """
+        uploaded = request.FILES.get('file')
+        if not uploaded:
+            return Response({'error': 'No file provided. Send a CSV as multipart field "file".'}, status=400)
+
+        filename = uploaded.name.lower()
+        if not filename.endswith('.csv'):
+            return Response({'error': 'Only CSV files are supported.'}, status=400)
+
+        try:
+            text = uploaded.read().decode('utf-8-sig')  # utf-8-sig strips BOM from Excel-saved CSVs
+        except UnicodeDecodeError:
+            return Response({'error': 'File encoding not supported. Save the CSV as UTF-8.'}, status=400)
+
+        reader = csv.DictReader(StringIO(text))
+
+        if reader.fieldnames is None:
+            return Response({'error': 'CSV file is empty or has no header row.'}, status=400)
+
+        # Normalise header names: strip whitespace, lowercase
+        normalised_headers = [h.strip().lower() for h in reader.fieldnames]
+        if 'title' not in normalised_headers:
+            return Response(
+                {'error': 'CSV must have a "title" column. Check the header row.'},
+                status=400,
+            )
+
+        created_count = 0
+        skipped_count = 0
+        errors = []
+
+        for row_num, row in enumerate(reader, start=2):  # row 1 = header
+            # Normalise keys
+            row = {k.strip().lower(): (v.strip() if v else '') for k, v in row.items()}
+
+            title = row.get('title', '').strip()
+            if not title:
+                errors.append({'row': row_num, 'title': '', 'error': 'Missing required field: title'})
+                continue
+
+            # Resolve FK lookups — get_or_create by name (blank = null)
+            def _fk(model_class, name_val):
+                if not name_val:
+                    return None
+                obj, _ = model_class.objects.get_or_create(name=name_val)
+                return obj
+
+            brand = _fk(Brand, row.get('brand', ''))
+            part_type = _fk(PartType, row.get('part_type', ''))
+            location = _fk(Location, row.get('location', ''))
+            vendor = _fk(Vendor, row.get('vendor', ''))
+
+            # Parse numeric fields safely
+            raw_qty = row.get('quantity', '')
+            try:
+                quantity = int(raw_qty) if raw_qty else 1
+            except ValueError:
+                errors.append({'row': row_num, 'title': title, 'error': f'Invalid quantity: {raw_qty!r}'})
+                continue
+
+            raw_cost = row.get('cost', '')
+            try:
+                cost = float(raw_cost) if raw_cost else None
+            except ValueError:
+                errors.append({'row': row_num, 'title': title, 'error': f'Invalid cost: {raw_cost!r}'})
+                continue
+
+            item, created = InventoryItem.objects.get_or_create(
+                title=title,
+                defaults={
+                    'brand': brand,
+                    'part_type': part_type,
+                    'location': location,
+                    'vendor': vendor,
+                    'vendor_link': row.get('vendor_link', '') or None,
+                    'model': row.get('model', '') or None,
+                    'quantity': quantity,
+                    'cost': cost,
+                    'notes': row.get('notes', '') or None,
+                },
+            )
+
+            if created:
+                created_count += 1
+            else:
+                skipped_count += 1
+
+        return Response(
+            {'created': created_count, 'skipped': skipped_count, 'errors': errors},
+            status=200,
+        )
+
 
 class PrinterViewSet(viewsets.ModelViewSet):
     queryset = Printer.objects.select_related('manufacturer').prefetch_related('mods__files', 'associated_projects').all().order_by('title')

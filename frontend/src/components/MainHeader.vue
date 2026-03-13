@@ -8,10 +8,11 @@ defineProps({
   showAddButton: { type: Boolean, default: true },
   showFilterButton: { type: Boolean, default: true },
   showColumnButton: { type: Boolean, default: true },
+  showImportButton: { type: Boolean, default: false },
   modelValue: { type: String },
 })
 
-const emit = defineEmits(['update:modelValue', 'open-filter', 'open-columns'])
+const emit = defineEmits(['update:modelValue', 'open-filter', 'open-columns', 'open-import'])
 
 const clearSearch = () => {
   emit('update:modelValue', '')
@@ -27,6 +28,9 @@ const clearSearch = () => {
       </button>
       <button v-if="showColumnButton" @click="emit('open-columns')" class="header-button">
         Columns
+      </button>
+      <button v-if="showImportButton" @click="emit('open-import')" class="header-button">
+        Import
       </button>
       <div v-if="showSearch" class="search-container">
         <input
