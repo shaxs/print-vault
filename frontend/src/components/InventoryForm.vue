@@ -460,9 +460,13 @@ onMounted(async () => {
         Save + Next
       </button>
 
-      <RouterLink :to="isEditMode ? `/item/${item.id}` : '/inventory'" class="btn btn-secondary">
+      <button
+        type="button"
+        class="btn btn-secondary"
+        @click="isEditMode ? router.push(`/item/${item.id}`) : (history.length > 1 ? router.back() : router.push('/inventory'))"
+      >
         Cancel
-      </RouterLink>
+      </button>
 
       <!-- Create mode: Show Save + Add Another button (also triggered by Ctrl+Enter) -->
       <button
