@@ -638,16 +638,21 @@ onMounted(fetchProject)
                     :title="item.inventory_item_title"
                     @click="viewInventoryItem(item.inventory_item)"
                   >{{ item.inventory_item_title }}</span>
-                  <a
+                  <span
                     v-else-if="item.status === 'needs_purchase'"
-                    class="table-link grey-link"
+                    class="bom-action-trigger"
                     @click.stop="openQuickAdd(item)"
-                  >Quick add inventory item</a>
-                  <InlineBOMLinker
-                    v-else
-                    :bom-item="item"
-                    @linked="handleBOMLinked"
-                  />
+                  >+ Quick add to inventory</span>
+                  <div v-else class="bom-unlinked-actions">
+                    <InlineBOMLinker
+                      :bom-item="item"
+                      @linked="handleBOMLinked"
+                    />
+                    <span
+                      class="bom-action-trigger"
+                      @click.stop="openQuickAdd(item)"
+                    >+ Quick add</span>
+                  </div>
                 </template>
 
                 <!-- Allocation status badge -->
@@ -1272,6 +1277,23 @@ onMounted(fetchProject)
 .table-link.grey-link:visited {
   color: var(--color-heading);
   text-decoration: underline;
+}
+/* BOM cell action triggers — matches InlineBOMLinker trigger style */
+.bom-action-trigger {
+  color: var(--color-text-soft);
+  font-size: 0.85rem;
+  text-decoration: underline dotted;
+  cursor: pointer;
+  transition: color 0.15s;
+  white-space: nowrap;
+}
+.bom-action-trigger:hover {
+  color: var(--color-heading);
+}
+.bom-unlinked-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.6rem;
 }
 /* DataTable borderless style for inventory section */
 .borderless-table {
