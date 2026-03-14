@@ -489,16 +489,21 @@ onMounted(async () => {
           </template>
           <template #cell-inventory_item_title="{ item }">
             <span v-if="item.inventory_item_title" class="cell-truncate" :title="item.inventory_item_title">{{ item.inventory_item_title }}</span>
-            <a
+            <span
               v-else-if="item.status === 'needs_purchase'"
-              class="bom-quick-add-link"
+              class="bom-action-trigger"
               @click.stop="openQuickAdd(item)"
-            >Quick add inventory item</a>
-            <InlineBOMLinker
-              v-else
-              :bom-item="item"
-              @linked="handleWizardBOMLinked"
-            />
+            >+ Quick add to inventory</span>
+            <div v-else class="bom-unlinked-actions">
+              <InlineBOMLinker
+                :bom-item="item"
+                @linked="handleWizardBOMLinked"
+              />
+              <span
+                class="bom-action-trigger"
+                @click.stop="openQuickAdd(item)"
+              >+ Quick add</span>
+            </div>
           </template>
           <template #cell-status="{ item }">
             <span :class="['status-badge', getStatusClass(item.allocation_status ?? item.status)]">
@@ -975,14 +980,21 @@ onMounted(async () => {
 }
 .btn-edit-row:hover { background-color: #0b5ed7; }
 
-.bom-quick-add-link {
-  color: var(--color-heading);
+.bom-action-trigger {
+  color: var(--color-text-soft);
+  font-size: 0.85rem;
+  text-decoration: underline dotted;
   cursor: pointer;
-  text-decoration: none;
+  transition: color 0.15s;
+  white-space: nowrap;
 }
-.bom-quick-add-link:hover {
+.bom-action-trigger:hover {
   color: var(--color-heading);
-  text-decoration: underline;
+}
+.bom-unlinked-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.6rem;
 }
 
 .btn-quick-add {
