@@ -293,6 +293,16 @@ const handleSaveAndAddAnother = () => {
   saveItem()
 }
 
+const cancelForm = () => {
+  if (isEditMode.value) {
+    router.push(`/item/${item.value.id}`)
+  } else if (window.history.length > 1) {
+    router.back()
+  } else {
+    router.push('/inventory')
+  }
+}
+
 onMounted(async () => {
   try {
     const [partTypesRes, brandsRes, locationsRes, vendorsRes, projectsRes] = await Promise.all([
@@ -463,7 +473,7 @@ onMounted(async () => {
       <button
         type="button"
         class="btn btn-secondary"
-        @click="isEditMode ? router.push(`/item/${item.id}`) : (history.length > 1 ? router.back() : router.push('/inventory'))"
+        @click="cancelForm"
       >
         Cancel
       </button>
