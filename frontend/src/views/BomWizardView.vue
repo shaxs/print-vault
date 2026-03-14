@@ -213,6 +213,15 @@ const handleWizardItemUpdated = (updatedItem) => {
   wizardEditItem.value = null
 }
 
+// ── Quick Add to Inventory + Link ────────────────────────────────────────────
+const quickAddBomItem = ref(null)
+const showQuickAddModal = ref(false)
+
+const openQuickAdd = (item) => {
+  quickAddBomItem.value = item
+  showQuickAddModal.value = true
+}
+
 // ── Done ─────────────────────────────────────────────────────────────────────
 const goBack = () => {
   router.push({ name: 'project-detail', params: { id: projectId.value } })
