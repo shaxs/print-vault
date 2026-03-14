@@ -460,7 +460,7 @@ onMounted(async () => {
         Save + Next
       </button>
 
-      <RouterLink :to="isEditMode ? `/item/${item.id}` : '/'" class="btn btn-secondary">
+      <RouterLink :to="isEditMode ? `/item/${item.id}` : '/inventory'" class="btn btn-secondary">
         Cancel
       </RouterLink>
 
