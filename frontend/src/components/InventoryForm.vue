@@ -314,7 +314,7 @@ onMounted(async () => {
 </script>
 
 <template>
-  <form ref="inventoryForm" @submit.prevent="saveItem" class="item-form">
+  <form ref="inventoryForm" @submit.prevent="saveItem" @keydown.ctrl.enter.prevent="!isEditMode && handleSaveAndAddAnother()" class="item-form">
     <div class="form-group">
       <label for="title">Title</label>
       <input id="title" v-model="item.title" type="text" required />
@@ -460,22 +460,23 @@ onMounted(async () => {
         Save + Next
       </button>
 
-      <!-- Always show Save button -->
-      <button type="submit" class="btn btn-primary">Save</button>
+      <RouterLink :to="isEditMode ? `/item/${item.id}` : '/'" class="btn btn-secondary">
+        Cancel
+      </RouterLink>
 
-      <!-- Create mode: Show Save + Add Another button -->
+      <!-- Create mode: Show Save + Add Another button (also triggered by Ctrl+Enter) -->
       <button
         v-if="!isEditMode"
         type="button"
         class="btn btn-success"
         @click="handleSaveAndAddAnother"
+        title="Save and add another item (Ctrl+Enter)"
       >
         Save + Add Another
       </button>
 
-      <RouterLink :to="isEditMode ? `/item/${item.id}` : '/'" class="btn btn-secondary">
-        Cancel
-      </RouterLink>
+      <!-- Always show Save button -->
+      <button type="submit" class="btn btn-primary">Save</button>
     </div>
   </form>
 </template>
