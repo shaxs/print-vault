@@ -2935,6 +2935,108 @@ class ProjectBOMItemViewSet(viewsets.ModelViewSet):
 
         return Response(rows)
 
+    @action(detail=False, methods=['post'], url_path='import', parser_classes=[MultiPartParser])
+    def import_bom(self, request):
+        """
+        POST /api/projectbomitems/import/
+        Multipart fields:
+          - project  (int, required) — project PK
+          - file     (.csv, required)
+        CSV columns: description, quantity_needed, status, notes
+        Returns: { created, skipped, errors: [{row, description, error}] }
+        """
+        project_id = request.data.get('project')
+        if not project_id:
+            return Response({'error': 'project field is required'}, status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            project = Project.objects.get(pk=project_id)
+        except Project.DoesNotExist:
+            return Response({'error': f'Project {project_id} not found'}, status=status.HTTP_404_NOT_FOUND)
+
+        uploaded = request.FILES.get('file')
+        if not uploaded:
+            return Response({'error': 'file is required'}, status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            text = uploaded.read().decode('utf-8-sig')
+        except Exception:
+            return Response({'error': 'Could not decode file — ensure it is UTF-8 encoded'}, status=status.HTTP_400_BAD_REQUEST)
+
+        reader = csv.DictReader(StringIO(text))
+        if not reader.fieldnames:
+            return Response({'error': 'CSV file appears to be empty'}, status=status.HTTP_400_BAD_REQUEST)
+
+        # Normalise headers to lowercase stripped
+        fieldnames_norm = [f.strip().lower() for f in reader.fieldnames]
+        if 'description' not in fieldnames_norm:
+            return Response(
+                {'error': 'CSV must contain a "description" column'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        VALID_STATUSES = {'unlinked', 'needs_purchase'}
+
+        # Starting sort_order = current max + 1 for this project
+        existing_max = ProjectBOMItem.objects.filter(project=project).aggregate(
+            m=models.Max('sort_order')
+        )['m'] or 0
+        next_sort = existing_max + 1
+
+        created_count = 0
+        skipped_count = 0
+        errors = []
+
+        for row_num, raw_row in enumerate(reader, start=2):
+            row = {k.strip().lower(): (v.strip() if v else '') for k, v in raw_row.items()}
+
+            description = row.get('description', '').strip()
+            if not description:
+                skipped_count += 1
+                continue
+
+            # quantity_needed
+            qty_raw = row.get('quantity_needed', '').strip()
+            if qty_raw:
+                try:
+                    quantity_needed = int(qty_raw)
+                    if quantity_needed < 1:
+                        raise ValueError()
+                except (ValueError, TypeError):
+                    errors.append({
+                        'row': row_num,
+                        'description': description,
+                        'error': f'Invalid quantity_needed "{qty_raw}" — must be a positive integer',
+                    })
+                    continue
+            else:
+                quantity_needed = 1
+
+            # status
+            item_status = row.get('status', '').strip().lower() or 'unlinked'
+            if item_status not in VALID_STATUSES:
+                errors.append({
+                    'row': row_num,
+                    'description': description,
+                    'error': f'Invalid status "{item_status}" — must be one of: {", ".join(sorted(VALID_STATUSES))}',
+                })
+                continue
+
+            notes = row.get('notes', '').strip()
+
+            ProjectBOMItem.objects.create(
+                project=project,
+                description=description,
+                quantity_needed=quantity_needed,
+                status=item_status,
+                notes=notes,
+                sort_order=next_sort,
+            )
+            next_sort += 1
+            created_count += 1
+
+        return Response({'created': created_count, 'skipped': skipped_count, 'errors': errors})
+
 
 class LowStockItemsViewSet(ReadOnlyViewSet):
     """

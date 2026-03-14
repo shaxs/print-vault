@@ -411,6 +411,14 @@ export default {
   getShoppingList() {
     return apiClient.get('projectbomitems/shopping_list/')
   },
+  importBOMItems(projectId, file) {
+    const formData = new FormData()
+    formData.append('project', projectId)
+    formData.append('file', file)
+    return apiClient.post('projectbomitems/import/', formData, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    })
+  },
   getInventoryAllocation(inventoryItemId) {
     return apiClient.get(`inventoryitems/${inventoryItemId}/allocation/`)
   },

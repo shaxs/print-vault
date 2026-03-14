@@ -10,6 +10,8 @@ import AddBOMItemModal from '../components/AddBOMItemModal.vue'
 import InfoTooltip from '../components/InfoTooltip.vue'
 import DeleteProjectModal from '../components/DeleteProjectModal.vue'
 import QuickAddInventoryModal from '../components/QuickAddInventoryModal.vue'
+import InlineBOMLinker from '../components/InlineBOMLinker.vue'
+import ImportBOMModal from '../components/ImportBOMModal.vue'
 
 const route = useRoute()
 const router = useRouter()
@@ -210,6 +212,7 @@ const handleInventoryAdded = async () => {
 
 // ── BOM ──────────────────────────────────────────────────────────────────────
 const isAddBOMModalVisible = ref(false)
+const isBOMImportModalVisible = ref(false)
 const isDeleteProjectModalVisible = ref(false)
 
 const linkedBOMCount = computed(() => {
@@ -228,6 +231,12 @@ const showQuickAddModal = ref(false)
 const openQuickAdd = (item) => {
   quickAddBomItem.value = item
   showQuickAddModal.value = true
+}
+
+const handleBOMLinked = (updatedBomItem) => {
+  // Inline-link success: splice the updated item into project.bom_items
+  const idx = project.value?.bom_items?.findIndex((b) => b.id === updatedBomItem.id)
+  if (idx >= 0) project.value.bom_items.splice(idx, 1, updatedBomItem)
 }
 
 const bomHeaders = computed(() => [
@@ -556,6 +565,13 @@ onMounted(fetchProject)
                 </button>
                 <button
                   type="button"
+                  class="btn btn-sm btn-secondary"
+                  @click="isBOMImportModalVisible = true"
+                >
+                  Import CSV
+                </button>
+                <button
+                  type="button"
                   class="btn btn-sm btn-primary"
                   @click="isAddBOMModalVisible = true"
                 >
@@ -627,7 +643,11 @@ onMounted(fetchProject)
                     class="table-link grey-link"
                     @click.stop="openQuickAdd(item)"
                   >Quick add inventory item</a>
-                  <span v-else class="text-muted">—</span>
+                  <InlineBOMLinker
+                    v-else
+                    :bom-item="item"
+                    @linked="handleBOMLinked"
+                  />
                 </template>
 
                 <!-- Allocation status badge -->
@@ -787,6 +807,15 @@ onMounted(fetchProject)
       :linked-b-o-m-count="linkedBOMCount"
       @close="isDeleteProjectModalVisible = false"
       @confirm="handleDeleteProjectConfirm"
+    />
+
+    <!-- BOM CSV import modal -->
+    <ImportBOMModal
+      v-if="project"
+      :show="isBOMImportModalVisible"
+      :project-id="project.id"
+      @close="isBOMImportModalVisible = false"
+      @imported="isBOMImportModalVisible = false; fetchProject()"
     />
 
     <!-- Quick Add to Inventory + Link modal -->

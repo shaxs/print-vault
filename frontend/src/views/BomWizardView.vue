@@ -14,6 +14,7 @@ import APIService from '../services/APIService'
 import DataTable from '../components/DataTable.vue'
 import AddBOMItemModal from '../components/AddBOMItemModal.vue'
 import QuickAddInventoryModal from '../components/QuickAddInventoryModal.vue'
+import InlineBOMLinker from '../components/InlineBOMLinker.vue'
 
 const route = useRoute()
 const router = useRouter()
@@ -220,6 +221,11 @@ const showQuickAddModal = ref(false)
 const openQuickAdd = (item) => {
   quickAddBomItem.value = item
   showQuickAddModal.value = true
+}
+
+const handleWizardBOMLinked = (updatedItem) => {
+  // Inline-link: update item in-place (same helper as quick-add)
+  handleWizardItemUpdated(updatedItem)
 }
 
 // ── Done ─────────────────────────────────────────────────────────────────────
@@ -488,7 +494,11 @@ onMounted(async () => {
               class="bom-quick-add-link"
               @click.stop="openQuickAdd(item)"
             >Quick add inventory item</a>
-            <span v-else class="text-muted">—</span>
+            <InlineBOMLinker
+              v-else
+              :bom-item="item"
+              @linked="handleWizardBOMLinked"
+            />
           </template>
           <template #cell-status="{ item }">
             <span :class="['status-badge', getStatusClass(item.allocation_status ?? item.status)]">
