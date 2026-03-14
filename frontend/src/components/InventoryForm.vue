@@ -452,6 +452,14 @@ onMounted(async () => {
     </div>
 
     <div class="form-actions">
+      <button
+        type="button"
+        class="btn btn-secondary"
+        @click="cancelForm"
+      >
+        Cancel
+      </button>
+
       <!-- Edit mode: Show filtered navigation buttons -->
       <button
         v-if="isEditMode && canNavigateBack"
@@ -468,14 +476,6 @@ onMounted(async () => {
         @click="handleSaveAndNext"
       >
         Save + Next
-      </button>
-
-      <button
-        type="button"
-        class="btn btn-secondary"
-        @click="cancelForm"
-      >
-        Cancel
       </button>
 
       <!-- Create mode: Show Save + Add Another button (also triggered by Ctrl+Enter) -->
