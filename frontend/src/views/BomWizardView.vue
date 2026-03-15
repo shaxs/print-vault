@@ -271,6 +271,7 @@ const allItems = computed(() =>
 
 // ── Status filter ──────────────────────────────────────────────────────────────
 const statusFilter = ref('all')
+const itemSearch = ref('')
 
 const STATUS_FILTERS = [
   { value: 'all', label: 'All' },
@@ -297,8 +298,12 @@ const activeStatusFilters = computed(() =>
 )
 
 const filteredItems = computed(() => {
-  if (statusFilter.value === 'all') return allItems.value
-  return allItems.value.filter((item) => getItemStatus(item) === statusFilter.value)
+  let items = statusFilter.value === 'all' ? allItems.value : allItems.value.filter((item) => getItemStatus(item) === statusFilter.value)
+  if (itemSearch.value.trim()) {
+    const q = itemSearch.value.trim().toLowerCase()
+    items = items.filter((item) => item.description?.toLowerCase().includes(q))
+  }
+  return items
 })
 
 onMounted(async () => {
@@ -451,6 +456,12 @@ onMounted(async () => {
               — showing {{ filteredItems.length }}
             </span>
           </h3>
+          <input
+            v-model="itemSearch"
+            type="text"
+            class="bom-search-input"
+            placeholder="Filter items…"
+          />
         </div>
 
         <!-- Status filter chips -->
@@ -844,12 +855,32 @@ onMounted(async () => {
   padding: 0.75rem 1.25rem;
   border-bottom: 1px solid var(--color-border);
   background: var(--color-background-mute);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
 }
 
 .bom-table-header h3 {
   margin: 0;
   font-size: 1rem;
   color: var(--color-heading);
+}
+
+.bom-search-input {
+  background: var(--color-background);
+  border: 1px solid var(--color-border);
+  border-radius: 4px;
+  color: var(--color-text);
+  font-size: 0.85rem;
+  padding: 0.3rem 0.6rem;
+  width: 160px;
+  outline: none;
+}
+
+.bom-search-input:focus {
+  border-color: var(--color-border);
+  box-shadow: none;
 }
 
 .filter-count-hint {

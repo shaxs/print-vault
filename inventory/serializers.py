@@ -811,14 +811,20 @@ class ProjectBOMItemSerializer(serializers.ModelSerializer):
     def get_allocation_status(self, obj):
         if obj.status == 'needs_purchase':
             return 'needs_purchase'
-        if not obj.inventory_item:
+        if not obj.inventory_item_id:
             return 'unlinked'
-        inv = obj.inventory_item
-        # Reservation model: inv.quantity already deducts active BOM allocations.
-        qty_available = inv.quantity
+        # Re-query quantity directly — perform_update uses bulk update which bypasses
+        # the cached ORM instance, so obj.inventory_item.quantity may be stale.
+        from .models import InventoryItem as _Inv
+        row = _Inv.objects.filter(pk=obj.inventory_item_id).values(
+            'quantity', 'is_consumable', 'low_stock_threshold'
+        ).first()
+        if row is None:
+            return 'unlinked'
+        qty_available = row['quantity']
         if qty_available < 0:
             return 'overallocated'
-        if inv.is_consumable and inv.low_stock_threshold and qty_available <= inv.low_stock_threshold:
+        if row['is_consumable'] and row['low_stock_threshold'] and qty_available <= row['low_stock_threshold']:
             return 'low'
         return 'covered'
 

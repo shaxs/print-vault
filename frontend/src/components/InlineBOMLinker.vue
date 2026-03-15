@@ -155,7 +155,9 @@ const handleBlur = () => {
           class="bom-linker-dropdown-item"
           @mousedown.prevent="selectItem(item)"
         >
-          <span class="bom-linker-result-title">{{ item.title }}</span>
+          <span class="bom-linker-result-title">
+            {{ item.title }}<span v-if="item.location?.name" class="bom-linker-result-location"> ({{ item.location.name }})</span>
+          </span>
           <span
             class="bom-linker-result-qty"
             :class="{ 'bom-linker-result-qty-over': item.quantity <= 0 }"
@@ -212,8 +214,8 @@ const handleBlur = () => {
 }
 
 .bom-linker-input:focus {
-  border-color: var(--color-green, #48bb78);
-  box-shadow: 0 0 0 2px rgba(72, 187, 120, 0.15);
+  border-color: var(--color-border);
+  box-shadow: none;
 }
 
 .bom-linker-spinner {
@@ -280,6 +282,12 @@ const handleBlur = () => {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.bom-linker-result-location {
+  color: var(--color-text-soft);
+  font-size: 0.78rem;
+  font-weight: 400;
 }
 
 .bom-linker-result-qty {

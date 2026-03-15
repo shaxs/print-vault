@@ -179,6 +179,7 @@ const BOM_CHIP_FILTERS = [
 ]
 
 const bomStatusFilter = ref('all')
+const bomSearch = ref('')
 
 const getBomChipStatus = (item) => item.allocation_status ?? item.status ?? 'unlinked'
 
@@ -197,10 +198,15 @@ const activeBomChipFilters = computed(() =>
 )
 
 const filteredBomItems = computed(() => {
-  if (bomStatusFilter.value === 'all') return bomItemsWithIndex.value
-  return bomItemsWithIndex.value.filter(
-    (item) => getBomChipStatus(item) === bomStatusFilter.value,
-  )
+  let items = bomItemsWithIndex.value
+  if (bomStatusFilter.value !== 'all') {
+    items = items.filter((item) => getBomChipStatus(item) === bomStatusFilter.value)
+  }
+  if (bomSearch.value.trim()) {
+    const q = bomSearch.value.trim().toLowerCase()
+    items = items.filter((item) => item.description?.toLowerCase().includes(q))
+  }
+  return items
 })
 
 const handleInventoryAdded = async () => {
@@ -555,7 +561,14 @@ onMounted(fetchProject)
                   <strong>not both</strong>.
                 </InfoTooltip>
               </h3>
-              <div class="bom-header-actions">
+              <div class="bom-header-right">
+                <input
+                  v-model="bomSearch"
+                  type="text"
+                  class="bom-search-input"
+                  placeholder="Filter BOM…"
+                />
+                <div class="bom-header-actions">
                 <button
                   type="button"
                   class="btn btn-sm btn-secondary"
@@ -577,6 +590,7 @@ onMounted(fetchProject)
                 >
                   Add Item
                 </button>
+              </div>
               </div>
             </div>
             <div class="card-body table-card-body">
@@ -828,7 +842,7 @@ onMounted(fetchProject)
       :show="showQuickAddModal"
       :bom-item="quickAddBomItem"
       @close="showQuickAddModal = false; quickAddBomItem = null"
-      @linked="() => { showQuickAddModal = false; quickAddBomItem = null; fetchProject() }"
+      @linked="(updatedBomItem) => { showQuickAddModal = false; quickAddBomItem = null; handleBOMLinked(updatedBomItem) }"
     />
   </div>
 </template>
@@ -1508,6 +1522,28 @@ onMounted(fetchProject)
 
 .bom-card-header h3 {
   margin: 0;
+}
+
+.bom-header-right {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.bom-search-input {
+  background: var(--color-background);
+  border: 1px solid var(--color-border);
+  border-radius: 4px;
+  color: var(--color-text);
+  font-size: 0.85rem;
+  padding: 0.3rem 0.6rem;
+  width: 160px;
+  outline: none;
+}
+
+.bom-search-input:focus {
+  border-color: var(--color-border);
+  box-shadow: none;
 }
 
 .bom-header-actions {
