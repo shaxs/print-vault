@@ -4,6 +4,7 @@ import { useRoute, useRouter } from 'vue-router'
 import APIService from '@/services/APIService.js'
 import DeleteTrackerModal from '@/components/DeleteTrackerModal.vue'
 import BaseModal from '@/components/BaseModal.vue'
+import ModelViewer from '@/components/ModelViewer.vue'
 import Multiselect from 'vue-multiselect'
 import 'vue-multiselect/dist/vue-multiselect.css'
 
@@ -57,6 +58,38 @@ const isMaterialSelectionDisabled = computed(() => {
 
 // Delete file state
 const deletingFile = ref(false)
+
+const getFileHexColor = (file) => {
+  const style = getColorBadgeStyle(file?.color, file)
+  return style?.backgroundColor || ''
+}
+
+// Reactive color for the edit modal preview — updates when form color changes
+const editPreviewColor = computed(() => {
+  const formColor = editFileForm.value.color
+  if (!formColor) return ''
+  // Reuse the badge style resolver with the form's color choice
+  const style = getColorBadgeStyle(formColor, editingFile.value)
+  return style?.backgroundColor || ''
+})
+
+const isPreviewableFile = (file) => {
+  if (!file.filename) return false
+  const ext = file.filename.toLowerCase().split('.').pop()
+  return ext === 'stl' || ext === '3mf'
+}
+
+const getStlUrl = (file) => {
+  if (file.local_file) return file.local_file
+  if (file.github_url) {
+    let url = file.github_url
+    if (url.includes('github.com') && url.includes('/blob/')) {
+      url = url.replace('github.com', 'raw.githubusercontent.com').replace('/blob/', '/')
+    }
+    return url
+  }
+  return ''
+}
 
 // Edit tracker materials state
 const isEditTrackerModalVisible = ref(false)
@@ -1260,6 +1293,7 @@ onMounted(() => {
                         ></div>
                       </div>
                     </div>
+
                   </div>
                 </div>
               </div>
@@ -1472,6 +1506,12 @@ onMounted(() => {
           <div class="modal-form" @click.stop>
             <h3>Edit File Configuration</h3>
             <p class="edit-filename">{{ editingFile?.filename }}</p>
+
+            <!-- 3D Model Preview -->
+            <div v-if="editingFile && isPreviewableFile(editingFile)" class="stl-preview-modal">
+              <ModelViewer :url="getStlUrl(editingFile)" :color="editPreviewColor" />
+            </div>
+
             <form @submit.prevent="saveFileConfiguration">
               <div class="form-group">
                 <label>Color</label>
@@ -2668,5 +2708,15 @@ onMounted(() => {
   border: 1px solid var(--color-border);
   border-radius: 4px;
   cursor: pointer;
+}
+
+/* STL Preview in edit modal */
+.stl-preview-modal {
+  width: 100%;
+  height: 300px;
+  margin-bottom: 16px;
+  border-radius: 6px;
+  overflow: hidden;
+  border: 1px solid var(--color-border);
 }
 </style>

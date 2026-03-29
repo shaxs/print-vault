@@ -15,6 +15,7 @@
   },
   "dependencies": {
     "axios": "^1.11.0",
+    "three": "^0.175.0",
     "vue": "^3.5.17",
     "vue-multiselect": "^3.0.0-beta.3",
     "vue-router": "^4.5.1"
