@@ -24,20 +24,21 @@ function init(container) {
   scene.background = new THREE.Color(0x1a1a2e)
 
   camera = new THREE.PerspectiveCamera(45, width / height, 0.1, 10000)
+  camera.up.set(0, 0, 1) // Z-up for 3D print orientation
 
   renderer = new THREE.WebGLRenderer({ antialias: true })
   renderer.setSize(width, height)
   renderer.setPixelRatio(window.devicePixelRatio)
   container.appendChild(renderer.domElement)
 
-  const ambientLight = new THREE.AmbientLight(0xffffff, 0.6)
+  const ambientLight = new THREE.AmbientLight(0xffffff, 0.3)
   scene.add(ambientLight)
 
-  const dirLight1 = new THREE.DirectionalLight(0xffffff, 0.8)
+  const dirLight1 = new THREE.DirectionalLight(0xffffff, 1.0)
   dirLight1.position.set(1, 1, 1)
   scene.add(dirLight1)
 
-  const dirLight2 = new THREE.DirectionalLight(0xffffff, 0.4)
+  const dirLight2 = new THREE.DirectionalLight(0xffffff, 0.3)
   dirLight2.position.set(-1, -0.5, -1)
   scene.add(dirLight2)
 
@@ -45,7 +46,9 @@ function init(container) {
   controls.enableDamping = true
   controls.dampingFactor = 0.1
 
+  // Grid on XY plane (Z-up)
   const gridHelper = new THREE.GridHelper(200, 20, 0x444466, 0x333355)
+  gridHelper.rotation.x = Math.PI / 2
   scene.add(gridHelper)
 }
 
@@ -61,14 +64,15 @@ function frameObject(object) {
   box.getSize(size)
 
   object.position.sub(center)
-  object.position.y += size.y / 2
+  object.position.z += size.z / 2 // sit on Z=0 plane
 
   scene.add(object)
 
-  const distance = Math.max(size.x, size.y, size.z) * 2
-  camera.position.set(distance, distance * 0.8, distance)
-  camera.lookAt(0, size.y / 4, 0)
-  controls.target.set(0, size.y / 4, 0)
+  const maxDim = Math.max(size.x, size.y, size.z)
+  const d = maxDim * 1.0
+  camera.position.set(d, d, d * 1.4)
+  camera.lookAt(0, 0, size.z / 2)
+  controls.target.set(0, 0, size.z / 2)
   controls.update()
 }
 

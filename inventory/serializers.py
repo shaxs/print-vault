@@ -5,7 +5,7 @@ from django.utils import timezone
 from .models import (
     Brand, PartType, Location, Material, MaterialPhoto, MaterialFeature, Vendor, Printer, Mod, ModFile,
     InventoryItem, Project, ProjectLink, ProjectFile, ProjectInventory, ProjectPrinters,
-    ProjectBOMItem, Tracker, TrackerFile, FilamentSpool
+    ProjectBOMItem, Tracker, TrackerFile, TrackerFileImage, FilamentSpool
 )
 from .services.storage_manager import StorageManager, InsufficientStorageError, StoragePermissionError
 from .services.file_download_service import (
@@ -191,6 +191,22 @@ class MaterialPhotoSerializer(serializers.ModelSerializer):
         material_id = validated_data.pop('material_id', None)
         if material_id:
             validated_data['material'] = Material.objects.get(id=material_id)
+        return super().create(validated_data)
+
+
+class TrackerFileImageSerializer(serializers.ModelSerializer):
+    """Serializer for TrackerFile images (screenshots, renders, etc.)."""
+    tracker_file_id = serializers.IntegerField(write_only=True, required=False)
+
+    class Meta:
+        model = TrackerFileImage
+        fields = ['id', 'tracker_file', 'tracker_file_id', 'image', 'caption', 'order', 'created_at']
+        read_only_fields = ['id', 'tracker_file', 'created_at']
+
+    def create(self, validated_data):
+        tracker_file_id = validated_data.pop('tracker_file_id', None)
+        if tracker_file_id:
+            validated_data['tracker_file'] = TrackerFile.objects.get(id=tracker_file_id)
         return super().create(validated_data)
 
 
@@ -846,17 +862,18 @@ class TrackerFileSerializer(serializers.ModelSerializer):
     is_complete = serializers.BooleanField(read_only=True)
     local_file = serializers.SerializerMethodField()
     materials_display = serializers.SerializerMethodField()
-    
+    thumbnail = serializers.SerializerMethodField()
+
     class Meta:
         model = TrackerFile
         fields = [
-            'id', 'tracker', 'filename', 'directory_path', 'github_url', 
+            'id', 'tracker', 'filename', 'directory_path', 'github_url',
             'local_file', 'file_size', 'sha', 'color', 'material', 'material_ids',
-            'materials_display', 'material_override', 'quantity', 'is_selected', 'status', 
-            'printed_quantity', 'remaining_quantity', 'is_complete', 
+            'materials_display', 'material_override', 'quantity', 'is_selected', 'status',
+            'printed_quantity', 'remaining_quantity', 'is_complete', 'thumbnail',
             'created_date', 'updated_date', 'download_date',
             # Download tracking fields
-            'download_status', 'download_error', 'downloaded_at', 
+            'download_status', 'download_error', 'downloaded_at',
             'file_checksum', 'actual_file_size'
         ]
         read_only_fields = [
@@ -884,6 +901,14 @@ class TrackerFileSerializer(serializers.ModelSerializer):
         from .models import Material
         materials = Material.objects.filter(id__in=obj.material_ids)
         return MaterialSerializer(materials, many=True).data
+
+    def get_thumbnail(self, obj):
+        """Return URL of the first image (by order), or null."""
+        first = obj.images.first()
+        if first and first.image:
+            url = first.image.url
+            return url if url.startswith('/') else f"/{url}"
+        return None
 
 
 class TrackerFileCreateSerializer(serializers.ModelSerializer):

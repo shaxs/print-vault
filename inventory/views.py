@@ -27,13 +27,14 @@ logger = logging.getLogger(__name__)
 from .models import (
     Brand, PartType, Location, Material, MaterialPhoto, MaterialFeature, Vendor, Printer, Mod, ModFile,
     InventoryItem, Project, ProjectLink, ProjectFile, ProjectInventory, ProjectPrinters,
-    ProjectBOMItem, Tracker, TrackerFile, AlertDismissal, FilamentSpool
+    ProjectBOMItem, Tracker, TrackerFile, TrackerFileImage, AlertDismissal, FilamentSpool
 )
 from .serializers import (
     BrandSerializer, PartTypeSerializer, LocationSerializer, MaterialSerializer, MaterialPhotoSerializer, MaterialFeatureSerializer, VendorSerializer, PrinterSerializer, ModSerializer, ModFileSerializer,
     InventoryItemSerializer, ProjectSerializer, ProjectLinkSerializer, ProjectFileSerializer,
     ProjectInventorySerializer, ProjectPrintersSerializer, ProjectBOMItemSerializer,
-    TrackerSerializer, TrackerFileSerializer, TrackerCreateSerializer, TrackerListSerializer,
+    TrackerSerializer, TrackerFileSerializer, TrackerFileImageSerializer,
+    TrackerCreateSerializer, TrackerListSerializer,
     FilamentSpoolSerializer
 )
 from .filters import InventoryItemFilter, PrinterFilter, ProjectFilter
@@ -2877,12 +2878,12 @@ class TrackerViewSet(viewsets.ModelViewSet):
     
     def get_queryset(self):
         """Allow filtering by project."""
-        queryset = Tracker.objects.all()
+        queryset = Tracker.objects.prefetch_related('files__images').all()
         project_id = self.request.query_params.get('project', None)
         if project_id is not None:
             queryset = queryset.filter(project_id=project_id)
         return queryset
-    
+
     def create(self, request, *args, **kwargs):
         """
         Create a new tracker and optionally download files if storage_type is 'download'.
@@ -4256,7 +4257,7 @@ class TrackerFileViewSet(viewsets.ModelViewSet):
     
     def get_queryset(self):
         """Allow filtering by tracker."""
-        queryset = TrackerFile.objects.all()
+        queryset = TrackerFile.objects.prefetch_related('images').all()
         tracker_id = self.request.query_params.get('tracker', None)
         if tracker_id is not None:
             queryset = queryset.filter(tracker_id=tracker_id)
@@ -4325,6 +4326,42 @@ class TrackerFileViewSet(viewsets.ModelViewSet):
         
         serializer = self.get_serializer(file)
         return Response(serializer.data)
+
+    @action(detail=True, methods=['get', 'post'], url_path='images')
+    def images(self, request, pk=None):
+        """List or upload images for a tracker file."""
+        tracker_file = self.get_object()
+        if request.method == 'GET':
+            imgs = tracker_file.images.all()
+            serializer = TrackerFileImageSerializer(imgs, many=True, context={'request': request})
+            return Response(serializer.data)
+        # POST
+        if 'image' not in request.FILES:
+            return Response({"error": "No image file provided"}, status=status.HTTP_400_BAD_REQUEST)
+        data = {
+            'image': request.FILES['image'],
+            'caption': request.data.get('caption', ''),
+            'order': request.data.get('order', tracker_file.images.count()),
+            'tracker_file_id': tracker_file.id,
+        }
+        serializer = TrackerFileImageSerializer(data=data, context={'request': request})
+        if serializer.is_valid():
+            serializer.save()
+            return Response(serializer.data, status=status.HTTP_201_CREATED)
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+
+class TrackerFileImageViewSet(viewsets.GenericViewSet, mixins.DestroyModelMixin, mixins.UpdateModelMixin):
+    """
+    ViewSet for managing individual TrackerFileImage instances.
+
+    Supports:
+    - DELETE: Remove an image
+    - PATCH: Update caption or order
+    """
+    queryset = TrackerFileImage.objects.all()
+    serializer_class = TrackerFileImageSerializer
+    permission_classes = [AllowAny]
 
 
 # ============================================================================
