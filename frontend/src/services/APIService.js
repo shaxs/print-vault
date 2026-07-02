@@ -419,6 +419,12 @@ export default {
       headers: { 'Content-Type': 'multipart/form-data' },
     })
   },
+  exportBOMItems(projectId) {
+    return apiClient.get('projectbomitems/export/', {
+      params: { project: projectId },
+      responseType: 'blob',
+    })
+  },
   getInventoryAllocation(inventoryItemId) {
     return apiClient.get(`inventoryitems/${inventoryItemId}/allocation/`)
   },

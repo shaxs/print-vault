@@ -219,6 +219,25 @@ const handleInventoryAdded = async () => {
 // ── BOM ──────────────────────────────────────────────────────────────────────
 const isAddBOMModalVisible = ref(false)
 const isBOMImportModalVisible = ref(false)
+const exportingBOM = ref(false)
+
+async function exportBOM() {
+  exportingBOM.value = true
+  try {
+    const response = await APIService.exportBOMItems(project.value.id)
+    const url = URL.createObjectURL(new Blob([response.data], { type: 'text/csv' }))
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `${project.value.project_name}_BOM.csv`
+    a.click()
+    URL.revokeObjectURL(url)
+  } catch (err) {
+    console.error('Failed to export BOM:', err)
+    alert('Failed to export BOM. Please try again.')
+  } finally {
+    exportingBOM.value = false
+  }
+}
 const isDeleteProjectModalVisible = ref(false)
 
 const linkedBOMCount = computed(() => {
@@ -582,6 +601,14 @@ onMounted(fetchProject)
                   @click="isBOMImportModalVisible = true"
                 >
                   Import CSV
+                </button>
+                <button
+                  type="button"
+                  class="btn btn-sm btn-secondary"
+                  :disabled="exportingBOM || !project.bom_items || project.bom_items.length === 0"
+                  @click="exportBOM"
+                >
+                  {{ exportingBOM ? 'Exporting…' : 'Export CSV' }}
                 </button>
                 <button
                   type="button"

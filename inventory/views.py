@@ -3043,6 +3043,53 @@ class ProjectBOMItemViewSet(viewsets.ModelViewSet):
 
         return Response({'created': created_count, 'skipped': skipped_count, 'errors': errors})
 
+    @action(detail=False, methods=['get'], url_path='export')
+    def export_bom(self, request):
+        """
+        GET /api/projectbomitems/export/?project={id}
+
+        Export all BOM items for a project as a CSV file using the same
+        column format as the import endpoint. Linked items are exported
+        as 'unlinked' so the file can be imported into any PrintVault instance.
+
+        Returns: CSV file attachment named "{project_name}_BOM.csv"
+        """
+        project_id = request.query_params.get('project')
+        if not project_id:
+            return Response({'error': 'project query parameter is required'}, status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            project = Project.objects.get(pk=project_id)
+        except Project.DoesNotExist:
+            return Response({'error': f'Project {project_id} not found'}, status=status.HTTP_404_NOT_FOUND)
+
+        items = ProjectBOMItem.objects.filter(project=project).order_by('sort_order', 'id')
+
+        output = StringIO()
+        writer = csv.writer(output)
+        writer.writerow(['description', 'quantity_needed', 'status', 'notes'])
+
+        for item in items:
+            # 'linked' status references inventory items that won't exist in another
+            # instance, so export as 'unlinked' to keep the file importable.
+            export_status = item.status if item.status in ('unlinked', 'needs_purchase') else 'unlinked'
+            writer.writerow([
+                item.description,
+                item.quantity_needed,
+                export_status,
+                item.notes or '',
+            ])
+
+        safe_name = ''.join(
+            c if c.isalnum() or c in (' ', '-', '_') else '_'
+            for c in project.project_name
+        ).strip()
+        filename = f"{safe_name}_BOM.csv"
+
+        response = HttpResponse(output.getvalue(), content_type='text/csv; charset=utf-8')
+        response['Content-Disposition'] = f'attachment; filename="{filename}"'
+        return response
+
 
 class LowStockItemsViewSet(ReadOnlyViewSet):
     """
