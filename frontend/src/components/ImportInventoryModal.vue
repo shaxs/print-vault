@@ -199,10 +199,10 @@ function close() {
 
 .import-error {
   padding: 0.6rem 0.8rem;
-  background-color: var(--color-danger-bg, #fde8e8);
-  border: 1px solid var(--color-danger, #e53e3e);
+  background-color: color-mix(in srgb, var(--color-red) 12%, transparent);
+  border: 1px solid var(--color-red);
   border-radius: 4px;
-  color: var(--color-danger, #c53030);
+  color: var(--color-red);
   font-size: 0.9rem;
 }
 
@@ -221,7 +221,7 @@ function close() {
 }
 
 .result-created {
-  color: var(--color-success, #38a169);
+  color: var(--color-green);
   font-weight: 600;
 }
 
@@ -239,6 +239,6 @@ function close() {
   margin: 0;
   padding-left: 1.2rem;
   font-size: 0.85rem;
-  color: var(--color-danger, #c53030);
+  color: var(--color-red);
 }
 </style>

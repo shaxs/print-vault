@@ -813,18 +813,13 @@ class ProjectBOMItemSerializer(serializers.ModelSerializer):
             return 'needs_purchase'
         if not obj.inventory_item_id:
             return 'unlinked'
-        # Re-query quantity directly — perform_update uses bulk update which bypasses
-        # the cached ORM instance, so obj.inventory_item.quantity may be stale.
-        from .models import InventoryItem as _Inv
-        row = _Inv.objects.filter(pk=obj.inventory_item_id).values(
-            'quantity', 'is_consumable', 'low_stock_threshold'
-        ).first()
-        if row is None:
+        inv = obj.inventory_item
+        if inv is None:
             return 'unlinked'
-        qty_available = row['quantity']
+        qty_available = inv.quantity
         if qty_available < 0:
             return 'overallocated'
-        if row['is_consumable'] and row['low_stock_threshold'] and qty_available <= row['low_stock_threshold']:
+        if inv.is_consumable and inv.low_stock_threshold and qty_available <= inv.low_stock_threshold:
             return 'low'
         return 'covered'
 

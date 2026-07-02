@@ -224,10 +224,10 @@ function close() {
 
 .import-error {
   padding: 0.6rem 0.8rem;
-  background-color: rgba(239, 68, 68, 0.1);
-  border: 1px solid rgba(239, 68, 68, 0.3);
+  background-color: color-mix(in srgb, var(--color-red) 12%, transparent);
+  border: 1px solid var(--color-red);
   border-radius: 4px;
-  color: var(--color-danger, #c53030);
+  color: var(--color-red);
   font-size: 0.9rem;
 }
 
@@ -246,7 +246,7 @@ function close() {
 }
 
 .result-created {
-  color: var(--color-success, #38a169);
+  color: var(--color-green);
   font-weight: 600;
 }
 

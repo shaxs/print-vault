@@ -7,6 +7,7 @@ import tempfile
 import hashlib
 import json
 import logging
+from decimal import Decimal, InvalidOperation
 from io import BytesIO, StringIO
 from datetime import date, timedelta
 from django.http import HttpResponse
@@ -2628,10 +2629,10 @@ class InventoryItemViewSet(viewsets.ModelViewSet):
                 errors.append({'row': row_num, 'title': title, 'error': f'Invalid quantity: {raw_qty!r}'})
                 continue
 
-            raw_cost = row.get('cost', '')
+            raw_cost = row.get('cost', '').strip()
             try:
-                cost = float(raw_cost) if raw_cost else None
-            except ValueError:
+                cost = Decimal(raw_cost) if raw_cost else None
+            except (InvalidOperation, ValueError):
                 errors.append({'row': row_num, 'title': title, 'error': f'Invalid cost: {raw_cost!r}'})
                 continue
 
@@ -2842,6 +2843,11 @@ class ProjectBOMItemViewSet(viewsets.ModelViewSet):
         if new_inv_id and new_is_linked:
             self._adjust_inv(new_inv_id, -new_qty)
 
+        # Refresh the in-memory inventory_item so the serializer response reflects
+        # the post-update quantity (bulk UPDATE bypasses the ORM instance cache).
+        if instance.inventory_item_id:
+            instance.inventory_item.refresh_from_db(fields=['quantity', 'is_consumable', 'low_stock_threshold'])
+
     @action(detail=False, methods=['post'], url_path='reorder')
     def reorder(self, request):
         """Bulk update sort_order for BOM items within a project."""
@@ -2960,7 +2966,7 @@ class ProjectBOMItemViewSet(viewsets.ModelViewSet):
 
         try:
             text = uploaded.read().decode('utf-8-sig')
-        except Exception:
+        except UnicodeDecodeError:
             return Response({'error': 'Could not decode file — ensure it is UTF-8 encoded'}, status=status.HTTP_400_BAD_REQUEST)
 
         reader = csv.DictReader(StringIO(text))

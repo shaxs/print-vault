@@ -21,7 +21,7 @@ const props = defineProps({
   bomItem: { type: Object, required: true },
 })
 
-const emit = defineEmits(['linked'])
+const emit = defineEmits(['linked', 'activate', 'deactivate'])
 
 // ── State ─────────────────────────────────────────────────────────────────────
 const isActive = ref(false)
@@ -47,6 +47,7 @@ const computeDropdownPosition = () => {
 // ── Activate / deactivate ─────────────────────────────────────────────────────
 const activate = async () => {
   isActive.value = true
+  emit('activate')
   query.value = ''
   results.value = []
   await nextTick()
@@ -57,6 +58,7 @@ const activate = async () => {
 const deactivate = () => {
   clearTimeout(searchTimer)
   isActive.value = false
+  emit('deactivate')
   query.value = ''
   results.value = []
   isSearching.value = false
@@ -153,6 +155,7 @@ const handleBlur = () => {
           v-for="item in results"
           :key="item.id"
           class="bom-linker-dropdown-item"
+          :title="item.title + (item.location?.name ? ' (' + item.location.name + ')' : '')"
           @mousedown.prevent="selectItem(item)"
         >
           <span class="bom-linker-result-title">
@@ -190,8 +193,10 @@ const handleBlur = () => {
 
 /* ── Input wrap ──────────────────────────────────────────────────────────────── */
 .bom-linker-wrap {
-  display: inline-flex;
+  display: flex;
   align-items: center;
+  flex: 1;
+  min-width: 0;
 }
 
 .bom-linker-input-row {
@@ -199,6 +204,8 @@ const handleBlur = () => {
   display: flex;
   align-items: center;
   gap: 0.25rem;
+  flex: 1;
+  min-width: 0;
 }
 
 .bom-linker-input {
@@ -208,7 +215,8 @@ const handleBlur = () => {
   color: var(--color-text);
   font-size: 0.82rem;
   padding: 0.2rem 1.6rem 0.2rem 0.4rem;
-  width: 150px;
+  width: 100%;
+  min-width: 0;
   outline: none;
   transition: border-color 0.15s, box-shadow 0.15s;
 }
@@ -238,7 +246,7 @@ const handleBlur = () => {
 }
 
 .bom-linker-cancel:hover {
-  color: var(--color-red, #e53e3e);
+  color: var(--color-red);
 }
 </style>
 
@@ -297,7 +305,7 @@ const handleBlur = () => {
 }
 
 .bom-linker-result-qty-over {
-  color: var(--color-red, #e53e3e);
+  color: var(--color-red);
   font-weight: 600;
 }
 </style>
