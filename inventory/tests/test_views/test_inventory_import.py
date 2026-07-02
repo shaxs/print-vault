@@ -166,8 +166,9 @@ class TestInventoryImportSuccess:
 
     def test_excel_bom_utf8_handled(self, api_client):
         """UTF-8 BOM (from Excel export) is stripped correctly."""
-        content_with_bom = '\ufefftitle,quantity\nBOM Part,3\n'
-        f = io.BytesIO(content_with_bom.encode('utf-8-sig'))
+        # Simulate Excel's UTF-8 with BOM export: encode with utf-8-sig adds BOM prefix
+        content = 'title,quantity\nBOM Part,3\n'
+        f = io.BytesIO(content.encode('utf-8-sig'))
         f.name = 'items.csv'
         response = api_client.post(
             '/api/inventoryitems/import/', {'file': f}, format='multipart'
