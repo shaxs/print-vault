@@ -50,8 +50,8 @@ const isEditingMulticolor = computed(() => {
   return editFileForm.value.color === 'Multicolor'
 })
 
-// Check if material selection should be disabled (Primary/Accent use tracker materials)
-const isMaterialSelectionDisabled = computed(() => {
+// Check if editing file is Primary or Accent color (uses tracker material by default)
+const isEditingPrimaryOrAccent = computed(() => {
   return editFileForm.value.color === 'Primary' || editFileForm.value.color === 'Accent'
 })
 
@@ -813,12 +813,7 @@ const saveFileConfiguration = async () => {
     let materialString = ''
     let materialIds = []
     
-    // Primary/Accent files get materials from tracker settings, not user input
-    if (editFileForm.value.color === 'Primary' || editFileForm.value.color === 'Accent') {
-      // Material will be set by backend based on tracker settings
-      materialString = null
-      materialIds = null
-    } else if (editFileForm.value.material) {
+    if (editFileForm.value.material) {
       // Other/Multicolor/Clear files can have custom materials
       if (Array.isArray(editFileForm.value.material)) {
         // Multiple materials (multicolor)
@@ -1487,7 +1482,6 @@ onMounted(() => {
               <div class="form-group">
                 <label>Material{{ isEditingMulticolor ? 's' : '' }}</label>
                 <Multiselect
-                  v-if="!isMaterialSelectionDisabled"
                   v-model="editFileForm.material"
                   :options="materials"
                   :custom-label="formatMaterialLabel"
@@ -1498,16 +1492,10 @@ onMounted(() => {
                   :multiple="isEditingMulticolor"
                   :close-on-select="!isEditingMulticolor"
                   :show-labels="false"
-                  required
                 />
-                <div v-else class="material-locked-message">
-                  <p class="locked-text">
-                    <strong>{{ editFileForm.color }}</strong> files use the material set in tracker settings.
-                  </p>
-                  <p class="locked-hint">
-                    To use a custom material, change the color to "Other" or "Multicolor".
-                  </p>
-                </div>
+                <p v-if="isEditingPrimaryOrAccent" class="material-override-hint">
+                  Leave blank to use the tracker's default {{ editFileForm.color.toLowerCase() }} material.
+                </p>
               </div>
               <div class="form-group">
                 <label>Quantity</label>
@@ -2092,6 +2080,12 @@ onMounted(() => {
   background: var(--color-background-mute);
   border-radius: 4px;
   word-break: break-all;
+}
+
+.material-override-hint {
+  font-size: 0.78rem;
+  color: var(--color-text-muted);
+  margin-top: 0.35rem;
 }
 
 /* Empty State */
