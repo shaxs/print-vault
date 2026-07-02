@@ -36,7 +36,8 @@ class TestProjectBOMItemModel:
 
     def test_default_values(self):
         """Verify defaults: quantity_needed=1, status='unlinked', is_ordered=False."""
-        item = ProjectBOMItemFactory()
+        project = ProjectFactory(status='Planning')
+        item = ProjectBOMItem.objects.create(project=project, description='Test Part')
         assert item.quantity_needed == 1
         assert item.status == 'unlinked'
         assert item.is_ordered is False

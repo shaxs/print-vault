@@ -69,11 +69,12 @@ class TestInventoryAllocationAction:
         """qty_needed reflects single active BOM item allocation."""
         item = InventoryItemFactory(quantity=10)
         project = ProjectFactory(status='Planning')
-        ProjectBOMItemFactory(project=project, inventory_item=item, quantity_needed=4)
+        ProjectBOMItemFactory(project=project, inventory_item=item, quantity_needed=4, status='linked')
         response = api_client.get(f'/api/inventoryitems/{item.id}/allocation/')
         assert response.data['qty_on_hand'] == 10
         assert response.data['qty_needed'] == 4
-        assert response.data['qty_available'] == 6
+        # qty_available is item.quantity (reservation model: quantity already reflects allocations)
+        assert response.data['qty_available'] == 10
         assert response.data['is_overallocated'] is False
 
     def test_allocation_sums_multiple_active_projects(self, api_client):
@@ -82,19 +83,21 @@ class TestInventoryAllocationAction:
         project1 = ProjectFactory(status='Planning')
         project2 = ProjectFactory(status='In Progress')
         project3 = ProjectFactory(status='On Hold')
-        ProjectBOMItemFactory(project=project1, inventory_item=item, quantity_needed=3)
-        ProjectBOMItemFactory(project=project2, inventory_item=item, quantity_needed=5)
-        ProjectBOMItemFactory(project=project3, inventory_item=item, quantity_needed=4)
+        ProjectBOMItemFactory(project=project1, inventory_item=item, quantity_needed=3, status='linked')
+        ProjectBOMItemFactory(project=project2, inventory_item=item, quantity_needed=5, status='linked')
+        ProjectBOMItemFactory(project=project3, inventory_item=item, quantity_needed=4, status='linked')
         response = api_client.get(f'/api/inventoryitems/{item.id}/allocation/')
         assert response.data['qty_needed'] == 12
-        assert response.data['qty_available'] == 3
+        # qty_available is item.quantity (reservation model)
+        assert response.data['qty_available'] == 15
         assert len(response.data['active_projects']) == 3
 
     def test_allocation_overallocated_flag(self, api_client):
-        """is_overallocated is True when qty_available < 0."""
-        item = InventoryItemFactory(quantity=2)
+        """is_overallocated is True when item.quantity < 0 (over-reserved)."""
+        # Simulate a scenario where prior reservations drove quantity negative
+        item = InventoryItemFactory(quantity=-3)
         project = ProjectFactory(status='In Progress')
-        ProjectBOMItemFactory(project=project, inventory_item=item, quantity_needed=5)
+        ProjectBOMItemFactory(project=project, inventory_item=item, quantity_needed=5, status='linked')
         response = api_client.get(f'/api/inventoryitems/{item.id}/allocation/')
         assert response.data['qty_available'] == -3
         assert response.data['is_overallocated'] is True
@@ -105,9 +108,9 @@ class TestInventoryAllocationAction:
         active = ProjectFactory(status='Planning')
         completed = ProjectFactory(status='Completed')
         canceled = ProjectFactory(status='Canceled')
-        ProjectBOMItemFactory(project=active, inventory_item=item, quantity_needed=2)
-        ProjectBOMItemFactory(project=completed, inventory_item=item, quantity_needed=3)
-        ProjectBOMItemFactory(project=canceled, inventory_item=item, quantity_needed=1)
+        ProjectBOMItemFactory(project=active, inventory_item=item, quantity_needed=2, status='linked')
+        ProjectBOMItemFactory(project=completed, inventory_item=item, quantity_needed=3, status='linked')
+        ProjectBOMItemFactory(project=canceled, inventory_item=item, quantity_needed=1, status='linked')
         response = api_client.get(f'/api/inventoryitems/{item.id}/allocation/')
         # Only active projects affect qty_needed
         assert response.data['qty_needed'] == 2
@@ -118,7 +121,7 @@ class TestInventoryAllocationAction:
         """Each entry in active_projects has required fields."""
         item = InventoryItemFactory(quantity=10)
         project = ProjectFactory(project_name="Voron 2.4", status='Planning')
-        bom_item = ProjectBOMItemFactory(project=project, inventory_item=item, quantity_needed=3)
+        bom_item = ProjectBOMItemFactory(project=project, inventory_item=item, quantity_needed=3, status='linked')
         response = api_client.get(f'/api/inventoryitems/{item.id}/allocation/')
         entry = response.data['active_projects'][0]
         assert entry['id'] == project.id
@@ -131,7 +134,7 @@ class TestInventoryAllocationAction:
         """project_status is converted to snake_case."""
         item = InventoryItemFactory(quantity=10)
         project = ProjectFactory(status='In Progress')
-        ProjectBOMItemFactory(project=project, inventory_item=item, quantity_needed=1)
+        ProjectBOMItemFactory(project=project, inventory_item=item, quantity_needed=1, status='linked')
         response = api_client.get(f'/api/inventoryitems/{item.id}/allocation/')
         assert response.data['active_projects'][0]['project_status'] == 'in_progress'
 
