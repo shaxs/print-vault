@@ -296,7 +296,7 @@ const handleSaveAndAddAnother = () => {
 const cancelForm = () => {
   if (isEditMode.value) {
     router.push(`/item/${item.value.id}`)
-  } else if (window.history.length > 1) {
+  } else if (window.history.state?.back) {
     router.back()
   } else {
     router.push('/inventory')
@@ -324,7 +324,7 @@ onMounted(async () => {
 </script>
 
 <template>
-  <form ref="inventoryForm" @submit.prevent="saveItem" @keydown.ctrl.enter.prevent="!isEditMode && handleSaveAndAddAnother()" class="item-form">
+  <form ref="inventoryForm" @submit.prevent="saveItem" @keydown.ctrl.enter="(e) => { if (!isEditMode) { e.preventDefault(); handleSaveAndAddAnother() } }" class="item-form">
     <div class="form-group">
       <label for="title">Title</label>
       <input id="title" v-model="item.title" type="text" required />
