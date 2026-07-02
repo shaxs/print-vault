@@ -5,6 +5,7 @@ import APIService from '@/services/APIService.js'
 import MainHeader from '../components/MainHeader.vue'
 import InventoryList from '../components/InventoryList.vue'
 import ColumnConfigModal from '../components/ColumnConfigModal.vue'
+import ImportInventoryModal from '../components/ImportInventoryModal.vue'
 
 const route = useRoute()
 const router = useRouter()
@@ -41,6 +42,7 @@ const inventoryItems = ref([])
 const searchText = ref('')
 const isFilterModalVisible = ref(false)
 const isColumnModalVisible = ref(false)
+const isImportModalVisible = ref(false)
 const activeFilters = ref({})
 const filterOptions = ref({ brands: [], partTypes: [], locations: [] })
 const temporaryFilters = reactive({ brand__name: '', part_type__name: '', location__name: '' })
@@ -158,9 +160,11 @@ onMounted(() => {
     <MainHeader
       title="Parts List"
       createUrl="/create"
+      show-import-button
       v-model="searchText"
       @open-filter="openFilterModal"
       @open-columns="isColumnModalVisible = true"
+      @open-import="isImportModalVisible = true"
     />
     <div class="filter-indicator" v-if="isFilterActive">
       <span>Filters are active.</span>
@@ -175,6 +179,12 @@ onMounted(() => {
         :visible-columns="visibleColumns"
         @close="isColumnModalVisible = false"
         @save="saveColumns"
+      />
+
+      <ImportInventoryModal
+        :show="isImportModalVisible"
+        @close="isImportModalVisible = false"
+        @imported="loadInventory"
       />
 
       <div v-if="isFilterModalVisible" class="modal-overlay" @click="isFilterModalVisible = false">

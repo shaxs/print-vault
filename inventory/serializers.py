@@ -811,10 +811,11 @@ class ProjectBOMItemSerializer(serializers.ModelSerializer):
     def get_allocation_status(self, obj):
         if obj.status == 'needs_purchase':
             return 'needs_purchase'
-        if not obj.inventory_item:
+        if not obj.inventory_item_id:
             return 'unlinked'
         inv = obj.inventory_item
-        # Reservation model: inv.quantity already deducts active BOM allocations.
+        if inv is None:
+            return 'unlinked'
         qty_available = inv.quantity
         if qty_available < 0:
             return 'overallocated'

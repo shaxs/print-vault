@@ -29,6 +29,14 @@ export default {
     return apiClient.delete(`inventoryitems/${id}/`)
   },
 
+  importInventoryItems(file) {
+    const formData = new FormData()
+    formData.append('file', file)
+    return apiClient.post('inventoryitems/import/', formData, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    })
+  },
+
   // Printers
   getPrinters(params) {
     return apiClient.get('printers/', { params })
@@ -402,6 +410,14 @@ export default {
   },
   getShoppingList() {
     return apiClient.get('projectbomitems/shopping_list/')
+  },
+  importBOMItems(projectId, file) {
+    const formData = new FormData()
+    formData.append('project', projectId)
+    formData.append('file', file)
+    return apiClient.post('projectbomitems/import/', formData, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    })
   },
   getInventoryAllocation(inventoryItemId) {
     return apiClient.get(`inventoryitems/${inventoryItemId}/allocation/`)

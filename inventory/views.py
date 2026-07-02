@@ -7,11 +7,13 @@ import tempfile
 import hashlib
 import json
 import logging
+from decimal import Decimal, InvalidOperation
 from io import BytesIO, StringIO
 from datetime import date, timedelta
 from django.http import HttpResponse
 from django.utils import timezone
 from rest_framework import viewsets, filters, mixins
+from rest_framework.parsers import MultiPartParser
 from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
 from rest_framework import status
@@ -2553,6 +2555,113 @@ class InventoryItemViewSet(viewsets.ModelViewSet):
             'closed_projects': closed_projects,
         })
 
+    @action(detail=False, methods=['post'], url_path='import', parser_classes=[MultiPartParser])
+    def import_items(self, request):
+        """
+        POST /api/inventoryitems/import/
+        Bulk-import inventory items from a CSV file upload.
+
+        Accepts multipart/form-data with a single 'file' field (CSV).
+
+        CSV columns (header row required):
+            title (required), brand, part_type, location, vendor,
+            vendor_link, model, quantity, cost, notes
+
+        Returns:
+            { created: int, skipped: int, errors: [{row, title, error}] }
+        """
+        uploaded = request.FILES.get('file')
+        if not uploaded:
+            return Response({'error': 'No file provided. Send a CSV as multipart field "file".'}, status=400)
+
+        filename = uploaded.name.lower()
+        if not filename.endswith('.csv'):
+            return Response({'error': 'Only CSV files are supported.'}, status=400)
+
+        try:
+            text = uploaded.read().decode('utf-8-sig')  # utf-8-sig strips BOM from Excel-saved CSVs
+        except UnicodeDecodeError:
+            return Response({'error': 'File encoding not supported. Save the CSV as UTF-8.'}, status=400)
+
+        reader = csv.DictReader(StringIO(text))
+
+        if reader.fieldnames is None:
+            return Response({'error': 'CSV file is empty or has no header row.'}, status=400)
+
+        # Normalise header names: strip whitespace, lowercase
+        normalised_headers = [h.strip().lower() for h in reader.fieldnames]
+        if 'title' not in normalised_headers:
+            return Response(
+                {'error': 'CSV must have a "title" column. Check the header row.'},
+                status=400,
+            )
+
+        created_count = 0
+        skipped_count = 0
+        errors = []
+
+        for row_num, row in enumerate(reader, start=2):  # row 1 = header
+            # Normalise keys
+            row = {k.strip().lower(): (v.strip() if v else '') for k, v in row.items()}
+
+            title = row.get('title', '').strip()
+            if not title:
+                errors.append({'row': row_num, 'title': '', 'error': 'Missing required field: title'})
+                continue
+
+            # Resolve FK lookups — get_or_create by name (blank = null)
+            def _fk(model_class, name_val):
+                if not name_val:
+                    return None
+                obj, _ = model_class.objects.get_or_create(name=name_val)
+                return obj
+
+            brand = _fk(Brand, row.get('brand', ''))
+            part_type = _fk(PartType, row.get('part_type', ''))
+            location = _fk(Location, row.get('location', ''))
+            vendor = _fk(Vendor, row.get('vendor', ''))
+
+            # Parse numeric fields safely
+            raw_qty = row.get('quantity', '')
+            try:
+                quantity = int(raw_qty) if raw_qty else 1
+            except ValueError:
+                errors.append({'row': row_num, 'title': title, 'error': f'Invalid quantity: {raw_qty!r}'})
+                continue
+
+            raw_cost = row.get('cost', '').strip()
+            try:
+                cost = Decimal(raw_cost) if raw_cost else None
+            except (InvalidOperation, ValueError):
+                errors.append({'row': row_num, 'title': title, 'error': f'Invalid cost: {raw_cost!r}'})
+                continue
+
+            item, created = InventoryItem.objects.get_or_create(
+                title=title,
+                defaults={
+                    'brand': brand,
+                    'part_type': part_type,
+                    'location': location,
+                    'vendor': vendor,
+                    'vendor_link': row.get('vendor_link', '') or None,
+                    'model': row.get('model', '') or None,
+                    'quantity': quantity,
+                    'cost': cost,
+                    'notes': row.get('notes', '') or None,
+                },
+            )
+
+            if created:
+                created_count += 1
+            else:
+                skipped_count += 1
+
+        return Response(
+            {'created': created_count, 'skipped': skipped_count, 'errors': errors},
+            status=200,
+        )
+
+
 class PrinterViewSet(viewsets.ModelViewSet):
     queryset = Printer.objects.select_related('manufacturer').prefetch_related('mods__files', 'associated_projects').all().order_by('title')
     serializer_class = PrinterSerializer
@@ -2734,6 +2843,11 @@ class ProjectBOMItemViewSet(viewsets.ModelViewSet):
         if new_inv_id and new_is_linked:
             self._adjust_inv(new_inv_id, -new_qty)
 
+        # Refresh the in-memory inventory_item so the serializer response reflects
+        # the post-update quantity (bulk UPDATE bypasses the ORM instance cache).
+        if instance.inventory_item_id:
+            instance.inventory_item.refresh_from_db(fields=['quantity', 'is_consumable', 'low_stock_threshold'])
+
     @action(detail=False, methods=['post'], url_path='reorder')
     def reorder(self, request):
         """Bulk update sort_order for BOM items within a project."""
@@ -2826,6 +2940,108 @@ class ProjectBOMItemViewSet(viewsets.ModelViewSet):
             })
 
         return Response(rows)
+
+    @action(detail=False, methods=['post'], url_path='import', parser_classes=[MultiPartParser])
+    def import_bom(self, request):
+        """
+        POST /api/projectbomitems/import/
+        Multipart fields:
+          - project  (int, required) — project PK
+          - file     (.csv, required)
+        CSV columns: description, quantity_needed, status, notes
+        Returns: { created, skipped, errors: [{row, description, error}] }
+        """
+        project_id = request.data.get('project')
+        if not project_id:
+            return Response({'error': 'project field is required'}, status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            project = Project.objects.get(pk=project_id)
+        except Project.DoesNotExist:
+            return Response({'error': f'Project {project_id} not found'}, status=status.HTTP_404_NOT_FOUND)
+
+        uploaded = request.FILES.get('file')
+        if not uploaded:
+            return Response({'error': 'file is required'}, status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            text = uploaded.read().decode('utf-8-sig')
+        except UnicodeDecodeError:
+            return Response({'error': 'Could not decode file — ensure it is UTF-8 encoded'}, status=status.HTTP_400_BAD_REQUEST)
+
+        reader = csv.DictReader(StringIO(text))
+        if not reader.fieldnames:
+            return Response({'error': 'CSV file appears to be empty'}, status=status.HTTP_400_BAD_REQUEST)
+
+        # Normalise headers to lowercase stripped
+        fieldnames_norm = [f.strip().lower() for f in reader.fieldnames]
+        if 'description' not in fieldnames_norm:
+            return Response(
+                {'error': 'CSV must contain a "description" column'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        VALID_STATUSES = {'unlinked', 'needs_purchase'}
+
+        # Starting sort_order = current max + 1 for this project
+        existing_max = ProjectBOMItem.objects.filter(project=project).aggregate(
+            m=models.Max('sort_order')
+        )['m'] or 0
+        next_sort = existing_max + 1
+
+        created_count = 0
+        skipped_count = 0
+        errors = []
+
+        for row_num, raw_row in enumerate(reader, start=2):
+            row = {k.strip().lower(): (v.strip() if v else '') for k, v in raw_row.items()}
+
+            description = row.get('description', '').strip()
+            if not description:
+                skipped_count += 1
+                continue
+
+            # quantity_needed
+            qty_raw = row.get('quantity_needed', '').strip()
+            if qty_raw:
+                try:
+                    quantity_needed = int(qty_raw)
+                    if quantity_needed < 1:
+                        raise ValueError()
+                except (ValueError, TypeError):
+                    errors.append({
+                        'row': row_num,
+                        'description': description,
+                        'error': f'Invalid quantity_needed "{qty_raw}" — must be a positive integer',
+                    })
+                    continue
+            else:
+                quantity_needed = 1
+
+            # status
+            item_status = row.get('status', '').strip().lower() or 'unlinked'
+            if item_status not in VALID_STATUSES:
+                errors.append({
+                    'row': row_num,
+                    'description': description,
+                    'error': f'Invalid status "{item_status}" — must be one of: {", ".join(sorted(VALID_STATUSES))}',
+                })
+                continue
+
+            notes = row.get('notes', '').strip()
+
+            ProjectBOMItem.objects.create(
+                project=project,
+                description=description,
+                quantity_needed=quantity_needed,
+                status=item_status,
+                notes=notes,
+                sort_order=next_sort,
+            )
+            next_sort += 1
+            created_count += 1
+
+        return Response({'created': created_count, 'skipped': skipped_count, 'errors': errors})
 
 
 class LowStockItemsViewSet(ReadOnlyViewSet):

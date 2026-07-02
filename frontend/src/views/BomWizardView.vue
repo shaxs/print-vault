@@ -14,6 +14,7 @@ import APIService from '../services/APIService'
 import DataTable from '../components/DataTable.vue'
 import AddBOMItemModal from '../components/AddBOMItemModal.vue'
 import QuickAddInventoryModal from '../components/QuickAddInventoryModal.vue'
+import InlineBOMLinker from '../components/InlineBOMLinker.vue'
 
 const route = useRoute()
 const router = useRouter()
@@ -213,6 +214,20 @@ const handleWizardItemUpdated = (updatedItem) => {
   wizardEditItem.value = null
 }
 
+// ── Quick Add to Inventory + Link ────────────────────────────────────────────
+const quickAddBomItem = ref(null)
+const showQuickAddModal = ref(false)
+
+const openQuickAdd = (item) => {
+  quickAddBomItem.value = item
+  showQuickAddModal.value = true
+}
+
+const handleWizardBOMLinked = (updatedItem) => {
+  // Inline-link: update item in-place (same helper as quick-add)
+  handleWizardItemUpdated(updatedItem)
+}
+
 // ── Done ─────────────────────────────────────────────────────────────────────
 const goBack = () => {
   router.push({ name: 'project-detail', params: { id: projectId.value } })
@@ -256,6 +271,7 @@ const allItems = computed(() =>
 
 // ── Status filter ──────────────────────────────────────────────────────────────
 const statusFilter = ref('all')
+const itemSearch = ref('')
 
 const STATUS_FILTERS = [
   { value: 'all', label: 'All' },
@@ -282,8 +298,12 @@ const activeStatusFilters = computed(() =>
 )
 
 const filteredItems = computed(() => {
-  if (statusFilter.value === 'all') return allItems.value
-  return allItems.value.filter((item) => getItemStatus(item) === statusFilter.value)
+  let items = statusFilter.value === 'all' ? allItems.value : allItems.value.filter((item) => getItemStatus(item) === statusFilter.value)
+  if (itemSearch.value.trim()) {
+    const q = itemSearch.value.trim().toLowerCase()
+    items = items.filter((item) => item.description?.toLowerCase().includes(q))
+  }
+  return items
 })
 
 onMounted(async () => {
@@ -436,6 +456,12 @@ onMounted(async () => {
               — showing {{ filteredItems.length }}
             </span>
           </h3>
+          <input
+            v-model="itemSearch"
+            type="text"
+            class="bom-search-input"
+            placeholder="Filter items…"
+          />
         </div>
 
         <!-- Status filter chips -->
@@ -474,12 +500,21 @@ onMounted(async () => {
           </template>
           <template #cell-inventory_item_title="{ item }">
             <span v-if="item.inventory_item_title" class="cell-truncate" :title="item.inventory_item_title">{{ item.inventory_item_title }}</span>
-            <a
+            <span
               v-else-if="item.status === 'needs_purchase'"
-              class="bom-quick-add-link"
+              class="bom-action-trigger"
               @click.stop="openQuickAdd(item)"
-            >Quick add inventory item</a>
-            <span v-else class="text-muted">—</span>
+            >+ Quick add to inventory</span>
+            <div v-else class="bom-unlinked-actions">
+              <InlineBOMLinker
+                :bom-item="item"
+                @linked="handleWizardBOMLinked"
+              />
+              <span
+                class="bom-action-trigger"
+                @click.stop="openQuickAdd(item)"
+              >+ Quick add</span>
+            </div>
           </template>
           <template #cell-status="{ item }">
             <span :class="['status-badge', getStatusClass(item.allocation_status ?? item.status)]">
@@ -820,12 +855,32 @@ onMounted(async () => {
   padding: 0.75rem 1.25rem;
   border-bottom: 1px solid var(--color-border);
   background: var(--color-background-mute);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
 }
 
 .bom-table-header h3 {
   margin: 0;
   font-size: 1rem;
   color: var(--color-heading);
+}
+
+.bom-search-input {
+  background: var(--color-background);
+  border: 1px solid var(--color-border);
+  border-radius: 4px;
+  color: var(--color-text);
+  font-size: 0.85rem;
+  padding: 0.3rem 0.6rem;
+  width: 160px;
+  outline: none;
+}
+
+.bom-search-input:focus {
+  border-color: var(--color-border);
+  box-shadow: none;
 }
 
 .filter-count-hint {
@@ -956,14 +1011,21 @@ onMounted(async () => {
 }
 .btn-edit-row:hover { background-color: #0b5ed7; }
 
-.bom-quick-add-link {
-  color: var(--color-heading);
+.bom-action-trigger {
+  color: var(--color-text-soft);
+  font-size: 0.85rem;
+  text-decoration: underline dotted;
   cursor: pointer;
-  text-decoration: none;
+  transition: color 0.15s;
+  white-space: nowrap;
 }
-.bom-quick-add-link:hover {
+.bom-action-trigger:hover {
   color: var(--color-heading);
-  text-decoration: underline;
+}
+.bom-unlinked-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.6rem;
 }
 
 .btn-quick-add {

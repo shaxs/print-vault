@@ -10,6 +10,8 @@ import AddBOMItemModal from '../components/AddBOMItemModal.vue'
 import InfoTooltip from '../components/InfoTooltip.vue'
 import DeleteProjectModal from '../components/DeleteProjectModal.vue'
 import QuickAddInventoryModal from '../components/QuickAddInventoryModal.vue'
+import InlineBOMLinker from '../components/InlineBOMLinker.vue'
+import ImportBOMModal from '../components/ImportBOMModal.vue'
 
 const route = useRoute()
 const router = useRouter()
@@ -177,6 +179,7 @@ const BOM_CHIP_FILTERS = [
 ]
 
 const bomStatusFilter = ref('all')
+const bomSearch = ref('')
 
 const getBomChipStatus = (item) => item.allocation_status ?? item.status ?? 'unlinked'
 
@@ -195,10 +198,15 @@ const activeBomChipFilters = computed(() =>
 )
 
 const filteredBomItems = computed(() => {
-  if (bomStatusFilter.value === 'all') return bomItemsWithIndex.value
-  return bomItemsWithIndex.value.filter(
-    (item) => getBomChipStatus(item) === bomStatusFilter.value,
-  )
+  let items = bomItemsWithIndex.value
+  if (bomStatusFilter.value !== 'all') {
+    items = items.filter((item) => getBomChipStatus(item) === bomStatusFilter.value)
+  }
+  if (bomSearch.value.trim()) {
+    const q = bomSearch.value.trim().toLowerCase()
+    items = items.filter((item) => item.description?.toLowerCase().includes(q))
+  }
+  return items
 })
 
 const handleInventoryAdded = async () => {
@@ -210,6 +218,7 @@ const handleInventoryAdded = async () => {
 
 // ── BOM ──────────────────────────────────────────────────────────────────────
 const isAddBOMModalVisible = ref(false)
+const isBOMImportModalVisible = ref(false)
 const isDeleteProjectModalVisible = ref(false)
 
 const linkedBOMCount = computed(() => {
@@ -228,6 +237,12 @@ const showQuickAddModal = ref(false)
 const openQuickAdd = (item) => {
   quickAddBomItem.value = item
   showQuickAddModal.value = true
+}
+
+const handleBOMLinked = (updatedBomItem) => {
+  // Inline-link success: splice the updated item into project.bom_items
+  const idx = project.value?.bom_items?.findIndex((b) => b.id === updatedBomItem.id)
+  if (idx >= 0) project.value.bom_items.splice(idx, 1, updatedBomItem)
 }
 
 const bomHeaders = computed(() => [
@@ -546,7 +561,14 @@ onMounted(fetchProject)
                   <strong>not both</strong>.
                 </InfoTooltip>
               </h3>
-              <div class="bom-header-actions">
+              <div class="bom-header-right">
+                <input
+                  v-model="bomSearch"
+                  type="text"
+                  class="bom-search-input"
+                  placeholder="Filter BOM…"
+                />
+                <div class="bom-header-actions">
                 <button
                   type="button"
                   class="btn btn-sm btn-secondary"
@@ -556,11 +578,19 @@ onMounted(fetchProject)
                 </button>
                 <button
                   type="button"
+                  class="btn btn-sm btn-secondary"
+                  @click="isBOMImportModalVisible = true"
+                >
+                  Import CSV
+                </button>
+                <button
+                  type="button"
                   class="btn btn-sm btn-primary"
                   @click="isAddBOMModalVisible = true"
                 >
                   Add Item
                 </button>
+              </div>
               </div>
             </div>
             <div class="card-body table-card-body">
@@ -622,12 +652,21 @@ onMounted(fetchProject)
                     :title="item.inventory_item_title"
                     @click="viewInventoryItem(item.inventory_item)"
                   >{{ item.inventory_item_title }}</span>
-                  <a
+                  <span
                     v-else-if="item.status === 'needs_purchase'"
-                    class="table-link grey-link"
+                    class="bom-action-trigger"
                     @click.stop="openQuickAdd(item)"
-                  >Quick add inventory item</a>
-                  <span v-else class="text-muted">—</span>
+                  >+ Quick add to inventory</span>
+                  <div v-else class="bom-unlinked-actions">
+                    <InlineBOMLinker
+                      :bom-item="item"
+                      @linked="handleBOMLinked"
+                    />
+                    <span
+                      class="bom-action-trigger"
+                      @click.stop="openQuickAdd(item)"
+                    >+ Quick add</span>
+                  </div>
                 </template>
 
                 <!-- Allocation status badge -->
@@ -789,12 +828,21 @@ onMounted(fetchProject)
       @confirm="handleDeleteProjectConfirm"
     />
 
+    <!-- BOM CSV import modal -->
+    <ImportBOMModal
+      v-if="project"
+      :show="isBOMImportModalVisible"
+      :project-id="project.id"
+      @close="isBOMImportModalVisible = false"
+      @imported="isBOMImportModalVisible = false; fetchProject()"
+    />
+
     <!-- Quick Add to Inventory + Link modal -->
     <QuickAddInventoryModal
       :show="showQuickAddModal"
       :bom-item="quickAddBomItem"
       @close="showQuickAddModal = false; quickAddBomItem = null"
-      @linked="() => { showQuickAddModal = false; quickAddBomItem = null; fetchProject() }"
+      @linked="(updatedBomItem) => { showQuickAddModal = false; quickAddBomItem = null; handleBOMLinked(updatedBomItem) }"
     />
   </div>
 </template>
@@ -1244,6 +1292,23 @@ onMounted(fetchProject)
   color: var(--color-heading);
   text-decoration: underline;
 }
+/* BOM cell action triggers — matches InlineBOMLinker trigger style */
+.bom-action-trigger {
+  color: var(--color-text-soft);
+  font-size: 0.85rem;
+  text-decoration: underline dotted;
+  cursor: pointer;
+  transition: color 0.15s;
+  white-space: nowrap;
+}
+.bom-action-trigger:hover {
+  color: var(--color-heading);
+}
+.bom-unlinked-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.6rem;
+}
 /* DataTable borderless style for inventory section */
 .borderless-table {
   width: 100%;
@@ -1457,6 +1522,28 @@ onMounted(fetchProject)
 
 .bom-card-header h3 {
   margin: 0;
+}
+
+.bom-header-right {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.bom-search-input {
+  background: var(--color-background);
+  border: 1px solid var(--color-border);
+  border-radius: 4px;
+  color: var(--color-text);
+  font-size: 0.85rem;
+  padding: 0.3rem 0.6rem;
+  width: 160px;
+  outline: none;
+}
+
+.bom-search-input:focus {
+  border-color: var(--color-border);
+  box-shadow: none;
 }
 
 .bom-header-actions {

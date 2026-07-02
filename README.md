@@ -255,10 +255,10 @@ git pull origin main
 docker compose down
 
 # Rebuild with latest code using --no-cache (use sudo if you get permission errors)
-docker compose up -d --build --no-cache
+docker compose build --no-cache && docker compose up -d
 
 # If you get "permission denied" errors for data/postgres:
-sudo docker compose up -d --build --no-cache
+sudo docker compose build --no-cache && sudo docker compose up -d
 
 # Check that all containers started successfully
 docker compose ps
