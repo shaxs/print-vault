@@ -293,6 +293,16 @@ const handleSaveAndAddAnother = () => {
   saveItem()
 }
 
+const cancelForm = () => {
+  if (isEditMode.value) {
+    router.push(`/item/${item.value.id}`)
+  } else if (window.history.state?.back) {
+    router.back()
+  } else {
+    router.push('/inventory')
+  }
+}
+
 onMounted(async () => {
   try {
     const [partTypesRes, brandsRes, locationsRes, vendorsRes, projectsRes] = await Promise.all([
@@ -314,7 +324,7 @@ onMounted(async () => {
 </script>
 
 <template>
-  <form ref="inventoryForm" @submit.prevent="saveItem" class="item-form">
+  <form ref="inventoryForm" @submit.prevent="saveItem" @keydown.ctrl.enter="(e) => { if (!isEditMode) { e.preventDefault(); handleSaveAndAddAnother() } }" class="item-form">
     <div class="form-group">
       <label for="title">Title</label>
       <input id="title" v-model="item.title" type="text" required />
@@ -442,6 +452,14 @@ onMounted(async () => {
     </div>
 
     <div class="form-actions">
+      <button
+        type="button"
+        class="btn btn-secondary"
+        @click="cancelForm"
+      >
+        Cancel
+      </button>
+
       <!-- Edit mode: Show filtered navigation buttons -->
       <button
         v-if="isEditMode && canNavigateBack"
@@ -460,22 +478,19 @@ onMounted(async () => {
         Save + Next
       </button>
 
-      <!-- Always show Save button -->
-      <button type="submit" class="btn btn-primary">Save</button>
-
-      <!-- Create mode: Show Save + Add Another button -->
+      <!-- Create mode: Show Save + Add Another button (also triggered by Ctrl+Enter) -->
       <button
         v-if="!isEditMode"
         type="button"
         class="btn btn-success"
         @click="handleSaveAndAddAnother"
+        title="Save and add another item (Ctrl+Enter)"
       >
         Save + Add Another
       </button>
 
-      <RouterLink :to="isEditMode ? `/item/${item.id}` : '/'" class="btn btn-secondary">
-        Cancel
-      </RouterLink>
+      <!-- Always show Save button -->
+      <button type="submit" class="btn btn-primary">Save</button>
     </div>
   </form>
 </template>
