@@ -16,6 +16,7 @@ const headers = [
   { text: 'Part Type', value: 'partType' },
   { text: 'Location', value: 'location' },
   { text: 'Physical Stock', value: 'quantity' },
+  { text: 'Qty Available', value: 'qtyAvailable' },
   { text: 'Qty Allocated', value: 'qtyAllocated' },
   { text: 'Qty Needed', value: 'qtyNeeded' },
   { text: 'Cost', value: 'cost' },
@@ -67,6 +68,9 @@ const viewItem = (item) => {
     </template>
     <template #cell-quantity="{ item }">
       {{ Math.max(0, (item.quantity ?? 0) + (item.qty_needed ?? 0)) }}
+    </template>
+    <template #cell-qtyAvailable="{ item }">
+      {{ Math.max(0, item.quantity ?? 0) }}
     </template>
     <template #cell-qtyAllocated="{ item }">
       <span v-if="item.qty_needed > 0" class="qty-allocated">{{ item.qty_needed }}</span>

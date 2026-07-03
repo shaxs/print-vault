@@ -16,6 +16,7 @@ const allInventoryColumns = ref([
   { text: 'Part Type', value: 'partType', defaultVisible: true },
   { text: 'Location', value: 'location', defaultVisible: true },
   { text: 'Physical Stock', value: 'quantity', defaultVisible: true },
+  { text: 'Qty Available', value: 'qtyAvailable', defaultVisible: false },
   { text: 'Qty Allocated', value: 'qtyAllocated', defaultVisible: true },
   { text: 'Qty Needed', value: 'qtyNeeded', defaultVisible: true },
   { text: 'Cost', value: 'cost', defaultVisible: false },
