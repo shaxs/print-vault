@@ -4492,8 +4492,9 @@ class TrackerFileViewSet(viewsets.ModelViewSet):
     def update_configuration(self, request, pk=None):
         """Custom endpoint to update file configuration (color, material, material_ids, quantity).
         
-        Primary/Accent files ALWAYS use tracker materials (no overrides).
-        Other/Multicolor/Clear files can have custom materials.
+        Primary/Accent files use tracker-level materials by default, but an explicit
+        material_ids payload sets a per-file override (material_override=True).
+        Other/Multicolor/Clear files always use custom materials.
         """
         import logging
         logger = logging.getLogger(__name__)
@@ -4505,35 +4506,37 @@ class TrackerFileViewSet(viewsets.ModelViewSet):
         file.color = new_color
         file.quantity = request.data.get('quantity', file.quantity)
         
+        material_ids_data = request.data.get('material_ids')
+        material_data = request.data.get('material')
+        
         # Handle materials based on color type
-        if new_color == 'Primary':
-            # Use tracker's primary material
-            if tracker.primary_material:
-                file.material_ids = [tracker.primary_material.id]
-                file.material = tracker.primary_material.name
-            elif tracker.primary_color:
-                # Fallback to hex color if no material set
-                file.material_ids = []
-                file.material = ''  # Empty string, not None (field doesn't allow null)
-        elif new_color == 'Accent':
-            # Use tracker's accent material
-            if tracker.accent_material:
-                file.material_ids = [tracker.accent_material.id]
-                file.material = tracker.accent_material.name
-            elif tracker.accent_color:
-                # Fallback to hex color if no material set
-                file.material_ids = []
-                file.material = ''  # Empty string, not None (field doesn't allow null)
+        if new_color in ('Primary', 'Accent'):
+            if material_ids_data:  # Explicit per-file override provided
+                file.material_ids = material_ids_data
+                file.material = material_data if material_data else ''
+                file.material_override = True
+            else:
+                # Fall back to tracker-level material
+                file.material_override = False
+                if new_color == 'Primary':
+                    if tracker.primary_material:
+                        file.material_ids = [tracker.primary_material.id]
+                        file.material = tracker.primary_material.name
+                    else:
+                        file.material_ids = []
+                        file.material = ''
+                else:  # Accent
+                    if tracker.accent_material:
+                        file.material_ids = [tracker.accent_material.id]
+                        file.material = tracker.accent_material.name
+                    else:
+                        file.material_ids = []
+                        file.material = ''
         else:
-            # Other/Multicolor/Clear - use custom materials if provided
-            material_data = request.data.get('material')
-            material_ids_data = request.data.get('material_ids')
-            
-            # Update material_ids if provided (even if it's an empty list or null)
+            # Other/Multicolor/Clear - always use custom materials
+            file.material_override = False
             if 'material_ids' in request.data:
                 file.material_ids = material_ids_data if material_ids_data else []
-            
-            # Update material string if provided
             if 'material' in request.data:
                 file.material = material_data if material_data else ''
         
