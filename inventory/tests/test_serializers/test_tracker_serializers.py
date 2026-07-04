@@ -40,7 +40,9 @@ class TestTrackerFileSerializer:
             'download_status', 'download_error', 'downloaded_at',
             'file_checksum', 'actual_file_size',
             # Material blueprint fields (Phase 10)
-            'material_ids', 'materials_display', 'material_override'
+            'material_ids', 'materials_display', 'material_override',
+            # Tracker file image thumbnail (PR #20)
+            'thumbnail'
         }
         assert set(serializer.data.keys()) == expected_fields
     
