@@ -29,6 +29,7 @@ router.register(r'reminders', views.ReminderViewSet, basename='reminders')
 router.register(r'low-stock', views.LowStockItemsViewSet, basename='lowstock')
 router.register(r'trackers', views.TrackerViewSet)  # Print Tracker endpoints
 router.register(r'tracker-files', views.TrackerFileViewSet)  # Tracker File endpoints
+router.register(r'tracker-file-images', views.TrackerFileImageViewSet)  # Tracker File Image endpoints
 
 urlpatterns = [
     path('admin/', admin.site.urls),

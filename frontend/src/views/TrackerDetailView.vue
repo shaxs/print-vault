@@ -4,6 +4,7 @@ import { useRoute, useRouter } from 'vue-router'
 import APIService from '@/services/APIService.js'
 import DeleteTrackerModal from '@/components/DeleteTrackerModal.vue'
 import BaseModal from '@/components/BaseModal.vue'
+import ModelViewer from '@/components/ModelViewer.vue'
 import Multiselect from 'vue-multiselect'
 import 'vue-multiselect/dist/vue-multiselect.css'
 
@@ -57,6 +58,129 @@ const isEditingPrimaryOrAccent = computed(() => {
 
 // Delete file state
 const deletingFile = ref(false)
+
+// Image management state
+const editModalTab = ref('config')
+const fileImages = ref([])
+const loadingImages = ref(false)
+const uploadingImage = ref(false)
+const imageDragOver = ref(false)
+const currentImageIndex = ref(0)
+
+const editFileHasImages = computed(() => fileImages.value.length > 0)
+const editFileHas3D = computed(() => editingFile.value && isPreviewableFile(editingFile.value))
+const editFileShowTabs = computed(() => editFileHasImages.value && editFileHas3D.value)
+
+const loadFileImages = async (fileId) => {
+  loadingImages.value = true
+  try {
+    const response = await APIService.getTrackerFileImages(fileId)
+    fileImages.value = response.data
+  } catch (e) {
+    console.error('Failed to load images:', e)
+    fileImages.value = []
+  }
+  loadingImages.value = false
+}
+
+const uploadFileImage = async (file) => {
+  if (!editingFile.value) return
+  uploadingImage.value = true
+  try {
+    const formData = new FormData()
+    formData.append('image', file)
+    await APIService.uploadTrackerFileImage(editingFile.value.id, formData)
+    await loadFileImages(editingFile.value.id)
+    // Refresh the tracker data so thumbnail updates in the file list
+    await fetchTracker()
+  } catch (e) {
+    console.error('Failed to upload image:', e)
+  }
+  uploadingImage.value = false
+}
+
+const deleteFileImage = async (imageId) => {
+  if (!confirm('Delete this image?')) return
+  try {
+    await APIService.deleteTrackerFileImage(imageId)
+    await loadFileImages(editingFile.value.id)
+    if (currentImageIndex.value >= fileImages.value.length) {
+      currentImageIndex.value = Math.max(0, fileImages.value.length - 1)
+    }
+    await fetchTracker()
+  } catch (e) {
+    console.error('Failed to delete image:', e)
+  }
+}
+
+const moveImage = async (image, direction) => {
+  const idx = fileImages.value.indexOf(image)
+  const swapIdx = idx + direction
+  if (swapIdx < 0 || swapIdx >= fileImages.value.length) return
+  const other = fileImages.value[swapIdx]
+  const tempOrder = image.order
+  try {
+    await APIService.updateTrackerFileImage(image.id, { order: other.order })
+    await APIService.updateTrackerFileImage(other.id, { order: tempOrder })
+    await loadFileImages(editingFile.value.id)
+    await fetchTracker()
+  } catch (e) {
+    console.error('Failed to reorder:', e)
+  }
+}
+
+const handleImageDrop = (event) => {
+  imageDragOver.value = false
+  const files = Array.from(event.dataTransfer.files).filter((f) =>
+    f.type.startsWith('image/'),
+  )
+  files.forEach((f) => uploadFileImage(f))
+}
+
+const handleImageFileSelect = (event) => {
+  const files = Array.from(event.target.files)
+  files.forEach((f) => uploadFileImage(f))
+  event.target.value = ''
+}
+
+const prevImage = () => {
+  if (currentImageIndex.value > 0) currentImageIndex.value--
+}
+const nextImage = () => {
+  if (currentImageIndex.value < fileImages.value.length - 1) currentImageIndex.value++
+}
+
+const getFileHexColor = (file) => {
+  const style = getColorBadgeStyle(file?.color, file)
+  return style?.backgroundColor || ''
+}
+
+// Reactive color for the edit modal preview — updates when form color changes
+const editPreviewColor = computed(() => {
+  const formColor = editFileForm.value.color
+  if (!formColor) return ''
+  // Reuse the badge style resolver with the form's color choice
+  const style = getColorBadgeStyle(formColor, editingFile.value)
+  return style?.backgroundColor || ''
+})
+
+const isPreviewableFile = (file) => {
+  if (!file.filename) return false
+  const ext = file.filename.toLowerCase().split('.').pop()
+  return ext === 'stl' || ext === '3mf'
+}
+
+const getStlUrl = (file) => {
+  if (file.local_file) return file.local_file
+  if (file.github_url) {
+    let url = file.github_url
+    if (url.includes('github.com') && url.includes('/blob/')) {
+      url = url.replace('github.com', 'raw.githubusercontent.com').replace('/blob/', '/')
+    }
+    return url
+  }
+  return ''
+}
 
 // Edit tracker materials state
 const isEditTrackerModalVisible = ref(false)
@@ -650,6 +774,9 @@ const openEditFileModal = (file) => {
     quantity: file.quantity || 1,
   }
   isEditFileModalVisible.value = true
+  currentImageIndex.value = 0
+  editModalTab.value = 'images'
+  loadFileImages(file.id)
 }
 
 // Edit tracker material functions
@@ -1122,6 +1249,13 @@ onMounted(() => {
                         @change="toggleFileCompletion(file)"
                         class="file-checkbox"
                       />
+                      <img
+                        v-if="file.thumbnail"
+                        :src="file.thumbnail"
+                        class="file-thumbnail"
+                        alt=""
+                        @click.stop="openEditFileModal(file)"
+                      />
                       <a
                         @click="openFile(file)"
                         :class="{ 'line-through': file.status === 'completed' }"
@@ -1255,6 +1389,7 @@ onMounted(() => {
                         ></div>
                       </div>
                     </div>
+
                   </div>
                 </div>
               </div>
@@ -1464,9 +1599,79 @@ onMounted(() => {
 
         <!-- Edit File Modal -->
         <div v-if="isEditFileModalVisible" class="modal-overlay" @click="closeEditFileModal">
-          <div class="modal-form" @click.stop>
+          <div class="modal-form modal-form-wide" @click.stop>
             <h3>Edit File Configuration</h3>
             <p class="edit-filename">{{ editingFile?.filename }}</p>
+
+            <!-- Tab bar (shown when file has 3D preview available) -->
+            <div v-if="editFileHas3D" class="edit-modal-tabs">
+              <button @click="editModalTab = 'images'" :class="{ active: editModalTab === 'images' }">
+                Images{{ editFileHasImages ? ` (${fileImages.length})` : '' }}
+              </button>
+              <button @click="editModalTab = '3dviewer'" :class="{ active: editModalTab === '3dviewer' }">
+                3D Viewer
+              </button>
+            </div>
+
+            <!-- Images section (default tab, or only option when no 3D) -->
+            <div
+              v-if="editModalTab === 'images'"
+              class="file-images-section"
+              :class="{ 'drag-over': imageDragOver }"
+              @drop.prevent="handleImageDrop"
+              @dragover.prevent="imageDragOver = true"
+              @dragleave="imageDragOver = false"
+            >
+              <!-- Image gallery -->
+              <div v-if="fileImages.length > 0" class="image-gallery">
+                <button v-if="fileImages.length > 1" class="gallery-arrow gallery-arrow-left" @click="prevImage">&lsaquo;</button>
+                <div class="gallery-viewport">
+                  <img :src="fileImages[currentImageIndex]?.image" class="gallery-image" />
+                  <div class="gallery-counter">{{ currentImageIndex + 1 }} / {{ fileImages.length }}</div>
+                </div>
+                <button v-if="fileImages.length > 1" class="gallery-arrow gallery-arrow-right" @click="nextImage">&rsaquo;</button>
+              </div>
+
+              <!-- Image list with reorder/delete -->
+              <div v-if="fileImages.length > 0" class="image-list">
+                <div
+                  v-for="(img, index) in fileImages"
+                  :key="img.id"
+                  class="image-list-item"
+                  :class="{ 'image-list-active': index === currentImageIndex }"
+                  @click="currentImageIndex = index"
+                >
+                  <img :src="img.image" class="image-thumb-small" />
+                  <span class="image-caption">{{ img.caption || `Image ${index + 1}` }}</span>
+                  <div class="image-actions">
+                    <button @click.stop="moveImage(img, -1)" :disabled="index === 0" class="btn-icon" title="Move up">&#9650;</button>
+                    <button @click.stop="moveImage(img, 1)" :disabled="index === fileImages.length - 1" class="btn-icon" title="Move down">&#9660;</button>
+                    <button @click.stop="deleteFileImage(img.id)" class="btn-icon btn-danger-icon" title="Delete">&#10005;</button>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Drop zone / upload -->
+              <div class="image-drop-zone">
+                <p v-if="uploadingImage">Uploading...</p>
+                <p v-else>
+                  Drop images here or
+                  <label class="file-input-label">
+                    browse
+                    <input type="file" accept="image/*" multiple @change="handleImageFileSelect" hidden />
+                  </label>
+                </p>
+              </div>
+            </div>
+
+            <!-- 3D Viewer section -->
+            <div
+              v-if="editModalTab === '3dviewer' && editFileHas3D"
+              class="stl-preview-modal"
+            >
+              <ModelViewer :url="getStlUrl(editingFile)" :color="editPreviewColor" />
+            </div>
+
             <form @submit.prevent="saveFileConfiguration">
               <div class="form-group">
                 <label>Color</label>
@@ -2662,5 +2867,194 @@ onMounted(() => {
   border: 1px solid var(--color-border);
   border-radius: 4px;
   cursor: pointer;
+}
+
+/* STL Preview in edit modal */
+.stl-preview-modal {
+  width: 100%;
+  height: 300px;
+  margin-bottom: 16px;
+  border-radius: 6px;
+  overflow: hidden;
+  border: 1px solid var(--color-border);
+}
+
+/* Wider modal for images + form */
+.modal-form-wide {
+  max-width: 600px;
+}
+
+/* File thumbnail in list */
+.file-thumbnail {
+  width: 128px;
+  height: 128px;
+  object-fit: contain;
+  border-radius: 4px;
+  flex-shrink: 0;
+  background: var(--color-background);
+  cursor: pointer;
+}
+
+/* Edit modal tabs */
+.edit-modal-tabs {
+  display: flex;
+  gap: 0;
+  margin-bottom: 12px;
+  border-bottom: 1px solid var(--color-border);
+}
+.edit-modal-tabs button {
+  background: none;
+  border: none;
+  padding: 8px 16px;
+  cursor: pointer;
+  color: var(--color-text);
+  font-size: 0.9rem;
+  border-bottom: 3px solid transparent;
+  margin-bottom: -1px;
+}
+.edit-modal-tabs button.active {
+  border-bottom-color: var(--color-accent, #4fc3f7);
+  color: var(--color-heading);
+  font-weight: 600;
+}
+
+/* Images section */
+.file-images-section {
+  margin-bottom: 16px;
+  border: 2px dashed transparent;
+  border-radius: 6px;
+  transition: border-color 0.2s;
+}
+.file-images-section.drag-over {
+  border-color: var(--color-accent, #4fc3f7);
+  background: rgba(79, 195, 247, 0.05);
+}
+
+/* Image gallery */
+.image-gallery {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+.gallery-viewport {
+  flex: 1;
+  position: relative;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  background: var(--color-background);
+  border-radius: 6px;
+  min-height: 200px;
+  max-height: 250px;
+  overflow: hidden;
+}
+.gallery-image {
+  max-width: 100%;
+  max-height: 250px;
+  object-fit: contain;
+}
+.gallery-counter {
+  position: absolute;
+  bottom: 8px;
+  right: 12px;
+  background: rgba(0, 0, 0, 0.6);
+  color: #fff;
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-size: 0.75rem;
+}
+.gallery-arrow {
+  background: var(--color-background-soft);
+  border: 1px solid var(--color-border);
+  color: var(--color-text);
+  font-size: 1.5rem;
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+.gallery-arrow:hover {
+  background: var(--color-background-mute);
+}
+
+/* Image list */
+.image-list {
+  max-height: 160px;
+  overflow-y: auto;
+  margin-bottom: 8px;
+}
+.image-list-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 6px;
+  border-radius: 4px;
+  cursor: pointer;
+}
+.image-list-item:hover {
+  background: var(--color-background-mute);
+}
+.image-list-active {
+  background: var(--color-background-mute);
+  outline: 1px solid var(--color-border);
+}
+.image-thumb-small {
+  width: 32px;
+  height: 32px;
+  object-fit: cover;
+  border-radius: 3px;
+  flex-shrink: 0;
+}
+.image-caption {
+  flex: 1;
+  font-size: 0.8rem;
+  color: var(--color-text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.image-actions {
+  display: flex;
+  gap: 2px;
+  flex-shrink: 0;
+}
+.btn-icon {
+  background: none;
+  border: none;
+  color: var(--color-text);
+  cursor: pointer;
+  padding: 2px 4px;
+  font-size: 0.75rem;
+  border-radius: 3px;
+}
+.btn-icon:hover {
+  background: var(--color-background-soft);
+}
+.btn-icon:disabled {
+  opacity: 0.3;
+  cursor: default;
+}
+.btn-danger-icon {
+  color: #ef4444;
+}
+
+/* Drop zone */
+.image-drop-zone {
+  border: 2px dashed var(--color-border);
+  border-radius: 6px;
+  padding: 12px;
+  text-align: center;
+  color: var(--color-text-mute);
+  font-size: 0.85rem;
+}
+.file-input-label {
+  color: var(--color-accent, #4fc3f7);
+  cursor: pointer;
+  text-decoration: underline;
 }
 </style>

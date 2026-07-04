@@ -1425,11 +1425,49 @@ def cleanup_project_dismissals(sender, instance, **kwargs):
             ).delete()
 
 
+class TrackerFileImage(models.Model):
+    """
+    Images attached to a TrackerFile (screenshots, renders, stl-thumb output, etc.).
+    Each TrackerFile can have multiple images. The first image (by order) is used
+    as a thumbnail in the file list.
+    """
+    tracker_file = models.ForeignKey(
+        'TrackerFile',
+        on_delete=models.CASCADE,
+        related_name='images',
+        help_text="The tracker file this image belongs to"
+    )
+    image = models.ImageField(
+        upload_to='tracker_file_images/',
+        help_text="Image file"
+    )
+    caption = models.CharField(
+        max_length=255,
+        blank=True,
+        null=True,
+        help_text="Optional caption for this image"
+    )
+    order = models.PositiveIntegerField(
+        default=0,
+        help_text="Display order (lower numbers shown first)"
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['order', 'created_at']
+        verbose_name = 'Tracker File Image'
+        verbose_name_plural = 'Tracker File Images'
+
+    def __str__(self):
+        caption_text = self.caption or "No caption"
+        return f"{self.tracker_file.filename} - {caption_text}"
+
+
 class AlertDismissal(models.Model):
     """
     Track dismissed alerts (dashboard alerts, notifications, etc.).
     Used to prevent showing the same alert after user dismisses it.
-    
+
     State-based invalidation: When the underlying state changes (e.g., printer
     status changes from 'Under Repair' to 'Active' and back), the dismissal
     becomes invalid and the alert will reappear.
