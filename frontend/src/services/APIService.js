@@ -334,6 +334,22 @@ export default {
     return apiClient.delete(`tracker-files/${id}/`)
   },
 
+  // Tracker File Images
+  getTrackerFileImages(fileId) {
+    return apiClient.get(`tracker-files/${fileId}/images/`)
+  },
+  uploadTrackerFileImage(fileId, formData) {
+    return apiClient.post(`tracker-files/${fileId}/images/`, formData, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    })
+  },
+  updateTrackerFileImage(imageId, data) {
+    return apiClient.patch(`tracker-file-images/${imageId}/`, data)
+  },
+  deleteTrackerFileImage(imageId) {
+    return apiClient.delete(`tracker-file-images/${imageId}/`)
+  },
+
   // Manual tracker creation
   createManualTracker(data) {
     return apiClient.post('trackers/create-manual/', data)
