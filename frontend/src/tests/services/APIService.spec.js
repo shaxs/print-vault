@@ -70,6 +70,24 @@ describe('APIService', () => {
     })
   })
 
+  describe('Tracker File Images', () => {
+    it('should have getTrackerFileImages method', () => {
+      expect(typeof APIService.getTrackerFileImages).toBe('function')
+    })
+
+    it('should have uploadTrackerFileImage method', () => {
+      expect(typeof APIService.uploadTrackerFileImage).toBe('function')
+    })
+
+    it('should have updateTrackerFileImage method', () => {
+      expect(typeof APIService.updateTrackerFileImage).toBe('function')
+    })
+
+    it('should have deleteTrackerFileImage method', () => {
+      expect(typeof APIService.deleteTrackerFileImage).toBe('function')
+    })
+  })
+
   describe('Projects', () => {
     it('should have getProjects method', () => {
       expect(typeof APIService.getProjects).toBe('function')

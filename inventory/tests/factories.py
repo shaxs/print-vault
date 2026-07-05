@@ -11,7 +11,7 @@ from faker import Faker
 from inventory.models import (
     Brand, PartType, Location, Material, MaterialFeature, Vendor, Printer, Mod, ModFile,
     InventoryItem, Project, ProjectLink, ProjectFile, ProjectInventory, ProjectPrinters,
-    Tracker, TrackerFile, FilamentSpool, ProjectBOMItem
+    Tracker, TrackerFile, TrackerFileImage, FilamentSpool, ProjectBOMItem
 )
 
 fake = Faker()
@@ -375,6 +375,17 @@ class TrackerFileFactory(DjangoModelFactory):
     is_selected = True
     status = fuzzy.FuzzyChoice(['not_started', 'in_progress', 'completed'])
     printed_quantity = 0
+
+
+class TrackerFileImageFactory(DjangoModelFactory):
+    """Factory for TrackerFileImage model."""
+    class Meta:
+        model = TrackerFileImage
+
+    tracker_file = factory.SubFactory(TrackerFileFactory)
+    image = factory.django.ImageField(color='blue', width=64, height=64, format='PNG')
+    caption = factory.LazyAttribute(lambda _: fake.sentence(nb_words=3))
+    order = factory.Sequence(lambda n: n)
 
 
 # ============================================================================
