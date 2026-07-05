@@ -206,7 +206,10 @@ class TrackerFileImageSerializer(serializers.ModelSerializer):
     def create(self, validated_data):
         tracker_file_id = validated_data.pop('tracker_file_id', None)
         if tracker_file_id:
-            validated_data['tracker_file'] = TrackerFile.objects.get(id=tracker_file_id)
+            try:
+                validated_data['tracker_file'] = TrackerFile.objects.get(id=tracker_file_id)
+            except TrackerFile.DoesNotExist:
+                raise serializers.ValidationError({'tracker_file_id': 'Invalid tracker_file_id'})
         return super().create(validated_data)
 
 

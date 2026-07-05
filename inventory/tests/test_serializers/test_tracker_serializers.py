@@ -17,9 +17,10 @@ Coverage targets:
 """
 
 import pytest
-from inventory.serializers import TrackerFileSerializer, TrackerSerializer
+from rest_framework import serializers as drf_serializers
+from inventory.serializers import TrackerFileImageSerializer, TrackerFileSerializer, TrackerSerializer
 from inventory.tests.factories import (
-    TrackerFactory, TrackerFileFactory, ProjectFactory
+    TrackerFactory, TrackerFileFactory, TrackerFileImageFactory, ProjectFactory
 )
 
 
@@ -375,3 +376,32 @@ class TestEdgeCaseSerializers:
         assert data['completed_count'] == 0
         assert data['total_quantity'] == 0
         assert data['printed_quantity_total'] == 0
+
+
+@pytest.mark.django_db
+class TestTrackerFileImageSerializer:
+    """Test TrackerFileImageSerializer.create() FK resolution."""
+
+    def test_create_resolves_tracker_file_id(self):
+        """Test a valid tracker_file_id resolves to the correct TrackerFile."""
+        tracker_file = TrackerFileFactory()
+        serializer = TrackerFileImageSerializer(data={
+            'image': TrackerFileImageFactory.build().image,
+            'tracker_file_id': tracker_file.id,
+        })
+
+        assert serializer.is_valid(), serializer.errors
+        image = serializer.save()
+
+        assert image.tracker_file_id == tracker_file.id
+
+    def test_create_with_invalid_tracker_file_id_raises_validation_error(self):
+        """Test a non-existent tracker_file_id raises a 400-style ValidationError, not a 500."""
+        serializer = TrackerFileImageSerializer(data={
+            'image': TrackerFileImageFactory.build().image,
+            'tracker_file_id': 999999,
+        })
+
+        assert serializer.is_valid(), serializer.errors
+        with pytest.raises(drf_serializers.ValidationError):
+            serializer.save()

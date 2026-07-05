@@ -62,17 +62,14 @@ const deletingFile = ref(false)
 // Image management state
 const editModalTab = ref('config')
 const fileImages = ref([])
-const loadingImages = ref(false)
 const uploadingImage = ref(false)
 const imageDragOver = ref(false)
 const currentImageIndex = ref(0)
 
 const editFileHasImages = computed(() => fileImages.value.length > 0)
 const editFileHas3D = computed(() => editingFile.value && isPreviewableFile(editingFile.value))
-const editFileShowTabs = computed(() => editFileHasImages.value && editFileHas3D.value)
 
 const loadFileImages = async (fileId) => {
-  loadingImages.value = true
   try {
     const response = await APIService.getTrackerFileImages(fileId)
     fileImages.value = response.data
@@ -80,7 +77,6 @@ const loadFileImages = async (fileId) => {
     console.error('Failed to load images:', e)
     fileImages.value = []
   }
-  loadingImages.value = false
 }
 
 const uploadFileImage = async (file) => {
@@ -1254,6 +1250,7 @@ onMounted(() => {
                         :src="file.thumbnail"
                         class="file-thumbnail"
                         alt=""
+                        loading="lazy"
                         @click.stop="openEditFileModal(file)"
                       />
                       <a
@@ -3040,7 +3037,7 @@ onMounted(() => {
   cursor: default;
 }
 .btn-danger-icon {
-  color: #ef4444;
+  color: var(--color-red);
 }
 
 /* Drop zone */
