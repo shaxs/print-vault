@@ -23,9 +23,10 @@ RUN if [ -d .git ]; then \
       echo "unknown" > /code/.git_branch; \
     fi
 
-# Copy the new entrypoint script and make it executable
+# Copy the entrypoint scripts and make them executable
 COPY entrypoint.sh /
-RUN chmod +x /entrypoint.sh
+COPY entrypoint-qcluster.sh /
+RUN chmod +x /entrypoint.sh /entrypoint-qcluster.sh
 
 EXPOSE 8000
 

@@ -3,11 +3,19 @@ Tests for Tracker ViewSet API endpoints.
 
 Tests CRUD operations, custom actions, GitHub crawl integration, filtering, and search.
 """
+from unittest import mock
+
 import pytest
 from rest_framework import status
 from rest_framework.test import APIClient
-from inventory.models import Tracker, TrackerFile
-from inventory.tests.factories import TrackerFactory, TrackerFileFactory, ProjectFactory
+from inventory.models import Tracker, TrackerFile, TrackerFileImage
+from inventory.tests.factories import (
+    TrackerFactory,
+    TrackerFileFactory,
+    TrackerFileImageFactory,
+    MaterialFactory,
+    ProjectFactory,
+)
 
 
 @pytest.fixture
@@ -293,3 +301,192 @@ class TestTrackerProgress:
         assert 'progress_percentage' in response.data
         assert 'total_quantity' in response.data
         assert 'printed_quantity_total' in response.data
+
+
+# ============================================================================
+# REGENERATE THUMBNAILS ACTION TESTS
+# ============================================================================
+
+@pytest.mark.django_db
+class TestRegenerateThumbnailsAction:
+    """Test POST /api/trackers/{id}/regenerate-thumbnails/"""
+
+    def test_queues_regeneration_task(self, api_client):
+        tracker = TrackerFactory()
+
+        with mock.patch('django_q.tasks.async_task') as mock_async_task:
+            response = api_client.post(f'/api/trackers/{tracker.pk}/regenerate-thumbnails/')
+
+        assert response.status_code == status.HTTP_202_ACCEPTED
+        assert response.data['status'] == 'queued'
+        assert response.data['include_linked'] is False
+        mock_async_task.assert_called_once_with(
+            'inventory.tasks.regenerate_tracker_thumbnails_task', tracker.pk, False
+        )
+
+    def test_include_linked_flag_passed_through(self, api_client):
+        tracker = TrackerFactory()
+
+        with mock.patch('django_q.tasks.async_task') as mock_async_task:
+            response = api_client.post(
+                f'/api/trackers/{tracker.pk}/regenerate-thumbnails/',
+                {'include_linked': True},
+                format='json',
+            )
+
+        assert response.status_code == status.HTTP_202_ACCEPTED
+        assert response.data['include_linked'] is True
+        mock_async_task.assert_called_once_with(
+            'inventory.tasks.regenerate_tracker_thumbnails_task', tracker.pk, True
+        )
+
+    def test_string_false_is_parsed_as_false(self, api_client):
+        """String 'false' (form-encoded/non-JSON clients) must not enable linked downloads."""
+        tracker = TrackerFactory()
+
+        with mock.patch('django_q.tasks.async_task') as mock_async_task:
+            response = api_client.post(
+                f'/api/trackers/{tracker.pk}/regenerate-thumbnails/',
+                {'include_linked': 'false'},
+                format='json',
+            )
+
+        assert response.status_code == status.HTTP_202_ACCEPTED
+        assert response.data['include_linked'] is False
+        mock_async_task.assert_called_once_with(
+            'inventory.tasks.regenerate_tracker_thumbnails_task', tracker.pk, False
+        )
+
+    def test_string_zero_is_parsed_as_false(self, api_client):
+        tracker = TrackerFactory()
+
+        with mock.patch('django_q.tasks.async_task') as mock_async_task:
+            response = api_client.post(
+                f'/api/trackers/{tracker.pk}/regenerate-thumbnails/',
+                {'include_linked': '0'},
+                format='json',
+            )
+
+        assert response.status_code == status.HTTP_202_ACCEPTED
+        assert response.data['include_linked'] is False
+        mock_async_task.assert_called_once_with(
+            'inventory.tasks.regenerate_tracker_thumbnails_task', tracker.pk, False
+        )
+
+    def test_invalid_boolean_value_returns_400(self, api_client):
+        tracker = TrackerFactory()
+
+        with mock.patch('django_q.tasks.async_task') as mock_async_task:
+            response = api_client.post(
+                f'/api/trackers/{tracker.pk}/regenerate-thumbnails/',
+                {'include_linked': 'not-a-bool'},
+                format='json',
+            )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        mock_async_task.assert_not_called()
+
+    def test_404_for_unknown_tracker(self, api_client):
+        response = api_client.post('/api/trackers/999999/regenerate-thumbnails/')
+
+        assert response.status_code == status.HTTP_404_NOT_FOUND
+
+
+# ============================================================================
+# CREATE MANUAL — BOOLEAN PARSING TESTS
+# ============================================================================
+
+@pytest.mark.django_db
+class TestCreateManualBooleanParsing:
+    """generate_thumbnails_for_linked_files must follow DRF boolean semantics,
+    not Python bool() — bool('false') is True."""
+
+    def test_string_false_does_not_enable_linked_thumbnails(self, api_client):
+        response = api_client.post(
+            '/api/trackers/create-manual/',
+            {'name': 'Test Tracker False', 'generate_thumbnails_for_linked_files': 'false', 'files': []},
+            format='json',
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        tracker = Tracker.objects.get(name='Test Tracker False')
+        assert tracker.generate_thumbnails_for_linked_files is False
+
+    def test_string_true_enables_linked_thumbnails(self, api_client):
+        response = api_client.post(
+            '/api/trackers/create-manual/',
+            {'name': 'Test Tracker True', 'generate_thumbnails_for_linked_files': 'true', 'files': []},
+            format='json',
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        tracker = Tracker.objects.get(name='Test Tracker True')
+        assert tracker.generate_thumbnails_for_linked_files is True
+
+    def test_omitted_flag_defaults_to_false(self, api_client):
+        response = api_client.post(
+            '/api/trackers/create-manual/',
+            {'name': 'Test Tracker Omitted', 'files': []},
+            format='json',
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        tracker = Tracker.objects.get(name='Test Tracker Omitted')
+        assert tracker.generate_thumbnails_for_linked_files is False
+
+
+# ============================================================================
+# THUMBNAIL INVALIDATION THROUGH THE REAL ENDPOINTS
+#
+# Regression coverage for a real bug: TrackerFileViewSet.get_queryset() uses
+# prefetch_related('images'), so a file loaded via self.get_object() carries
+# a cached images list. The pre_save signal correctly deletes a stale
+# auto-generated image (filtering resets Django's result cache), but a
+# *bare* instance.images.exists() afterward silently reused the stale
+# prefetch cache instead of re-querying, so the post_save signal thought an
+# image still existed and never re-queued generation. This only reproduces
+# through the real view's queryset -- calling .save() directly on a factory
+# object (as the signal unit tests do) never populates a prefetch cache, so
+# it can't catch this. Both endpoints are covered since only one of them
+# happened to go through a prefetching queryset.
+# ============================================================================
+
+@pytest.mark.django_db
+class TestThumbnailInvalidationThroughRealEndpoints:
+    def test_update_configuration_requeues_after_color_change(self, api_client):
+        tracker_file = TrackerFileFactory(storage_type='local', filename='part.stl', color='Primary')
+        image = TrackerFileImageFactory(tracker_file=tracker_file, is_auto_generated=True)
+
+        with mock.patch('django_q.tasks.async_task') as mock_async_task:
+            response = api_client.patch(
+                f'/api/tracker-files/{tracker_file.pk}/update_configuration/',
+                {'color': 'Accent', 'material': '', 'quantity': 1, 'material_ids': []},
+                format='json',
+            )
+
+        assert response.status_code == status.HTTP_200_OK
+        assert not TrackerFileImage.objects.filter(pk=image.pk).exists()
+        mock_async_task.assert_called_once_with(
+            'inventory.tasks.generate_auto_thumbnail_task', tracker_file.pk
+        )
+
+    def test_update_materials_cascade_requeues_affected_files(self, api_client):
+        material = MaterialFactory(colors=['#abcdef'])
+        tracker = TrackerFactory(primary_material=None)
+        tracker_file = TrackerFileFactory(
+            tracker=tracker, storage_type='local', filename='part.stl', color='Primary'
+        )
+        image = TrackerFileImageFactory(tracker_file=tracker_file, is_auto_generated=True)
+
+        with mock.patch('django_q.tasks.async_task') as mock_async_task:
+            response = api_client.post(
+                f'/api/trackers/{tracker.pk}/update_materials/',
+                {'primary_material_id': material.id, 'dry_run': False},
+                format='json',
+            )
+
+        assert response.status_code == status.HTTP_200_OK
+        assert not TrackerFileImage.objects.filter(pk=image.pk).exists()
+        mock_async_task.assert_called_once_with(
+            'inventory.tasks.generate_auto_thumbnail_task', tracker_file.pk
+        )

@@ -34,7 +34,7 @@ class TestTrackerFileSerializer:
         serializer = TrackerFileSerializer(tracker_file)
 
         expected_fields = {
-            'id', 'tracker', 'filename', 'directory_path', 'github_url',
+            'id', 'tracker', 'filename', 'directory_path', 'github_url', 'storage_type',
             'local_file', 'file_size', 'sha', 'color', 'material', 'quantity',
             'is_selected', 'status', 'printed_quantity', 'remaining_quantity',
             'is_complete', 'created_date', 'updated_date', 'download_date',
@@ -94,7 +94,10 @@ class TestTrackerSerializer:
         expected_fields = {
             'id', 'name', 'project', 'project_name', 'github_url', 'storage_type',
             'creation_mode', 'primary_color', 'accent_color', 'created_date', 'updated_date',
-            'show_on_dashboard', 'notes', 'files', 'total_count', 'completed_count',
+            'show_on_dashboard', 'notes',
+            # Auto-thumbnail generation settings
+            'generate_thumbnails_for_linked_files', 'viewer_background',
+            'files', 'total_count', 'completed_count',
             'in_progress_count', 'not_started_count', 'progress_percentage',
             'total_quantity', 'printed_quantity_total', 'pending_quantity',
             'storage_path', 'total_storage_used', 'files_downloaded',

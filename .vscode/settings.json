@@ -7,5 +7,6 @@
     "debug.verbose": true
   },
   "github.copilot.chat.allowSensitiveEdits": true,
-  "github.copilot.chat.terminalExecution": "allow"
+  "github.copilot.chat.terminalExecution": "allow",
+  "claudeCodeChat.permissions.yoloMode": true
 }

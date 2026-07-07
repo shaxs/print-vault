@@ -57,6 +57,7 @@ const selectedProject = ref(null)
 const trackerName = ref('')
 const githubUrl = ref('')
 const storageOption = ref('')
+const generateThumbnailsForLinkedFiles = ref(false)
 
 // Manual mode data
 const manualFiles = ref([]) // Array of { name, url, source, category, size, quantity, color, material }
@@ -344,6 +345,7 @@ async function createTracker() {
       accent_color: '#DC2626', // Fallback hex (material-based colors take precedence in UI)
       primary_material: primaryMaterialId,
       accent_material: accentMaterialId,
+      generate_thumbnails_for_linked_files: generateThumbnailsForLinkedFiles.value,
       files: selectedFilesData.map((file) => ({
         filename: file.filename,
         directory_path: file.directory_path,
@@ -740,6 +742,7 @@ async function createManualTracker() {
       storage_type: hasManualUrlFiles.value ? storageOption.value : 'link', // Default to 'link' for upload-only
       primary_material: primaryMaterialId,
       accent_material: accentMaterialId,
+      generate_thumbnails_for_linked_files: generateThumbnailsForLinkedFiles.value,
       files: configuredFiles,
       creation_mode: 'manual',
     }
@@ -1027,6 +1030,7 @@ initializeSelectionState(fileTree4.value)
             <FileConfigurationStep
               :fileTree="fileTree4"
               @update:storageOption="storageOption = $event"
+              @update:generateThumbnailsForLinkedFiles="generateThumbnailsForLinkedFiles = $event"
             />
 
             <div class="wizard-actions">
@@ -1209,6 +1213,7 @@ initializeSelectionState(fileTree4.value)
             <FileConfigurationStep
               :fileTree="manualFileTree"
               @update:storageOption="storageOption = $event"
+              @update:generateThumbnailsForLinkedFiles="generateThumbnailsForLinkedFiles = $event"
             />
 
             <div class="wizard-actions">

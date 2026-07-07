@@ -84,6 +84,12 @@ class TestTrackerCreateDownloadLogic:
         assert file1.actual_file_size == 1000
         assert file2.download_status == 'completed'
         assert file2.file_checksum == 'def456'
+        # Regression: a successfully-downloaded file must be reclassified
+        # from the model default ('link') to 'local', or every per-file
+        # storage_type-gated feature (e.g. auto-thumbnail generation) wrongly
+        # treats a fully-local file as a bare GitHub link forever.
+        assert file1.storage_type == 'local'
+        assert file2.storage_type == 'local'
         
         # Verify tracker updates
         tracker.refresh_from_db()
@@ -98,8 +104,14 @@ class TestTrackerCreateDownloadLogic:
         from inventory.serializers import TrackerCreateSerializer
         
         tracker = TrackerFactory(id=2)
-        file1 = TrackerFileFactory(tracker=tracker, filename='success.stl', file_size=1000)
-        file2 = TrackerFileFactory(tracker=tracker, filename='failure.stl', file_size=2000)
+        # Pin storage_type='link': these files represent the pre-download
+        # state (matching TrackerFile's model default), not a random value.
+        # TrackerFileFactory defaults to FuzzyChoice(['link', 'local']), which
+        # made this test flaky — file2's post-failure assertion only holds
+        # if it started as 'link', since a failed download never touches
+        # storage_type (nothing should downgrade an unrelated field on failure).
+        file1 = TrackerFileFactory(tracker=tracker, filename='success.stl', file_size=1000, storage_type='link')
+        file2 = TrackerFileFactory(tracker=tracker, filename='failure.stl', file_size=2000, storage_type='link')
         tracker_files = [file1, file2]
         
         # Mock successful space check and path creation
@@ -142,8 +154,10 @@ class TestTrackerCreateDownloadLogic:
         file1.refresh_from_db()
         file2.refresh_from_db()
         assert file1.download_status == 'completed'
+        assert file1.storage_type == 'local'
         assert file2.download_status == 'failed'
         assert file2.download_error == 'Network timeout'
+        assert file2.storage_type == 'link'  # failed download must NOT claim to be local
         
         # Tracker should show partial completion
         tracker.refresh_from_db()

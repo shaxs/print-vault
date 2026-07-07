@@ -8,6 +8,7 @@ import { OrbitControls } from 'three/addons/controls/OrbitControls.js'
 const props = defineProps({
   url: { type: String, required: true },
   color: { type: String, default: '' },
+  background: { type: String, default: 'dark' }, // 'dark' or 'light'
 })
 
 const containerRef = ref(null)
@@ -16,12 +17,33 @@ const error = ref(null)
 
 let renderer, scene, camera, controls, animationId
 
+// Reads a CSS custom property as defined under a specific [data-theme='...']
+// selector, regardless of the app's currently-active theme -- a WebGL scene
+// background can't participate in the CSS cascade directly, so this is how
+// we still source the color from the real theme instead of hardcoding it.
+function readThemeVariable(varName, theme) {
+  const probe = document.createElement('div')
+  probe.setAttribute('data-theme', theme)
+  probe.style.display = 'none'
+  document.body.appendChild(probe)
+  const value = getComputedStyle(probe).getPropertyValue(varName).trim()
+  document.body.removeChild(probe)
+  return value
+}
+
+function getBackgroundColor(mode) {
+  const theme = mode === 'light' ? 'light' : 'dark'
+  const fallback = theme === 'light' ? '#e0e0e0' : '#1a1a2e'
+  const hex = readThemeVariable('--viewer-background', theme) || fallback
+  return new THREE.Color(hex)
+}
+
 function init(container) {
   const width = container.clientWidth
   const height = container.clientHeight || 300
 
   scene = new THREE.Scene()
-  scene.background = new THREE.Color(0x1a1a2e)
+  scene.background = getBackgroundColor(props.background)
 
   camera = new THREE.PerspectiveCamera(45, width / height, 0.1, 10000)
   camera.up.set(0, 0, 1) // Z-up for 3D print orientation
@@ -168,6 +190,14 @@ watch(
   (newUrl) => {
     clearScene()
     loadModel(newUrl)
+  },
+)
+
+watch(
+  () => props.background,
+  (newMode) => {
+    if (!scene) return
+    scene.background = getBackgroundColor(newMode)
   },
 )
 

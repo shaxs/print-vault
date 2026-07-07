@@ -58,6 +58,15 @@ afterEach(() => {
   vi.unstubAllGlobals()
 })
 
+// vi.spyOn's default passthrough breaks native ES6 classes (they require
+// `new`, but the spy wrapper doesn't forward calls via Reflect.construct) --
+// so the spy needs an explicit mockImplementation that still constructs a
+// real THREE.Color, just recorded.
+function spyOnColorConstructor() {
+  const RealColor = THREE.Color
+  return vi.spyOn(THREE, 'Color').mockImplementation((...args) => new RealColor(...args))
+}
+
 function stubFetch(ok = true) {
   vi.stubGlobal(
     'fetch',
@@ -127,5 +136,60 @@ describe('ModelViewer', () => {
     await new Promise((r) => setTimeout(r, 0))
 
     expect(threeMFParseMock).toHaveBeenCalled()
+  })
+
+  describe('background prop', () => {
+    // init() runs synchronously on mount and sets scene.background before
+    // loadModel()'s async fetch resolves, so the first THREE.Color
+    // construction is always the background color, not the mesh material.
+    it('defaults to the dark background color', async () => {
+      stubFetch()
+      const colorSpy = spyOnColorConstructor()
+      try {
+        mount(ModelViewer, { props: { url: '/media/part.stl' } })
+        await new Promise((r) => setTimeout(r, 0))
+        await new Promise((r) => setTimeout(r, 0))
+
+        // No app stylesheet is loaded in this test environment, so
+        // --viewer-background resolves empty and the dark fallback applies.
+        expect(colorSpy.mock.calls[0][0]).toBe('#1a1a2e')
+      } finally {
+        colorSpy.mockRestore()
+      }
+    })
+
+    it('falls back to a known light gray when background="light"', async () => {
+      stubFetch()
+      const colorSpy = spyOnColorConstructor()
+      try {
+        mount(ModelViewer, { props: { url: '/media/part.stl', background: 'light' } })
+        await new Promise((r) => setTimeout(r, 0))
+        await new Promise((r) => setTimeout(r, 0))
+
+        // No app stylesheet is loaded in this test environment, so
+        // --viewer-background resolves empty and the fallback applies.
+        expect(colorSpy.mock.calls[0][0]).toBe('#e0e0e0')
+      } finally {
+        colorSpy.mockRestore()
+      }
+    })
+
+    it('updates the background color when the prop changes after mount', async () => {
+      stubFetch()
+      const wrapper = mount(ModelViewer, {
+        props: { url: '/media/part.stl', background: 'dark' },
+      })
+      await new Promise((r) => setTimeout(r, 0))
+      await new Promise((r) => setTimeout(r, 0))
+
+      const colorSpy = spyOnColorConstructor()
+      try {
+        await wrapper.setProps({ background: 'light' })
+
+        expect(colorSpy).toHaveBeenCalledWith('#e0e0e0')
+      } finally {
+        colorSpy.mockRestore()
+      }
+    })
   })
 })

@@ -1,5 +1,5 @@
 <script setup>
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, onBeforeUnmount } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import APIService from '@/services/APIService.js'
 import DeleteTrackerModal from '@/components/DeleteTrackerModal.vue'
@@ -151,6 +151,28 @@ const getFileHexColor = (file) => {
   return style?.backgroundColor || ''
 }
 
+// 3D viewer background toggle — persists tracker-wide (per-tracker setting),
+// not just for the file currently being viewed, since different trackers
+// tend to use systematically different filament colors.
+const togglingViewerBackground = ref(false)
+
+const toggleViewerBackground = async () => {
+  if (!tracker.value) return
+  const newBackground = tracker.value.viewer_background === 'light' ? 'dark' : 'light'
+  const previous = tracker.value.viewer_background
+  tracker.value.viewer_background = newBackground // optimistic; re-renders the viewer immediately
+  togglingViewerBackground.value = true
+
+  try {
+    await APIService.updateTracker(route.params.id, { viewer_background: newBackground })
+  } catch (err) {
+    console.error('Failed to save viewer background preference:', err)
+    tracker.value.viewer_background = previous
+  } finally {
+    togglingViewerBackground.value = false
+  }
+}
+
 // Reactive color for the edit modal preview — updates when form color changes
 const editPreviewColor = computed(() => {
   const formColor = editFileForm.value.color
@@ -262,6 +284,56 @@ const loadTracker = async () => {
   } finally {
     loading.value = false
   }
+}
+
+// Auto-generated thumbnails render in the background (Django-Q) after a file
+// is added or a regenerate action is triggered elsewhere. Poll briefly for
+// updates so they appear without the user having to manually refresh the page.
+const THUMBNAIL_POLL_INTERVAL_MS = 5000
+const MAX_THUMBNAIL_POLL_ATTEMPTS = 24 // ~2 minutes
+let thumbnailPollTimer = null
+let thumbnailPollAttempts = 0
+
+const hasFilesAwaitingThumbnail = () => {
+  if (!tracker.value?.files) return false
+  return tracker.value.files.some((file) => isPreviewableFile(file) && !file.thumbnail)
+}
+
+const refreshThumbnails = async () => {
+  try {
+    const response = await APIService.getTracker(route.params.id)
+    const freshFiles = response.data.files || []
+    const thumbnailById = new Map(freshFiles.map((f) => [f.id, f.thumbnail]))
+
+    tracker.value.files.forEach((file) => {
+      if (thumbnailById.has(file.id)) {
+        file.thumbnail = thumbnailById.get(file.id)
+      }
+    })
+  } catch (err) {
+    console.error('Failed to refresh thumbnails:', err)
+  }
+}
+
+const stopThumbnailPolling = () => {
+  if (thumbnailPollTimer) {
+    clearInterval(thumbnailPollTimer)
+    thumbnailPollTimer = null
+  }
+}
+
+const startThumbnailPolling = () => {
+  if (thumbnailPollTimer || !hasFilesAwaitingThumbnail()) return
+
+  thumbnailPollAttempts = 0
+  thumbnailPollTimer = setInterval(async () => {
+    thumbnailPollAttempts++
+    await refreshThumbnails()
+
+    if (!hasFilesAwaitingThumbnail() || thumbnailPollAttempts >= MAX_THUMBNAIL_POLL_ATTEMPTS) {
+      stopThumbnailPolling()
+    }
+  }, THUMBNAIL_POLL_INTERVAL_MS)
 }
 
 // Group files by directory
@@ -960,6 +1032,12 @@ const saveFileConfiguration = async () => {
     // Reload tracker to get updated data
     await loadTracker()
     closeEditFileModal()
+
+    // A color/material change may have invalidated this file's auto-thumbnail
+    // (see clear_stale_auto_thumbnail_on_color_change) -- polling only starts
+    // on mount, so restart it here too or the regenerated thumbnail would
+    // only ever show up after a manual page refresh.
+    startThumbnailPolling()
   } catch (err) {
     console.error('Failed to update file configuration:', err)
     alert('Failed to update file configuration. Please try again.')
@@ -1063,9 +1141,14 @@ const openAddFilesModal = () => {
   }
 }
 
-onMounted(() => {
-  loadTracker()
+onMounted(async () => {
+  await loadTracker()
   loadMaterials()
+  startThumbnailPolling()
+})
+
+onBeforeUnmount(() => {
+  stopThumbnailPolling()
 })
 </script>
 
@@ -1245,14 +1328,16 @@ onMounted(() => {
                         @change="toggleFileCompletion(file)"
                         class="file-checkbox"
                       />
-                      <img
-                        v-if="file.thumbnail"
-                        :src="file.thumbnail"
-                        class="file-thumbnail"
-                        alt=""
-                        loading="lazy"
-                        @click.stop="openEditFileModal(file)"
-                      />
+                      <div class="file-thumbnail-slot">
+                        <img
+                          v-if="file.thumbnail"
+                          :src="file.thumbnail"
+                          class="file-thumbnail"
+                          alt=""
+                          loading="lazy"
+                          @click.stop="openEditFileModal(file)"
+                        />
+                      </div>
                       <a
                         @click="openFile(file)"
                         :class="{ 'line-through': file.status === 'completed' }"
@@ -1599,6 +1684,9 @@ onMounted(() => {
           <div class="modal-form modal-form-wide" @click.stop>
             <h3>Edit File Configuration</h3>
             <p class="edit-filename">{{ editingFile?.filename }}</p>
+            <p class="edit-storage-type">
+              Storage: {{ editingFile?.storage_type === 'local' ? 'Local File' : 'GitHub Link Only' }}
+            </p>
 
             <!-- Tab bar (shown when file has 3D preview available) -->
             <div v-if="editFileHas3D" class="edit-modal-tabs">
@@ -1662,11 +1750,24 @@ onMounted(() => {
             </div>
 
             <!-- 3D Viewer section -->
-            <div
-              v-if="editModalTab === '3dviewer' && editFileHas3D"
-              class="stl-preview-modal"
-            >
-              <ModelViewer :url="getStlUrl(editingFile)" :color="editPreviewColor" />
+            <div v-if="editModalTab === '3dviewer' && editFileHas3D">
+              <div class="viewer-background-toggle">
+                <button
+                  type="button"
+                  class="btn btn-sm btn-secondary"
+                  :disabled="togglingViewerBackground"
+                  @click="toggleViewerBackground"
+                >
+                  {{ tracker?.viewer_background === 'light' ? 'Switch to Dark Background' : 'Switch to Light Background' }}
+                </button>
+              </div>
+              <div class="stl-preview-modal">
+                <ModelViewer
+                  :url="getStlUrl(editingFile)"
+                  :color="editPreviewColor"
+                  :background="tracker?.viewer_background || 'dark'"
+                />
+              </div>
             </div>
 
             <form @submit.prevent="saveFileConfiguration">
@@ -2284,6 +2385,13 @@ onMounted(() => {
   word-break: break-all;
 }
 
+.edit-storage-type {
+  font-size: 0.85rem;
+  color: var(--color-text-soft);
+  margin-top: -0.75rem;
+  margin-bottom: 1rem;
+}
+
 .material-override-hint {
   font-size: 0.78rem;
   color: var(--color-text-muted);
@@ -2866,6 +2974,12 @@ onMounted(() => {
   cursor: pointer;
 }
 
+.viewer-background-toggle {
+  display: flex;
+  justify-content: flex-end;
+  margin-bottom: 8px;
+}
+
 /* STL Preview in edit modal */
 .stl-preview-modal {
   width: 100%;
@@ -2882,13 +2996,21 @@ onMounted(() => {
 }
 
 /* File thumbnail in list */
+/* Always reserved at a fixed size, even with no thumbnail, so filenames/badges
+   stay aligned in a consistent column across rows that do and don't have one.
+   Intentionally no placeholder icon/border when empty -- just reserved space. */
+.file-thumbnail-slot {
+  width: 128px;
+  height: 128px;
+  flex-shrink: 0;
+}
+
 .file-thumbnail {
   width: 128px;
   height: 128px;
   object-fit: contain;
   border-radius: 4px;
   flex-shrink: 0;
-  background: var(--color-background);
   cursor: pointer;
 }
 

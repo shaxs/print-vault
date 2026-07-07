@@ -2,7 +2,7 @@
 import os
 from datetime import timedelta
 from django.db import models
-from django.db.models.signals import post_delete, post_save
+from django.db.models.signals import post_delete, post_save, pre_save
 from django.dispatch import receiver
 from django.core.validators import MinValueValidator
 
@@ -1050,7 +1050,24 @@ class Tracker(models.Model):
         blank=True,
         help_text='Optional notes about this tracker'
     )
-    
+
+    # Auto-thumbnail generation settings
+    generate_thumbnails_for_linked_files = models.BooleanField(
+        default=False,
+        help_text='Auto-generate thumbnails for GitHub-linked files by temporarily '
+                   'downloading each one (no local copy is kept). Off by default '
+                   'since it can be slow for large trackers.'
+    )
+    viewer_background = models.CharField(
+        max_length=5,
+        choices=[
+            ('dark', 'Dark'),
+            ('light', 'Light'),
+        ],
+        default='dark',
+        help_text='Background color for the 3D model viewer for files in this tracker'
+    )
+
     class Meta:
         verbose_name = "Print Tracker"
         verbose_name_plural = "Print Trackers"
@@ -1309,6 +1326,154 @@ def update_tracker_stats_on_save(sender, instance, **kwargs):
     tracker.save(update_fields=['total_quantity', 'printed_quantity_total', 'progress_percentage', 'updated_date'])
 
 
+@receiver(pre_save, sender=TrackerFile)
+def clear_stale_auto_thumbnail_on_color_change(sender, instance, **kwargs):
+    """
+    A file's auto-generated thumbnail is rendered in its color/material at
+    the time of generation. If color or material_ids changes afterward, that
+    thumbnail is stale — delete it so the post_save signal below sees zero
+    images and regenerates fresh, in the new color.
+
+    Skips files with a manually-uploaded image (same "never touch a manual
+    upload" convention as the regenerate-all action) — only the
+    is_auto_generated image is ever deleted here.
+    """
+    if not instance.pk:
+        return  # new file being created, nothing to compare against
+
+    try:
+        previous = TrackerFile.objects.get(pk=instance.pk)
+    except TrackerFile.DoesNotExist:
+        return
+
+    if previous.color == instance.color and previous.material_ids == instance.material_ids:
+        return
+
+    if instance.images.filter(is_auto_generated=False).exists():
+        return
+
+    instance.images.filter(is_auto_generated=True).delete()
+
+
+@receiver(post_save, sender=TrackerFile)
+def queue_auto_thumbnail_generation(sender, instance, **kwargs):
+    """
+    Queue background thumbnail generation for STL/3MF tracker files.
+
+    Fires on every save, not just creation, so a file that starts out as
+    storage_type='link' and is later downloaded to 'local' becomes eligible
+    at that point too. This is a cheap pre-filter only — the real guards
+    (existing image, file type, storage type vs. tracker setting) live in
+    generate_auto_thumbnail() itself, so calling it directly is always safe
+    even if this signal's pre-filter is ever loosened.
+
+    Deliberately queries TrackerFileImage.objects directly rather than
+    instance.images.exists() -- TrackerFileViewSet's queryset uses
+    prefetch_related('images'), and a bare .exists()/.all() on an instance
+    with a populated prefetch cache reuses that cache instead of re-querying,
+    even after the pre_save signal above just deleted a row moments earlier
+    in the same request. Filtering first (as that signal does) resets
+    Django's internal result cache and forces a fresh query; a bare
+    .exists() does not. Bypassing instance.images here sidesteps the
+    ambiguity entirely instead of relying on that subtlety.
+    """
+    if not instance.filename.lower().endswith(('.stl', '.3mf')):
+        return
+    if TrackerFileImage.objects.filter(tracker_file_id=instance.pk).exists():
+        return
+    if instance.storage_type == 'link' and not instance.tracker.generate_thumbnails_for_linked_files:
+        return
+
+    from django_q.tasks import async_task
+    async_task('inventory.tasks.generate_auto_thumbnail_task', instance.id)
+
+
+@receiver(pre_save, sender=Tracker)
+def detect_manual_color_change(sender, instance, **kwargs):
+    """
+    Tracker.primary_color/accent_color (the "Manual Color" mode in Edit
+    Tracker settings, as opposed to a Material Blueprint) feed
+    _resolve_file_hex_color's rendering of every Primary/Accent file's
+    auto-thumbnail directly -- but changing them never touches a single
+    TrackerFile row, so TrackerFile's own color-change signal above never
+    gets a chance to fire for this path.
+
+    Deliberately does NOT fire when a color changes together with its paired
+    material_id (primary_color + primary_material, or accent_color +
+    accent_material) -- that combination is update_materials's own
+    signature (it keeps primary_color in sync with the selected material
+    "for backwards compatibility"), and that view already cascades to every
+    affected file with its own .save() loop, which already triggers the
+    TrackerFile-level signal above. Reacting here too would queue the same
+    files a second time -- confirmed by an actual test failure during
+    development (async_task called twice for one file) before this
+    condition was added. Only a color change with its material_id
+    unchanged is the real signature of a standalone Manual Color edit.
+
+    Stashes which color categories changed on the instance for the
+    post_save signal below to act on (pre_save is the only place with
+    access to both the old DB row and the new in-memory values).
+    """
+    if not instance.pk:
+        instance._manual_color_change = []
+        return
+
+    try:
+        previous = Tracker.objects.get(pk=instance.pk)
+    except Tracker.DoesNotExist:
+        instance._manual_color_change = []
+        return
+
+    changed = []
+    if previous.primary_color != instance.primary_color and previous.primary_material_id == instance.primary_material_id:
+        changed.append('Primary')
+    if previous.accent_color != instance.accent_color and previous.accent_material_id == instance.accent_material_id:
+        changed.append('Accent')
+    instance._manual_color_change = changed
+
+
+@receiver(post_save, sender=Tracker)
+def requeue_thumbnails_on_manual_color_change(sender, instance, created, **kwargs):
+    """
+    Companion to detect_manual_color_change above: for each color category
+    that changed, clear and re-queue the auto-generated thumbnail (never a
+    manual one) for every file in that category.
+
+    Queries TrackerFileImage.objects directly rather than
+    tracker_file.images -- same prefetch-cache reasoning as
+    queue_auto_thumbnail_generation. instance.files.filter(color=...) is
+    safe despite TrackerViewSet's prefetch_related('files__images'), since
+    chaining .filter() (unlike a bare .exists()/.all()) always resets
+    Django's result cache and forces a fresh query.
+    """
+    if created:
+        return
+
+    changed = getattr(instance, '_manual_color_change', [])
+    if not changed:
+        return
+
+    from django_q.tasks import async_task
+
+    for color in changed:
+        for tracker_file in instance.files.filter(color=color):
+            if not tracker_file.filename.lower().endswith(('.stl', '.3mf')):
+                continue
+            if TrackerFileImage.objects.filter(
+                tracker_file_id=tracker_file.pk, is_auto_generated=False
+            ).exists():
+                continue  # manual image present -- never touch
+
+            TrackerFileImage.objects.filter(
+                tracker_file_id=tracker_file.pk, is_auto_generated=True
+            ).delete()
+
+            if tracker_file.storage_type == 'link' and not instance.generate_thumbnails_for_linked_files:
+                continue
+
+            async_task('inventory.tasks.generate_auto_thumbnail_task', tracker_file.id)
+
+
 @receiver(post_delete, sender=TrackerFile)
 def update_tracker_stats_on_delete(sender, instance, **kwargs):
     """Automatically update tracker cached statistics when a file is deleted."""
@@ -1450,6 +1615,13 @@ class TrackerFileImage(models.Model):
     order = models.PositiveIntegerField(
         default=0,
         help_text="Display order (lower numbers shown first)"
+    )
+    is_auto_generated = models.BooleanField(
+        default=False,
+        help_text="True if this image was auto-generated from the STL/3MF geometry, "
+                   "rather than manually uploaded. Auto-generated images are safe to "
+                   "replace/regenerate; manually uploaded ones are never touched by "
+                   "regeneration actions."
     )
     created_at = models.DateTimeField(auto_now_add=True)
 

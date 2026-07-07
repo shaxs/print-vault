@@ -301,6 +301,11 @@ export default {
   downloadAllTrackerFiles(trackerId) {
     return apiClient.post(`trackers/${trackerId}/download-all-files/`)
   },
+  regenerateTrackerThumbnails(trackerId, includeLinked = false) {
+    return apiClient.post(`trackers/${trackerId}/regenerate-thumbnails/`, {
+      include_linked: includeLinked,
+    })
+  },
   downloadTrackerZip(trackerId) {
     return apiClient.get(`trackers/${trackerId}/download-zip/`, {
       responseType: 'blob', // Important for binary file downloads

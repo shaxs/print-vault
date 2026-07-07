@@ -49,6 +49,7 @@ INSTALLED_APPS = [
     "rest_framework",
     "corsheaders",
     "django_filters",
+    "django_q",
     "inventory",
 ]
 
@@ -193,3 +194,26 @@ REST_FRAMEWORK = {
 
 # Set max upload size to 250MB (250 * 1024 * 1024 bytes)
 DATA_UPLOAD_MAX_MEMORY_SIZE = 262144000
+
+# Django-Q2 async task cluster.
+# Uses the ORM broker against the default database connection (SQLite in dev,
+# Postgres in production via backend/production.py) — no separate broker
+# infrastructure (e.g. Redis) required.
+Q_CLUSTER = {
+    "name": "printvault",
+    "workers": 2,
+    "timeout": 300,
+    "retry": 420,
+    "queue_limit": 50,
+    "bulk": 10,
+    "orm": "default",
+    # Runaway-worker guards. Thumbnail rendering loads whole meshes into
+    # numpy arrays, and CPython never returns freed arena memory to the OS —
+    # a worker that peaks at 1.8 GB stays there (observed thrashing a 2 GB
+    # LXC container in July 2026). recycle/max_rss replace bloated workers;
+    # max_attempts stops a task the OOM killer keeps interrupting from being
+    # re-queued forever (django-q2's default of 0 = infinite retries).
+    "recycle": 20,
+    "max_rss": 1024 * 1024,  # KB — recycle any worker above ~1 GB resident
+    "max_attempts": 2,
+}

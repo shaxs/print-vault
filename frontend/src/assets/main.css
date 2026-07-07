@@ -70,6 +70,19 @@
   --color-health-overdue: #ef4444; /* Red - past deadline */
 }
 
+/* 3D model viewer scene background (per-tracker dark/light setting).
+   Read from JS via a [data-theme] probe element (see ModelViewer.vue), so both
+   themes need explicit attribute rules — the dark value can't live only on
+   :root or a dark probe inside a light-themed app would inherit light values. */
+:root,
+[data-theme='dark'] {
+  --viewer-background: #1a1a2e; /* Dark navy chosen to contrast 3D models */
+}
+
+[data-theme='light'] {
+  --viewer-background: #e0e0e0;
+}
+
 *,
 *::before,
 *::after {
