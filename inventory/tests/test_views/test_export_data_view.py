@@ -5,6 +5,7 @@ ExportDataView produces a ZIP archive containing CSV files for all
 Print Vault data (inventory, printers, projects, trackers, etc.).
 Uses defensive error handling so partial failures don't break the export.
 """
+import csv
 import io
 import zipfile
 import pytest
@@ -14,8 +15,9 @@ from inventory.tests.factories import (
     PrinterFactory,
     ProjectFactory,
     ModFactory,
+    TrackerFactory,
 )
-from inventory.models import InventoryItem, Brand, PartType, Location
+from inventory.models import InventoryItem, Brand, PartType, Location, Tracker
 
 
 URL = "/api/export/data/"
@@ -153,3 +155,87 @@ class TestExportDataViewCSVContent:
         ModFactory(printer=printer, name="Exported Mod")
         csv_content = self._get_csv(client, 'mods.csv')
         assert 'Exported Mod' in csv_content
+
+
+# ---------------------------------------------------------------------------
+# TestTrackerSettingsExportImport
+#
+# Regression coverage: generate_thumbnails_for_linked_files and
+# viewer_background were originally missing from trackers.csv, so a
+# backup/restore cycle silently reset them to defaults.
+# ---------------------------------------------------------------------------
+
+@pytest.mark.django_db
+class TestTrackerSettingsExportImport:
+    def _get_csv(self, client, filename):
+        response = client.get(URL)
+        zf = zipfile.ZipFile(io.BytesIO(response.content), 'r')
+        return zf.read(filename).decode('utf-8')
+
+    def test_trackers_csv_has_thumbnail_settings_columns(self, client):
+        TrackerFactory()
+        csv_content = self._get_csv(client, 'trackers.csv')
+
+        header = next(csv.reader(io.StringIO(csv_content)))
+        assert 'generate_thumbnails_for_linked_files' in header
+        assert 'viewer_background' in header
+
+    def test_trackers_csv_exports_thumbnail_settings_values(self, client):
+        TrackerFactory(
+            name="Settings Export Tracker",
+            generate_thumbnails_for_linked_files=True,
+            viewer_background='light',
+        )
+        csv_content = self._get_csv(client, 'trackers.csv')
+
+        rows = [
+            row for row in csv.DictReader(io.StringIO(csv_content))
+            if row['name'] == 'Settings Export Tracker'
+        ]
+        assert rows, "Tracker not found in trackers.csv"
+        assert rows[0]['generate_thumbnails_for_linked_files'] == 'True'
+        assert rows[0]['viewer_background'] == 'light'
+
+    def test_round_trip_restores_thumbnail_settings(self, client, settings, tmp_path):
+        # Import wipes MEDIA_ROOT — point it at a temp dir before touching
+        # the endpoint so the real media folder is never in play.
+        settings.MEDIA_ROOT = str(tmp_path)
+        TrackerFactory(
+            name="Round Trip Tracker",
+            generate_thumbnails_for_linked_files=True,
+            viewer_background='light',
+        )
+
+        backup = io.BytesIO(client.get(URL).content)
+        backup.name = 'backup.zip'
+        response = client.post('/api/import-data/', {'backup_file': backup}, format='multipart')
+
+        assert response.status_code == 200
+        tracker = Tracker.objects.get(name="Round Trip Tracker")
+        assert tracker.generate_thumbnails_for_linked_files is True
+        assert tracker.viewer_background == 'light'
+
+    def test_import_of_legacy_backup_defaults_new_settings(self, client, settings, tmp_path):
+        """Backups created before the new columns existed must still import."""
+        settings.MEDIA_ROOT = str(tmp_path)
+        old_header = (
+            'id,name,project_id,github_url,storage_type,primary_color,accent_color,'
+            'total_quantity,printed_quantity_total,progress_percentage,created_date,'
+            'updated_date,storage_path,total_storage_used,files_downloaded'
+        )
+        old_row = (
+            '1,Legacy Tracker,,,link,#3B82F6,#EF4444,0,0,0,'
+            '2024-01-01 00:00:00,2024-01-01 00:00:00,,0,false'
+        )
+        zip_buffer = io.BytesIO()
+        with zipfile.ZipFile(zip_buffer, 'w', zipfile.ZIP_DEFLATED) as zf:
+            zf.writestr('trackers.csv', f'{old_header}\n{old_row}\n')
+        zip_buffer.seek(0)
+        zip_buffer.name = 'legacy_backup.zip'
+
+        response = client.post('/api/import-data/', {'backup_file': zip_buffer}, format='multipart')
+
+        assert response.status_code == 200
+        tracker = Tracker.objects.get(name='Legacy Tracker')
+        assert tracker.generate_thumbnails_for_linked_files is False
+        assert tracker.viewer_background == 'dark'

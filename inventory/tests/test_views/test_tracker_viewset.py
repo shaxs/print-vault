@@ -340,10 +340,99 @@ class TestRegenerateThumbnailsAction:
             'inventory.tasks.regenerate_tracker_thumbnails_task', tracker.pk, True
         )
 
+    def test_string_false_is_parsed_as_false(self, api_client):
+        """String 'false' (form-encoded/non-JSON clients) must not enable linked downloads."""
+        tracker = TrackerFactory()
+
+        with mock.patch('django_q.tasks.async_task') as mock_async_task:
+            response = api_client.post(
+                f'/api/trackers/{tracker.pk}/regenerate-thumbnails/',
+                {'include_linked': 'false'},
+                format='json',
+            )
+
+        assert response.status_code == status.HTTP_202_ACCEPTED
+        assert response.data['include_linked'] is False
+        mock_async_task.assert_called_once_with(
+            'inventory.tasks.regenerate_tracker_thumbnails_task', tracker.pk, False
+        )
+
+    def test_string_zero_is_parsed_as_false(self, api_client):
+        tracker = TrackerFactory()
+
+        with mock.patch('django_q.tasks.async_task') as mock_async_task:
+            response = api_client.post(
+                f'/api/trackers/{tracker.pk}/regenerate-thumbnails/',
+                {'include_linked': '0'},
+                format='json',
+            )
+
+        assert response.status_code == status.HTTP_202_ACCEPTED
+        assert response.data['include_linked'] is False
+        mock_async_task.assert_called_once_with(
+            'inventory.tasks.regenerate_tracker_thumbnails_task', tracker.pk, False
+        )
+
+    def test_invalid_boolean_value_returns_400(self, api_client):
+        tracker = TrackerFactory()
+
+        with mock.patch('django_q.tasks.async_task') as mock_async_task:
+            response = api_client.post(
+                f'/api/trackers/{tracker.pk}/regenerate-thumbnails/',
+                {'include_linked': 'not-a-bool'},
+                format='json',
+            )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        mock_async_task.assert_not_called()
+
     def test_404_for_unknown_tracker(self, api_client):
         response = api_client.post('/api/trackers/999999/regenerate-thumbnails/')
 
         assert response.status_code == status.HTTP_404_NOT_FOUND
+
+
+# ============================================================================
+# CREATE MANUAL — BOOLEAN PARSING TESTS
+# ============================================================================
+
+@pytest.mark.django_db
+class TestCreateManualBooleanParsing:
+    """generate_thumbnails_for_linked_files must follow DRF boolean semantics,
+    not Python bool() — bool('false') is True."""
+
+    def test_string_false_does_not_enable_linked_thumbnails(self, api_client):
+        response = api_client.post(
+            '/api/trackers/create-manual/',
+            {'name': 'Test Tracker False', 'generate_thumbnails_for_linked_files': 'false', 'files': []},
+            format='json',
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        tracker = Tracker.objects.get(name='Test Tracker False')
+        assert tracker.generate_thumbnails_for_linked_files is False
+
+    def test_string_true_enables_linked_thumbnails(self, api_client):
+        response = api_client.post(
+            '/api/trackers/create-manual/',
+            {'name': 'Test Tracker True', 'generate_thumbnails_for_linked_files': 'true', 'files': []},
+            format='json',
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        tracker = Tracker.objects.get(name='Test Tracker True')
+        assert tracker.generate_thumbnails_for_linked_files is True
+
+    def test_omitted_flag_defaults_to_false(self, api_client):
+        response = api_client.post(
+            '/api/trackers/create-manual/',
+            {'name': 'Test Tracker Omitted', 'files': []},
+            format='json',
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        tracker = Tracker.objects.get(name='Test Tracker Omitted')
+        assert tracker.generate_thumbnails_for_linked_files is False
 
 
 # ============================================================================

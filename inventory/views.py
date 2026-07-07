@@ -17,6 +17,7 @@ from rest_framework.parsers import MultiPartParser
 from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
 from rest_framework import status
+from rest_framework.fields import BooleanField
 from rest_framework.views import APIView
 from django.conf import settings
 from django.db import connection, models
@@ -243,7 +244,8 @@ class ExportDataView(APIView):
                     'id', 'name', 'project_id', 'github_url', 'storage_type',
                     'primary_color', 'accent_color', 'total_quantity', 'printed_quantity_total',
                     'progress_percentage', 'created_date', 'updated_date', 'storage_path',
-                    'total_storage_used', 'files_downloaded'
+                    'total_storage_used', 'files_downloaded',
+                    'generate_thumbnails_for_linked_files', 'viewer_background'
                 ])
                 for tracker in Tracker.objects.all():
                     try:
@@ -254,7 +256,8 @@ class ExportDataView(APIView):
                             tracker.primary_color, tracker.accent_color,
                             tracker.total_quantity, tracker.printed_quantity_total,
                             tracker.progress_percentage, tracker.created_date, tracker.updated_date,
-                            tracker.storage_path, tracker.total_storage_used, tracker.files_downloaded
+                            tracker.storage_path, tracker.total_storage_used, tracker.files_downloaded,
+                            tracker.generate_thumbnails_for_linked_files, tracker.viewer_background
                         ])
                     except Exception as e:
                         logger.error(f"Failed to export tracker {tracker.id}: {e}", exc_info=True)
@@ -1093,6 +1096,18 @@ class DismissAllAlertsView(APIView):
         })
 
 
+def parse_bool(value, default=False):
+    """
+    Parse a request-supplied boolean with DRF semantics ("false", "0", "no"
+    etc. are False). Plain bool() would treat any non-empty string as True,
+    silently enabling opt-in behavior for form-encoded or non-JSON clients.
+    Invalid values raise DRF's ValidationError, which views surface as a 400.
+    """
+    if value is None:
+        return default
+    return BooleanField().to_internal_value(value)
+
+
 def parse_date(date_string):
     """
     Parse date string from CSV export to date object.
@@ -1773,7 +1788,13 @@ class ImportDataView(APIView):
                                     updated_date=row.get('updated_date'),
                                     storage_path=row.get('storage_path', ''),
                                     total_storage_used=int(row.get('total_storage_used', 0)) or 0,
-                                    files_downloaded=row.get('files_downloaded', 'false').lower() == 'true'
+                                    files_downloaded=row.get('files_downloaded', 'false').lower() == 'true',
+                                    # .get() defaults keep backups from before these
+                                    # columns existed importable
+                                    generate_thumbnails_for_linked_files=(
+                                        row.get('generate_thumbnails_for_linked_files', 'false').lower() == 'true'
+                                    ),
+                                    viewer_background=row.get('viewer_background') or 'dark'
                                 )
                                 tracker.save()
                             except Exception as e:
@@ -3319,8 +3340,8 @@ class TrackerViewSet(viewsets.ModelViewSet):
         storage_type = request.data.get('storage_type', 'link')
         primary_material_id = request.data.get('primary_material')
         accent_material_id = request.data.get('accent_material')
-        generate_thumbnails_for_linked_files = request.data.get(
-            'generate_thumbnails_for_linked_files', False
+        generate_thumbnails_for_linked_files = parse_bool(
+            request.data.get('generate_thumbnails_for_linked_files')
         )
 
         files = request.data.get('files', [])
@@ -3344,7 +3365,7 @@ class TrackerViewSet(viewsets.ModelViewSet):
                 creation_mode='manual',
                 primary_material_id=primary_material_id,
                 accent_material_id=accent_material_id,
-                generate_thumbnails_for_linked_files=bool(generate_thumbnails_for_linked_files)
+                generate_thumbnails_for_linked_files=generate_thumbnails_for_linked_files
             )
             
             # Create tracker files
@@ -4478,7 +4499,7 @@ class TrackerViewSet(viewsets.ModelViewSet):
         files — this endpoint queues the work and returns immediately.
         """
         tracker = self.get_object()
-        include_linked = bool(request.data.get('include_linked', False))
+        include_linked = parse_bool(request.data.get('include_linked'))
 
         from django_q.tasks import async_task
         async_task(
