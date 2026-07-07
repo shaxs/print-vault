@@ -65,8 +65,14 @@ class TestDownloadTrackerFilesForManualStorageType:
     @patch('inventory.views.FileDownloadService')
     def test_failed_download_leaves_storage_type_as_link(self, mock_download_service_class, mock_storage_manager_class):
         tracker = TrackerFactory(storage_type='local')
+        # Pin storage_type='link': these files represent the pre-download
+        # state (matching TrackerFile's model default). TrackerFileFactory
+        # defaults to FuzzyChoice(['link', 'local']), which made this test
+        # flaky -- the post-failure assertion only holds if the file started
+        # as 'link', since a failed download never touches storage_type.
         tracker_file = TrackerFileFactory(
-            tracker=tracker, filename='part.stl', file_size=1000, directory_path='test'
+            tracker=tracker, filename='part.stl', file_size=1000, directory_path='test',
+            storage_type='link'
         )
 
         mock_storage = mock_storage_manager_class.return_value
