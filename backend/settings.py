@@ -207,4 +207,13 @@ Q_CLUSTER = {
     "queue_limit": 50,
     "bulk": 10,
     "orm": "default",
+    # Runaway-worker guards. Thumbnail rendering loads whole meshes into
+    # numpy arrays, and CPython never returns freed arena memory to the OS —
+    # a worker that peaks at 1.8 GB stays there (observed thrashing a 2 GB
+    # LXC container in July 2026). recycle/max_rss replace bloated workers;
+    # max_attempts stops a task the OOM killer keeps interrupting from being
+    # re-queued forever (django-q2's default of 0 = infinite retries).
+    "recycle": 20,
+    "max_rss": 1024 * 1024,  # KB — recycle any worker above ~1 GB resident
+    "max_attempts": 2,
 }

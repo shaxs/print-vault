@@ -61,6 +61,14 @@ ROTATION_Y_RADIANS = 0.6
 # sampling is a reasonable tradeoff for a 256x256 preview.
 MAX_FACES_FOR_RENDER = 150_000
 
+# Refuse to load models above this raw file size. MAX_FACES_FOR_RENDER only
+# bounds draw time — trimesh still loads the full mesh first, multiplying
+# on-disk size several times over in RAM (vertex/face/normal arrays plus a
+# working copy), and a single huge binary STL can push a Django-Q worker past
+# 1.5 GB RSS — enough to thrash a small self-hosted container. A 256x256
+# preview gains nothing from a mesh that dense; skipping it is the right trade.
+MAX_RENDER_FILE_SIZE_BYTES = 100 * 1024 * 1024
+
 
 def _load_mesh(file_path: Path) -> Optional[trimesh.Trimesh]:
     """Load an STL or 3MF file as a single trimesh object."""
@@ -271,8 +279,29 @@ def generate_auto_thumbnail(tracker_file, *, allow_linked_download: bool = False
         else:
             return None
 
+        # Two-stage size guard: the recorded file_size (GitHub metadata /
+        # download bookkeeping) lets linked files be refused before wasting
+        # a download; the on-disk stat afterwards is authoritative, since
+        # file_size can be 0 or stale for local files.
+        if tracker_file.file_size and tracker_file.file_size > MAX_RENDER_FILE_SIZE_BYTES:
+            logger.info(
+                f"Skipping thumbnail for TrackerFile {tracker_file.pk} "
+                f"({tracker_file.filename}): recorded size {tracker_file.file_size} "
+                f"exceeds render cap {MAX_RENDER_FILE_SIZE_BYTES}"
+            )
+            return None
+
         with _resolve_file_path(tracker_file) as file_path:
             if file_path is None:
+                return None
+
+            actual_size = file_path.stat().st_size
+            if actual_size > MAX_RENDER_FILE_SIZE_BYTES:
+                logger.info(
+                    f"Skipping thumbnail for TrackerFile {tracker_file.pk} "
+                    f"({tracker_file.filename}): on-disk size {actual_size} "
+                    f"exceeds render cap {MAX_RENDER_FILE_SIZE_BYTES}"
+                )
                 return None
 
             mesh = _load_mesh(file_path)

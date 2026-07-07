@@ -209,6 +209,57 @@ class TestGenerateAutoThumbnailGuards:
 
 
 # ============================================================================
+# generate_auto_thumbnail — file-size render cap
+#
+# Regression coverage for the July 2026 pv-test incident: a Django-Q worker
+# loading a very large mesh ballooned past 1.8 GB RSS and thrashed the
+# container. Oversized files must be skipped before any mesh load, and
+# oversized *linked* files before any download.
+# ============================================================================
+
+@pytest.mark.django_db
+class TestGenerateAutoThumbnailSizeGuard:
+    def test_skips_local_file_exceeding_render_cap(self, monkeypatch):
+        # file_size=0 so only the on-disk stat() check can trigger the skip
+        tracker_file = TrackerFileFactory(storage_type='local', filename='part.stl', file_size=0)
+        tracker_file.local_file.save('part.stl', ContentFile(_stl_bytes()), save=True)
+        monkeypatch.setattr(svc, 'MAX_RENDER_FILE_SIZE_BYTES', 10)
+
+        result = svc.generate_auto_thumbnail(tracker_file)
+
+        assert result is None
+        assert tracker_file.images.count() == 0
+
+    def test_skips_oversized_linked_file_without_downloading(self):
+        tracker = TrackerFactory(generate_thumbnails_for_linked_files=True)
+        tracker_file = TrackerFileFactory(
+            tracker=tracker,
+            storage_type='link',
+            filename='part.stl',
+            file_size=svc.MAX_RENDER_FILE_SIZE_BYTES + 1,
+            github_url='https://github.com/user/repo/blob/main/part.stl',
+        )
+
+        with mock.patch.object(svc.FileDownloadService, 'get_file_from_github') as mock_download:
+            result = svc.generate_auto_thumbnail(tracker_file)
+
+        assert result is None
+        mock_download.assert_not_called()
+
+    def test_recorded_size_at_cap_still_renders(self):
+        """Boundary control: a file exactly at the cap is not skipped."""
+        tracker_file = TrackerFileFactory(
+            storage_type='local', filename='part.stl',
+            file_size=svc.MAX_RENDER_FILE_SIZE_BYTES,
+        )
+        tracker_file.local_file.save('part.stl', ContentFile(_stl_bytes()), save=True)
+
+        result = svc.generate_auto_thumbnail(tracker_file)
+
+        assert result is not None
+
+
+# ============================================================================
 # generate_auto_thumbnail — local storage success path
 # ============================================================================
 
