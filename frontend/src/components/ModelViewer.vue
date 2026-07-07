@@ -32,11 +32,10 @@ function readThemeVariable(varName, theme) {
 }
 
 function getBackgroundColor(mode) {
-  if (mode === 'light') {
-    const hex = readThemeVariable('--color-background-mute', 'light') || '#e0e0e0'
-    return new THREE.Color(hex)
-  }
-  return new THREE.Color(0x1a1a2e)
+  const theme = mode === 'light' ? 'light' : 'dark'
+  const fallback = theme === 'light' ? '#e0e0e0' : '#1a1a2e'
+  const hex = readThemeVariable('--viewer-background', theme) || fallback
+  return new THREE.Color(hex)
 }
 
 function init(container) {

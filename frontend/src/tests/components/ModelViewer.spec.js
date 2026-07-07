@@ -150,7 +150,9 @@ describe('ModelViewer', () => {
         await new Promise((r) => setTimeout(r, 0))
         await new Promise((r) => setTimeout(r, 0))
 
-        expect(colorSpy.mock.calls[0][0]).toBe(0x1a1a2e)
+        // No app stylesheet is loaded in this test environment, so
+        // --viewer-background resolves empty and the dark fallback applies.
+        expect(colorSpy.mock.calls[0][0]).toBe('#1a1a2e')
       } finally {
         colorSpy.mockRestore()
       }
@@ -165,7 +167,7 @@ describe('ModelViewer', () => {
         await new Promise((r) => setTimeout(r, 0))
 
         // No app stylesheet is loaded in this test environment, so
-        // --color-background-mute resolves empty and the fallback applies.
+        // --viewer-background resolves empty and the fallback applies.
         expect(colorSpy.mock.calls[0][0]).toBe('#e0e0e0')
       } finally {
         colorSpy.mockRestore()
