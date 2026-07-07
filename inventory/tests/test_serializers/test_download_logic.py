@@ -104,8 +104,14 @@ class TestTrackerCreateDownloadLogic:
         from inventory.serializers import TrackerCreateSerializer
         
         tracker = TrackerFactory(id=2)
-        file1 = TrackerFileFactory(tracker=tracker, filename='success.stl', file_size=1000)
-        file2 = TrackerFileFactory(tracker=tracker, filename='failure.stl', file_size=2000)
+        # Pin storage_type='link': these files represent the pre-download
+        # state (matching TrackerFile's model default), not a random value.
+        # TrackerFileFactory defaults to FuzzyChoice(['link', 'local']), which
+        # made this test flaky — file2's post-failure assertion only holds
+        # if it started as 'link', since a failed download never touches
+        # storage_type (nothing should downgrade an unrelated field on failure).
+        file1 = TrackerFileFactory(tracker=tracker, filename='success.stl', file_size=1000, storage_type='link')
+        file2 = TrackerFileFactory(tracker=tracker, filename='failure.stl', file_size=2000, storage_type='link')
         tracker_files = [file1, file2]
         
         # Mock successful space check and path creation
