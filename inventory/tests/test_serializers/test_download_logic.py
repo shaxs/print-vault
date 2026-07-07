@@ -84,6 +84,12 @@ class TestTrackerCreateDownloadLogic:
         assert file1.actual_file_size == 1000
         assert file2.download_status == 'completed'
         assert file2.file_checksum == 'def456'
+        # Regression: a successfully-downloaded file must be reclassified
+        # from the model default ('link') to 'local', or every per-file
+        # storage_type-gated feature (e.g. auto-thumbnail generation) wrongly
+        # treats a fully-local file as a bare GitHub link forever.
+        assert file1.storage_type == 'local'
+        assert file2.storage_type == 'local'
         
         # Verify tracker updates
         tracker.refresh_from_db()
@@ -142,8 +148,10 @@ class TestTrackerCreateDownloadLogic:
         file1.refresh_from_db()
         file2.refresh_from_db()
         assert file1.download_status == 'completed'
+        assert file1.storage_type == 'local'
         assert file2.download_status == 'failed'
         assert file2.download_error == 'Network timeout'
+        assert file2.storage_type == 'link'  # failed download must NOT claim to be local
         
         # Tracker should show partial completion
         tracker.refresh_from_db()

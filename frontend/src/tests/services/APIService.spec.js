@@ -54,6 +54,10 @@ describe('APIService', () => {
     it('should have downloadTrackerFiles method', () => {
       expect(typeof APIService.downloadTrackerFiles).toBe('function')
     })
+
+    it('should have regenerateTrackerThumbnails method', () => {
+      expect(typeof APIService.regenerateTrackerThumbnails).toBe('function')
+    })
   })
 
   describe('Tracker Files', () => {

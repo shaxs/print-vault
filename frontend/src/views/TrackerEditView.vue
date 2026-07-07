@@ -16,6 +16,11 @@ const error = ref(null)
 const downloading = ref(false)
 const downloadMessage = ref('')
 
+// Thumbnail regeneration state
+const regenerating = ref(false)
+const regenerateMessage = ref('')
+const includeLinkedForRegenerate = ref(false)
+
 // Material selection state
 const materials = ref([])
 const loadingMaterials = ref(false)
@@ -146,6 +151,8 @@ const saveTracker = async () => {
       primary_material: primaryMaterialMode.value === 'blueprint' ? selectedPrimaryMaterial.value : null,
       accent_material: accentMaterialMode.value === 'blueprint' ? selectedAccentMaterial.value : null,
       notes: tracker.value.notes || '',
+      generate_thumbnails_for_linked_files: tracker.value.generate_thumbnails_for_linked_files || false,
+      viewer_background: tracker.value.viewer_background || 'dark',
     })
     
     router.push(`/trackers/${route.params.id}`)
@@ -223,6 +230,23 @@ const downloadAllFiles = async () => {
     error.value = err.response?.data?.error || 'Failed to download files. Please try again.'
   } finally {
     downloading.value = false
+  }
+}
+
+const regenerateThumbnails = async () => {
+  regenerateMessage.value = ''
+  error.value = null
+  regenerating.value = true
+
+  try {
+    await APIService.regenerateTrackerThumbnails(route.params.id, includeLinkedForRegenerate.value)
+    regenerateMessage.value =
+      'Thumbnail regeneration queued. New/updated thumbnails will appear shortly.'
+  } catch (err) {
+    console.error('Failed to queue thumbnail regeneration:', err)
+    error.value = 'Failed to queue thumbnail regeneration. Please try again.'
+  } finally {
+    regenerating.value = false
   }
 }
 
@@ -312,6 +336,38 @@ onMounted(async () => {
           <p v-if="downloadMessage" class="success-message">{{ downloadMessage }}</p>
         </div>
 
+        <div v-if="tracker.storage_type === 'link'" class="form-group checkbox-group">
+          <input
+            id="generate_thumbnails_for_linked_files"
+            v-model="tracker.generate_thumbnails_for_linked_files"
+            type="checkbox"
+          />
+          <label for="generate_thumbnails_for_linked_files">
+            Generate thumbnails for linked files
+          </label>
+        </div>
+        <p
+          v-if="tracker.storage_type === 'link'"
+          class="help-text"
+          style="margin-top: -0.5rem; margin-left: 0; margin-bottom: 2rem"
+        >
+          Automatically generate a thumbnail for new linked files by downloading each one
+          temporarily (no local copy is kept). Off by default since it can be slow for large
+          trackers.
+        </p>
+
+        <div class="form-group">
+          <label for="viewer_background">3D Viewer Background</label>
+          <select id="viewer_background" v-model="tracker.viewer_background" class="form-input">
+            <option value="dark">Dark</option>
+            <option value="light">Light</option>
+          </select>
+          <p class="help-text">
+            Background color used by the 3D viewer for files in this tracker. Useful to switch to
+            Light if this tracker's parts are printed in dark colors.
+          </p>
+        </div>
+
         <div class="form-group checkbox-group">
           <input id="show_on_dashboard" v-model="tracker.show_on_dashboard" type="checkbox" />
           <label for="show_on_dashboard">Featured on Dashboard</label>
@@ -319,6 +375,29 @@ onMounted(async () => {
         <p class="help-text" style="margin-top: -0.5rem; margin-left: 0; margin-bottom: 2rem">
           Display this tracker in the dashboard's featured section
         </p>
+
+        <div class="form-group">
+          <label>Thumbnails</label>
+          <div class="regenerate-thumbnails-row">
+            <button
+              type="button"
+              @click="regenerateThumbnails"
+              :disabled="regenerating"
+              class="btn btn-sm btn-secondary"
+            >
+              {{ regenerating ? 'Queuing...' : 'Regenerate Thumbnails' }}
+            </button>
+            <label class="regenerate-linked-checkbox">
+              <input type="checkbox" v-model="includeLinkedForRegenerate" />
+              Include linked files
+            </label>
+          </div>
+          <p class="help-text">
+            Regenerates auto-generated thumbnails for this tracker's STL/3MF files. Files with a
+            manually-uploaded image are never touched.
+          </p>
+          <p v-if="regenerateMessage" class="success-message">{{ regenerateMessage }}</p>
+        </div>
 
         <!-- Primary Material/Color -->
         <div class="form-group">
@@ -571,6 +650,23 @@ onMounted(async () => {
   color: var(--color-green);
   margin-top: 6px;
   font-weight: 500;
+}
+
+.regenerate-thumbnails-row {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+}
+
+.regenerate-linked-checkbox {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-weight: normal;
+  font-size: 0.9rem;
+  color: var(--color-text);
+  cursor: pointer;
+  user-select: none;
 }
 
 .download-in-progress {

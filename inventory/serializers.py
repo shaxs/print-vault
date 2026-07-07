@@ -200,8 +200,8 @@ class TrackerFileImageSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = TrackerFileImage
-        fields = ['id', 'tracker_file', 'tracker_file_id', 'image', 'caption', 'order', 'created_at']
-        read_only_fields = ['id', 'tracker_file', 'created_at']
+        fields = ['id', 'tracker_file', 'tracker_file_id', 'image', 'caption', 'order', 'is_auto_generated', 'created_at']
+        read_only_fields = ['id', 'tracker_file', 'is_auto_generated', 'created_at']
 
     def create(self, validated_data):
         tracker_file_id = validated_data.pop('tracker_file_id', None)
@@ -871,7 +871,7 @@ class TrackerFileSerializer(serializers.ModelSerializer):
     class Meta:
         model = TrackerFile
         fields = [
-            'id', 'tracker', 'filename', 'directory_path', 'github_url',
+            'id', 'tracker', 'filename', 'directory_path', 'github_url', 'storage_type',
             'local_file', 'file_size', 'sha', 'color', 'material', 'material_ids',
             'materials_display', 'material_override', 'quantity', 'is_selected', 'status',
             'printed_quantity', 'remaining_quantity', 'is_complete', 'thumbnail',
@@ -957,6 +957,7 @@ class TrackerSerializer(serializers.ModelSerializer):
             'id', 'name', 'project', 'project_name', 'github_url', 'storage_type',
             'creation_mode', 'primary_color', 'accent_color', 'created_date', 'updated_date',
             'show_on_dashboard', 'notes',
+            'generate_thumbnails_for_linked_files', 'viewer_background',
             'files', 'total_count', 'completed_count', 'in_progress_count',
             'not_started_count', 'progress_percentage', 'total_quantity',
             'printed_quantity_total', 'pending_quantity',
@@ -1018,8 +1019,8 @@ class TrackerCreateSerializer(serializers.ModelSerializer):
         model = Tracker
         fields = [
             'id', 'name', 'project', 'github_url', 'storage_type', 'creation_mode',
-            'primary_color', 'accent_color', 'primary_material', 'accent_material', 
-            'notes', 'files'
+            'primary_color', 'accent_color', 'primary_material', 'accent_material',
+            'notes', 'generate_thumbnails_for_linked_files', 'viewer_background', 'files'
         ]
     
     def create(self, validated_data):
@@ -1207,6 +1208,7 @@ class TrackerCreateSerializer(serializers.ModelSerializer):
                 tracker_file.download_error = ''
                 # Set the local_file path (relative to MEDIA_ROOT)
                 tracker_file.local_file = file_path_mapping.get(tracker_file.id, '')
+                tracker_file.storage_type = 'local'
                 tracker_file.save()
                 
                 total_bytes_downloaded += success_info.get('bytes_downloaded', 0)

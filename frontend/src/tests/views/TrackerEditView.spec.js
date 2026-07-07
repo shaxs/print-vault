@@ -12,7 +12,7 @@
  *   - shouldShowDownloadButton   computed: whether to offer "download files" action
  */
 
-import { describe, it, expect } from 'vitest'
+import { describe, it, expect, vi } from 'vitest'
 
 // ---------------------------------------------------------------------------
 // Extracted pure function implementations (mirrors TrackerEditView.vue logic)
@@ -337,5 +337,60 @@ describe('TrackerEditView – shouldShowDownloadButton', () => {
       files: [{ github_url: 'https://x.com/y.stl', local_file: null }],
     })
     expect(shouldShowDownloadButton(tracker, 'link')).toBe(false)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// regenerateThumbnails — mirrors TrackerEditView.vue's handler:
+//   try { await APIService.regenerateTrackerThumbnails(id, includeLinked)
+//         return { message: 'queued...' } }
+//   catch { return { error: 'Failed to queue...' } }
+// ---------------------------------------------------------------------------
+
+async function regenerateThumbnails(apiCall, trackerId, includeLinked) {
+  try {
+    await apiCall(trackerId, includeLinked)
+    return {
+      message: 'Thumbnail regeneration queued. New/updated thumbnails will appear shortly.',
+      error: null,
+    }
+  } catch {
+    return { message: '', error: 'Failed to queue thumbnail regeneration. Please try again.' }
+  }
+}
+
+describe('TrackerEditView – regenerateThumbnails', () => {
+  it('calls the API with the tracker id and includeLinked flag', async () => {
+    const apiCall = vi.fn().mockResolvedValue({ data: { status: 'queued' } })
+
+    await regenerateThumbnails(apiCall, '42', true)
+
+    expect(apiCall).toHaveBeenCalledWith('42', true)
+  })
+
+  it('defaults includeLinked through to false when not requested', async () => {
+    const apiCall = vi.fn().mockResolvedValue({ data: { status: 'queued' } })
+
+    await regenerateThumbnails(apiCall, '42', false)
+
+    expect(apiCall).toHaveBeenCalledWith('42', false)
+  })
+
+  it('returns a success message when the API call succeeds', async () => {
+    const apiCall = vi.fn().mockResolvedValue({ data: { status: 'queued' } })
+
+    const result = await regenerateThumbnails(apiCall, '42', false)
+
+    expect(result.error).toBeNull()
+    expect(result.message).toContain('queued')
+  })
+
+  it('returns an error message when the API call fails', async () => {
+    const apiCall = vi.fn().mockRejectedValue(new Error('network error'))
+
+    const result = await regenerateThumbnails(apiCall, '42', false)
+
+    expect(result.message).toBe('')
+    expect(result.error).toContain('Failed to queue')
   })
 })

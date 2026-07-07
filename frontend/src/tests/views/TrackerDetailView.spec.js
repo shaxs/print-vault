@@ -34,6 +34,10 @@ describe('TrackerDetailView — APIService contract', () => {
   it('APIService.updateTrackerFileStatus exists', () => {
     expect(typeof APIService.updateTrackerFileStatus).toBe('function')
   })
+
+  it('APIService.updateTracker exists', () => {
+    expect(typeof APIService.updateTracker).toBe('function')
+  })
 })
 
 // ── Router Registration ──────────────────────────────────────────────────────
@@ -541,5 +545,206 @@ describe('TrackerDetailView — filterOptions', () => {
     const opts = buildFilterOptions([{ color: null, material: null }])
     expect(opts.colors).toHaveLength(0)
     expect(opts.materials).toHaveLength(0)
+  })
+})
+
+// ── toggleViewerBackground() ─────────────────────────────────────────────────
+// Mirrors TrackerDetailView.vue's handler: flips dark<->light, optimistically
+// updates the local tracker object so the viewer re-renders immediately, then
+// PATCHes the tracker; reverts the optimistic update if the PATCH fails.
+
+async function toggleViewerBackground(tracker, patchCall) {
+  const newBackground = tracker.viewer_background === 'light' ? 'dark' : 'light'
+  const previous = tracker.viewer_background
+  tracker.viewer_background = newBackground
+
+  try {
+    await patchCall(tracker.id, { viewer_background: newBackground })
+  } catch {
+    tracker.viewer_background = previous
+  }
+
+  return tracker
+}
+
+describe('TrackerDetailView — toggleViewerBackground()', () => {
+  it('flips dark to light', async () => {
+    const tracker = { id: 1, viewer_background: 'dark' }
+    const patchCall = async () => {}
+
+    const result = await toggleViewerBackground(tracker, patchCall)
+
+    expect(result.viewer_background).toBe('light')
+  })
+
+  it('flips light to dark', async () => {
+    const tracker = { id: 1, viewer_background: 'light' }
+    const patchCall = async () => {}
+
+    const result = await toggleViewerBackground(tracker, patchCall)
+
+    expect(result.viewer_background).toBe('dark')
+  })
+
+  it('calls the PATCH with the tracker id and new value', async () => {
+    const tracker = { id: 7, viewer_background: 'dark' }
+    const calls = []
+    const patchCall = async (id, data) => calls.push([id, data])
+
+    await toggleViewerBackground(tracker, patchCall)
+
+    expect(calls).toEqual([[7, { viewer_background: 'light' }]])
+  })
+
+  it('reverts the optimistic update if the PATCH fails', async () => {
+    const tracker = { id: 1, viewer_background: 'dark' }
+    const patchCall = async () => {
+      throw new Error('network error')
+    }
+
+    const result = await toggleViewerBackground(tracker, patchCall)
+
+    expect(result.viewer_background).toBe('dark')
+  })
+})
+
+// ── hasFilesAwaitingThumbnail() ──────────────────────────────────────────────
+// Mirrors: tracker.files.some((file) => isPreviewableFile(file) && !file.thumbnail)
+
+function isPreviewableFile(file) {
+  if (!file.filename) return false
+  const ext = file.filename.toLowerCase().split('.').pop()
+  return ext === 'stl' || ext === '3mf'
+}
+
+function hasFilesAwaitingThumbnail(tracker) {
+  if (!tracker?.files) return false
+  return tracker.files.some((file) => isPreviewableFile(file) && !file.thumbnail)
+}
+
+describe('TrackerDetailView — hasFilesAwaitingThumbnail()', () => {
+  it('returns false when tracker has no files', () => {
+    expect(hasFilesAwaitingThumbnail({ files: [] })).toBe(false)
+  })
+
+  it('returns false when every previewable file already has a thumbnail', () => {
+    const tracker = {
+      files: [
+        { filename: 'a.stl', thumbnail: '/media/a.png' },
+        { filename: 'b.3mf', thumbnail: '/media/b.png' },
+      ],
+    }
+    expect(hasFilesAwaitingThumbnail(tracker)).toBe(false)
+  })
+
+  it('returns true when a previewable file has no thumbnail yet', () => {
+    const tracker = {
+      files: [
+        { filename: 'a.stl', thumbnail: '/media/a.png' },
+        { filename: 'b.stl', thumbnail: null },
+      ],
+    }
+    expect(hasFilesAwaitingThumbnail(tracker)).toBe(true)
+  })
+
+  it('ignores non-previewable files with no thumbnail', () => {
+    const tracker = { files: [{ filename: 'readme.txt', thumbnail: null }] }
+    expect(hasFilesAwaitingThumbnail(tracker)).toBe(false)
+  })
+})
+
+// ── refreshThumbnails() merge logic ──────────────────────────────────────────
+// Mirrors: merges only the `thumbnail` field from a fresh fetch into the
+// existing reactive file objects, by id, without replacing the array/objects.
+
+function mergeThumbnails(existingFiles, freshFiles) {
+  const thumbnailById = new Map(freshFiles.map((f) => [f.id, f.thumbnail]))
+  existingFiles.forEach((file) => {
+    if (thumbnailById.has(file.id)) {
+      file.thumbnail = thumbnailById.get(file.id)
+    }
+  })
+  return existingFiles
+}
+
+describe('TrackerDetailView — thumbnail refresh merge', () => {
+  it('updates thumbnail fields for matching file ids', () => {
+    const existing = [{ id: 1, thumbnail: null }, { id: 2, thumbnail: null }]
+    const fresh = [{ id: 1, thumbnail: '/media/1.png' }, { id: 2, thumbnail: null }]
+
+    const result = mergeThumbnails(existing, fresh)
+
+    expect(result[0].thumbnail).toBe('/media/1.png')
+    expect(result[1].thumbnail).toBeNull()
+  })
+
+  it('leaves files untouched if their id is not in the fresh response', () => {
+    const existing = [{ id: 1, thumbnail: null, color: 'Primary' }]
+    const fresh = []
+
+    const result = mergeThumbnails(existing, fresh)
+
+    expect(result[0].thumbnail).toBeNull()
+    expect(result[0].color).toBe('Primary')
+  })
+
+  it('preserves object identity (mutates in place, does not replace array)', () => {
+    const fileA = { id: 1, thumbnail: null }
+    const existing = [fileA]
+    const fresh = [{ id: 1, thumbnail: '/media/1.png' }]
+
+    const result = mergeThumbnails(existing, fresh)
+
+    expect(result[0]).toBe(fileA)
+    expect(fileA.thumbnail).toBe('/media/1.png')
+  })
+})
+
+// ── Polling loop stop conditions ─────────────────────────────────────────────
+// Mirrors startThumbnailPolling()'s per-tick check: stop once no files are
+// awaiting a thumbnail, or once MAX_THUMBNAIL_POLL_ATTEMPTS is reached.
+
+describe('TrackerDetailView — thumbnail poll stop conditions', () => {
+  const MAX_ATTEMPTS = 24
+
+  function shouldStopPolling(tracker, attempts) {
+    return !hasFilesAwaitingThumbnail(tracker) || attempts >= MAX_ATTEMPTS
+  }
+
+  it('stops once every file has a thumbnail', () => {
+    const tracker = { files: [{ filename: 'a.stl', thumbnail: '/media/a.png' }] }
+    expect(shouldStopPolling(tracker, 1)).toBe(true)
+  })
+
+  it('keeps polling while a file is still missing a thumbnail and under the cap', () => {
+    const tracker = { files: [{ filename: 'a.stl', thumbnail: null }] }
+    expect(shouldStopPolling(tracker, 1)).toBe(false)
+  })
+
+  it('stops once the max attempt cap is reached, even if still missing', () => {
+    const tracker = { files: [{ filename: 'a.stl', thumbnail: null }] }
+    expect(shouldStopPolling(tracker, MAX_ATTEMPTS)).toBe(true)
+  })
+})
+
+// ── Edit File modal storage-type label ───────────────────────────────────────
+// Mirrors: editingFile?.storage_type === 'local' ? 'Local File' : 'GitHub Link Only'
+
+function storageTypeLabel(file) {
+  return file?.storage_type === 'local' ? 'Local File' : 'GitHub Link Only'
+}
+
+describe('TrackerDetailView — storage type label', () => {
+  it('shows "Local File" for storage_type=local', () => {
+    expect(storageTypeLabel({ storage_type: 'local' })).toBe('Local File')
+  })
+
+  it('shows "GitHub Link Only" for storage_type=link', () => {
+    expect(storageTypeLabel({ storage_type: 'link' })).toBe('GitHub Link Only')
+  })
+
+  it('defaults to "GitHub Link Only" when file is null/undefined', () => {
+    expect(storageTypeLabel(null)).toBe('GitHub Link Only')
+    expect(storageTypeLabel(undefined)).toBe('GitHub Link Only')
   })
 })

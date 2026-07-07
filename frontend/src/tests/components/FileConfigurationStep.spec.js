@@ -216,3 +216,48 @@ describe('FileConfigurationStep — hasUrlFiles', () => {
     expect(hasUrlFiles([{ source: 'Thingiverse' }])).toBe(true)
   })
 })
+
+// ── storageOption watcher: generateThumbnailsForLinkedFiles reset ────────────
+// Mirrors:
+//   watch(storageOption, (newValue) => {
+//     emit('update:storageOption', newValue)
+//     if (newValue !== 'link') {
+//       generateThumbnailsForLinkedFiles.value = false
+//       emit('update:generateThumbnailsForLinkedFiles', false)
+//     }
+//   })
+
+describe('FileConfigurationStep — storageOption watcher resets linked-thumbnail checkbox', () => {
+  function simulateStorageOptionChange(newValue, currentGenerateValue) {
+    const emitted = []
+    let generateThumbnailsForLinkedFiles = currentGenerateValue
+
+    emitted.push(['update:storageOption', newValue])
+    if (newValue !== 'link') {
+      generateThumbnailsForLinkedFiles = false
+      emitted.push(['update:generateThumbnailsForLinkedFiles', false])
+    }
+
+    return { emitted, generateThumbnailsForLinkedFiles }
+  }
+
+  it('resets the checkbox to false when switching away from "link"', () => {
+    const { generateThumbnailsForLinkedFiles, emitted } = simulateStorageOptionChange('local', true)
+
+    expect(generateThumbnailsForLinkedFiles).toBe(false)
+    expect(emitted).toContainEqual(['update:generateThumbnailsForLinkedFiles', false])
+  })
+
+  it('does not touch the checkbox when switching to "link"', () => {
+    const { generateThumbnailsForLinkedFiles, emitted } = simulateStorageOptionChange('link', true)
+
+    expect(generateThumbnailsForLinkedFiles).toBe(true)
+    expect(emitted).not.toContainEqual(expect.arrayContaining(['update:generateThumbnailsForLinkedFiles']))
+  })
+
+  it('always emits update:storageOption regardless of value', () => {
+    const { emitted } = simulateStorageOptionChange('local', false)
+
+    expect(emitted).toContainEqual(['update:storageOption', 'local'])
+  })
+})

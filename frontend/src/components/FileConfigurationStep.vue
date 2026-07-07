@@ -10,7 +10,7 @@ const props = defineProps({
 })
 
 // Emit storage option changes to parent
-const emit = defineEmits(['update:storageOption'])
+const emit = defineEmits(['update:storageOption', 'update:generateThumbnailsForLinkedFiles'])
 
 // Force reactivity trigger
 const forceUpdate = ref(0)
@@ -29,10 +29,22 @@ const isMulticolorSelected = computed(() => {
 // File storage option - REQUIRED field, no default
 const storageOption = ref('')
 
+// Only relevant when storageOption === 'link'. Off by default since it can
+// be slow for large trackers (each linked file is downloaded temporarily).
+const generateThumbnailsForLinkedFiles = ref(false)
+
 // Watch for storage option changes and emit to parent
 import { watch } from 'vue'
 watch(storageOption, (newValue) => {
   emit('update:storageOption', newValue)
+  if (newValue !== 'link') {
+    generateThumbnailsForLinkedFiles.value = false
+    emit('update:generateThumbnailsForLinkedFiles', false)
+  }
+})
+
+watch(generateThumbnailsForLinkedFiles, (newValue) => {
+  emit('update:generateThumbnailsForLinkedFiles', newValue)
 })
 
 // Material and color options
@@ -550,6 +562,22 @@ const groupedFiles = computed(() => {
             </label>
           </div>
 
+          <label
+            v-if="storageOption === 'link'"
+            class="thumbnail-checkbox-option"
+          >
+            <input type="checkbox" v-model="generateThumbnailsForLinkedFiles" />
+            <span class="thumbnail-checkbox-text">
+              Generate thumbnails for linked files
+            </span>
+          </label>
+          <div class="storage-warning" v-if="storageOption === 'link' && generateThumbnailsForLinkedFiles">
+            <strong>⚠️ This can take a long time:</strong> generating a thumbnail for a linked
+            file requires downloading it temporarily (no local copy is kept). For a tracker with
+            many files, this can take a while. You can also turn this on later, or run it per file
+            from the tracker's settings.
+          </div>
+
           <div class="storage-warning" v-if="storageOption === 'local' && isLargeDownload">
             <strong>⚠️ Large Download Warning:</strong> You are about to download
             {{ totalSizeGB }} GB ({{ selectedFiles.length }} files). This may take several minutes
@@ -1015,6 +1043,26 @@ const groupedFiles = computed(() => {
   line-height: 1.4;
 }
 
+.thumbnail-checkbox-option {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.75rem;
+  margin-bottom: 0.75rem;
+  cursor: pointer;
+}
+
+.thumbnail-checkbox-option input[type='checkbox'] {
+  cursor: pointer;
+  margin: 0;
+  flex-shrink: 0;
+}
+
+.thumbnail-checkbox-text {
+  font-size: 0.9rem;
+  color: var(--color-text);
+}
+
 .storage-note {
   padding: 0.75rem;
   background-color: rgba(59, 130, 246, 0.1);
@@ -1027,11 +1075,11 @@ const groupedFiles = computed(() => {
 
 .storage-warning {
   padding: 0.75rem;
-  background-color: rgba(234, 179, 8, 0.1);
+  background-color: rgba(234, 179, 8, 0.15);
   border-left: 3px solid #f59e0b;
   border-radius: 4px;
   font-size: 0.85rem;
-  color: #92400e;
+  color: var(--color-text);
   margin-bottom: 1rem;
 }
 

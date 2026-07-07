@@ -49,6 +49,7 @@ INSTALLED_APPS = [
     "rest_framework",
     "corsheaders",
     "django_filters",
+    "django_q",
     "inventory",
 ]
 
@@ -193,3 +194,17 @@ REST_FRAMEWORK = {
 
 # Set max upload size to 250MB (250 * 1024 * 1024 bytes)
 DATA_UPLOAD_MAX_MEMORY_SIZE = 262144000
+
+# Django-Q2 async task cluster.
+# Uses the ORM broker against the default database connection (SQLite in dev,
+# Postgres in production via backend/production.py) — no separate broker
+# infrastructure (e.g. Redis) required.
+Q_CLUSTER = {
+    "name": "printvault",
+    "workers": 2,
+    "timeout": 300,
+    "retry": 420,
+    "queue_limit": 50,
+    "bulk": 10,
+    "orm": "default",
+}

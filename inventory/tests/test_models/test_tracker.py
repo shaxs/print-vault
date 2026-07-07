@@ -47,6 +47,19 @@ class TestTrackerModel:
         assert tracker.primary_color == "#1E40AF"
         # accent_color now defaults to empty string (blank=True allows empty)
         assert tracker.accent_color == ""
+
+    def test_tracker_thumbnail_settings_defaults(self):
+        """Test auto-thumbnail settings default to off/dark."""
+        tracker = TrackerFactory()
+
+        assert tracker.generate_thumbnails_for_linked_files is False
+        assert tracker.viewer_background == "dark"
+
+    def test_tracker_viewer_background_can_be_light(self):
+        """Test viewer_background accepts the 'light' choice."""
+        tracker = TrackerFactory(viewer_background="light")
+
+        assert tracker.viewer_background == "light"
     
     def test_tracker_custom_colors(self):
         """Test custom color configuration."""

@@ -3319,7 +3319,10 @@ class TrackerViewSet(viewsets.ModelViewSet):
         storage_type = request.data.get('storage_type', 'link')
         primary_material_id = request.data.get('primary_material')
         accent_material_id = request.data.get('accent_material')
-        
+        generate_thumbnails_for_linked_files = request.data.get(
+            'generate_thumbnails_for_linked_files', False
+        )
+
         files = request.data.get('files', [])
         
         if not name:
@@ -3340,7 +3343,8 @@ class TrackerViewSet(viewsets.ModelViewSet):
                 github_url='',  # No GitHub URL for manual trackers
                 creation_mode='manual',
                 primary_material_id=primary_material_id,
-                accent_material_id=accent_material_id
+                accent_material_id=accent_material_id,
+                generate_thumbnails_for_linked_files=bool(generate_thumbnails_for_linked_files)
             )
             
             # Create tracker files
@@ -3507,6 +3511,7 @@ class TrackerViewSet(viewsets.ModelViewSet):
                 tracker_file.download_error = ''
                 # Set the local_file path (relative to MEDIA_ROOT)
                 tracker_file.local_file = file_path_mapping.get(tracker_file.id, '')
+                tracker_file.storage_type = 'local'
                 tracker_file.save()
                 
                 total_bytes_downloaded += success_info.get('bytes_downloaded', 0)
@@ -3945,6 +3950,7 @@ class TrackerViewSet(viewsets.ModelViewSet):
                 tracker_file.download_error = ''
                 # Set the local_file path (relative to MEDIA_ROOT)
                 tracker_file.local_file = file_path_mapping.get(tracker_file.id, '')
+                tracker_file.storage_type = 'local'
                 tracker_file.save()
                 
                 total_bytes_downloaded += success_info.get('bytes_downloaded', 0)
@@ -4451,6 +4457,44 @@ class TrackerViewSet(viewsets.ModelViewSet):
             'updates_made': updates_made,
             'total_affected_files': total_affected_files
         })
+
+    @action(detail=True, methods=['post'], url_path='regenerate-thumbnails')
+    def regenerate_thumbnails(self, request, pk=None):
+        """
+        Queue (re)generation of auto-thumbnails for every eligible STL/3MF
+        file in this tracker.
+
+        POST /api/trackers/{id}/regenerate-thumbnails/
+        Body: {
+            "include_linked": bool  # default False. When True, also fetches
+                                     # and renders storage_type='link' files
+                                     # for this one run, independent of the
+                                     # tracker's standing
+                                     # generate_thumbnails_for_linked_files setting.
+        }
+
+        Skips files that already have a manually-uploaded image. Runs
+        asynchronously via Django-Q since a tracker can have hundreds of
+        files — this endpoint queues the work and returns immediately.
+        """
+        tracker = self.get_object()
+        include_linked = bool(request.data.get('include_linked', False))
+
+        from django_q.tasks import async_task
+        async_task(
+            'inventory.tasks.regenerate_tracker_thumbnails_task',
+            tracker.id,
+            include_linked,
+        )
+
+        return Response(
+            {
+                'status': 'queued',
+                'tracker_id': tracker.id,
+                'include_linked': include_linked,
+            },
+            status=status.HTTP_202_ACCEPTED,
+        )
 
 
 class TrackerFileViewSet(viewsets.ModelViewSet):

@@ -14,12 +14,22 @@ class TestTrackerFileImageModel:
     """Test TrackerFileImage model behavior."""
 
     def test_create_image_with_defaults(self):
-        """Test creating an image attaches to its tracker file with default order."""
+        """Test creating an image attaches to its tracker file."""
         image = TrackerFileImageFactory()
 
         assert image.pk is not None
-        assert image.order == 0
+        # order is factory.Sequence-driven (shared counter across the whole
+        # test run), not the model's own default=0 -- just assert it's a
+        # sane int rather than depending on absolute sequence position.
+        assert isinstance(image.order, int)
         assert image.tracker_file is not None
+        assert image.is_auto_generated is False
+
+    def test_is_auto_generated_can_be_set(self):
+        """Test is_auto_generated flags an image as machine-generated vs. manual."""
+        image = TrackerFileImageFactory(is_auto_generated=True)
+
+        assert image.is_auto_generated is True
 
     def test_related_name_images(self):
         """Test tracker_file.images returns attached images via related_name."""
