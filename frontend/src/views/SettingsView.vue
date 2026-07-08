@@ -1,5 +1,6 @@
 <script setup>
 import { ref } from 'vue'
+import { useRoute } from 'vue-router'
 import MainHeader from '@/components/MainHeader.vue'
 import BrandsTab from '@/components/BrandsTab.vue'
 import PartTypesTab from '@/components/PartTypesTab.vue'
@@ -10,8 +11,16 @@ import FeaturesTab from '@/components/FeaturesTab.vue'
 import PreferencesTab from '@/components/PreferencesTab.vue'
 import DataManagementTab from '@/components/DataManagementTab.vue'
 import AboutTab from '@/components/AboutTab.vue'
+import ModulesTab from '@/components/ModulesTab.vue'
 
-const activeTab = ref('brands')
+const route = useRoute()
+// Allow deep-linking to a tab via ?tab=<key> (e.g. the Dashboard "hidden
+// modules" notice links to ?tab=modules). Fall back to Brands for unknown keys.
+const VALID_TABS = [
+  'brands', 'part-types', 'locations', 'materials', 'features',
+  'vendors', 'preferences', 'modules', 'data', 'about',
+]
+const activeTab = ref(VALID_TABS.includes(route.query.tab) ? route.query.tab : 'brands')
 </script>
 
 <template>
@@ -40,6 +49,9 @@ const activeTab = ref('brands')
         <button @click="activeTab = 'preferences'" :class="{ active: activeTab === 'preferences' }">
           Preferences
         </button>
+        <button @click="activeTab = 'modules'" :class="{ active: activeTab === 'modules' }">
+          Modules
+        </button>
         <button @click="activeTab = 'data'" :class="{ active: activeTab === 'data' }">
           Data Management
         </button>
@@ -55,6 +67,7 @@ const activeTab = ref('brands')
         <FeaturesTab v-if="activeTab === 'features'" />
         <VendorsTab v-if="activeTab === 'vendors'" />
         <PreferencesTab v-if="activeTab === 'preferences'" />
+        <ModulesTab v-if="activeTab === 'modules'" />
         <DataManagementTab v-if="activeTab === 'data'" />
         <AboutTab v-if="activeTab === 'about'" />
       </div>

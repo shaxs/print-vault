@@ -443,4 +443,12 @@ export default {
   getInventoryAllocation(inventoryItemId) {
     return apiClient.get(`inventoryitems/${inventoryItemId}/allocation/`)
   },
+
+  // App Configuration (sidebar module visibility, etc.)
+  getAppConfig() {
+    return apiClient.get('app-config/')
+  },
+  updateAppConfig(data) {
+    return apiClient.patch('app-config/', data)
+  },
 }

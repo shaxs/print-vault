@@ -30,7 +30,8 @@ logger = logging.getLogger(__name__)
 from .models import (
     Brand, PartType, Location, Material, MaterialPhoto, MaterialFeature, Vendor, Printer, Mod, ModFile,
     InventoryItem, Project, ProjectLink, ProjectFile, ProjectInventory, ProjectPrinters,
-    ProjectBOMItem, Tracker, TrackerFile, TrackerFileImage, AlertDismissal, FilamentSpool
+    ProjectBOMItem, Tracker, TrackerFile, TrackerFileImage, AlertDismissal, FilamentSpool,
+    AppConfiguration, HIDEABLE_MODULE_KEYS
 )
 from .serializers import (
     BrandSerializer, PartTypeSerializer, LocationSerializer, MaterialSerializer, MaterialPhotoSerializer, MaterialFeatureSerializer, VendorSerializer, PrinterSerializer, ModSerializer, ModFileSerializer,
@@ -38,7 +39,7 @@ from .serializers import (
     ProjectInventorySerializer, ProjectPrintersSerializer, ProjectBOMItemSerializer,
     TrackerSerializer, TrackerFileSerializer, TrackerFileImageSerializer,
     TrackerCreateSerializer, TrackerListSerializer,
-    FilamentSpoolSerializer
+    FilamentSpoolSerializer, AppConfigurationSerializer
 )
 from .filters import InventoryItemFilter, PrinterFilter, ProjectFilter
 from .services.github_service import (
@@ -297,6 +298,16 @@ class ExportDataView(APIView):
             except Exception as e:
                 logger.error(f"Failed to export tracker files section: {e}", exc_info=True)
                 export_errors.append("trackerfiles_section")
+
+            # Export App Configuration (global settings singleton: module visibility, etc.)
+            try:
+                config = AppConfiguration.load()
+                zf.writestr('app_config.json', json.dumps({
+                    'hidden_modules': config.hidden_modules,
+                }, indent=2))
+            except Exception as e:
+                logger.error(f"Failed to export app configuration: {e}", exc_info=True)
+                export_errors.append("app_config_section")
 
             # Add media files to zip
             try:
@@ -1521,6 +1532,20 @@ class ImportDataView(APIView):
                         with open(target_path, 'wb') as f:
                             f.write(zf.read(member))
 
+                # Restore App Configuration (module visibility, etc.) if present.
+                # Optional section — older backups won't have it; never fail the import.
+                try:
+                    if 'app_config.json' in zf.namelist():
+                        cfg_data = json.loads(zf.read('app_config.json').decode('utf-8'))
+                        hidden = cfg_data.get('hidden_modules', [])
+                        if isinstance(hidden, list):
+                            config = AppConfiguration.load()
+                            config.hidden_modules = [k for k in hidden if k in HIDEABLE_MODULE_KEYS]
+                            config.save()
+                except Exception as e:
+                    logger.error(f"Failed to import app configuration: {e}", exc_info=True)
+                    import_errors.append("app_config_section")
+
                 def read_csv_from_zip(zipfile_obj, filename):
                     with zipfile_obj.open(filename, 'r') as f:
                         reader = csv.reader(StringIO(f.read().decode('utf-8')))
@@ -1900,6 +1925,31 @@ class ImportDataView(APIView):
         except Exception as e:
             logger.error(f"Import failed completely: {e}", exc_info=True)
             return Response({'error': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+class AppConfigurationView(APIView):
+    """
+    Global app configuration singleton (currently sidebar module visibility).
+
+    GET   /api/app-config/  -> {"hidden_modules": [...]}
+    PATCH /api/app-config/  -> update hidden_modules; returns the saved state.
+
+    There is only ever one row (AppConfiguration.load()); the serializer
+    validates that every hidden key is an actually-hideable module, so Settings,
+    Dashboard, and unknown keys can never be persisted as hidden.
+    """
+    permission_classes = [AllowAny]
+
+    def get(self, request):
+        config = AppConfiguration.load()
+        return Response(AppConfigurationSerializer(config).data)
+
+    def patch(self, request):
+        config = AppConfiguration.load()
+        serializer = AppConfigurationSerializer(config, data=request.data, partial=True)
+        serializer.is_valid(raise_exception=True)
+        serializer.save()
+        return Response(serializer.data)
+
 
 class DeleteAllData(APIView):
     permission_classes = [AllowAny]
