@@ -56,17 +56,14 @@ DEFAULT_ACCENT_HEX = '#f5a623'
 ROTATION_X_RADIANS = 0.4
 ROTATION_Y_RADIANS = 0.6
 
-# Bound worst-case render time for very dense meshes (large mechanical parts
-# in this project's own tracker media routinely exceed this). Random face
-# sampling is a reasonable tradeoff for a 256x256 preview.
-MAX_FACES_FOR_RENDER = 150_000
-
-# Refuse to load models above this raw file size. MAX_FACES_FOR_RENDER only
-# bounds draw time — trimesh still loads the full mesh first, multiplying
-# on-disk size several times over in RAM (vertex/face/normal arrays plus a
-# working copy), and a single huge binary STL can push a Django-Q worker past
-# 1.5 GB RSS — enough to thrash a small self-hosted container. A 256x256
-# preview gains nothing from a mesh that dense; skipping it is the right trade.
+# Refuse to load models above this raw file size. This is the sole density
+# guard: trimesh loads the full mesh first, multiplying on-disk size several
+# times over in RAM (vertex/face/normal arrays plus a working copy), and a
+# single huge binary STL can push a Django-Q worker past 1.5 GB RSS — enough
+# to thrash a small self-hosted container. It also bounds render time, since
+# the painter's-algorithm draw loop is linear in face count. Everything under
+# this cap renders every face (see _render_mesh_image); a 256x256 preview
+# gains nothing from a mesh denser than this, so skipping it is the right trade.
 MAX_RENDER_FILE_SIZE_BYTES = 100 * 1024 * 1024
 
 
@@ -157,10 +154,12 @@ def _render_mesh_image(mesh: trimesh.Trimesh, base_color_hex: str = FALLBACK_COL
     faces = working.faces
     normals = working.face_normals
 
-    if len(faces) > MAX_FACES_FOR_RENDER:
-        sample = np.random.choice(len(faces), MAX_FACES_FOR_RENDER, replace=False)
-        faces = faces[sample]
-        normals = normals[sample]
+    # Draw every face. An earlier version randomly subsampled faces above a cap
+    # to bound draw time, but on a dense mesh (~640k tris for a 30 MB STL) that
+    # dropped ~3 of every 4 triangles uniformly across the surface, leaving a
+    # sparse, hole-riddled preview that didn't match the solid model. The draw
+    # loop is linear and the on-disk size cap (MAX_RENDER_FILE_SIZE_BYTES)
+    # already bounds worst-case face count, so rendering all faces is fine.
 
     # Backface cull: camera sits at +Z looking toward the origin, so only
     # faces whose (rotated) normal points back toward the camera are visible.

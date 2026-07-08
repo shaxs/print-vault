@@ -108,6 +108,28 @@ class TestRenderMeshImage:
         # only scales all channels by the same lighting intensity).
         assert all(p[0] >= p[1] and p[0] >= p[2] for p in opaque_pixels)
 
+    def test_dense_mesh_render_is_deterministic(self):
+        """
+        Regression for the hole-riddled thumbnail bug (Multi_Lane_Base-Expander
+        .stl, ~644k faces): the renderer used to randomly subsample faces down
+        to a 150k cap via an *unseeded* np.random.choice. On thin-walled /
+        elongated parts that dropped enough triangles to break the surface into
+        scattered specks (see the 30 MB STL that rendered as a ghostly outline
+        instead of the solid part), and because the sample was unseeded, every
+        regeneration produced a *different* speckle pattern.
+
+        Rendering must now be deterministic and draw every face. A dense mesh
+        (over the old cap) rendered twice must be byte-identical; if random
+        face-dropping is ever reintroduced this fails.
+        """
+        dense = trimesh.creation.icosphere(subdivisions=7)  # 327,680 faces > old 150k cap
+        assert len(dense.faces) > 150_000
+
+        first = svc._render_mesh_image(dense).tobytes()
+        second = svc._render_mesh_image(dense).tobytes()
+
+        assert first == second
+
 
 # ============================================================================
 # _hex_to_rgb / _resolve_file_hex_color
