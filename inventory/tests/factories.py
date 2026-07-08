@@ -8,10 +8,12 @@ import factory
 from factory import fuzzy
 from factory.django import DjangoModelFactory
 from faker import Faker
+from django.utils import timezone
 from inventory.models import (
     Brand, PartType, Location, Material, MaterialFeature, Vendor, Printer, Mod, ModFile,
     InventoryItem, Project, ProjectLink, ProjectFile, ProjectInventory, ProjectPrinters,
-    Tracker, TrackerFile, TrackerFileImage, FilamentSpool, ProjectBOMItem
+    Tracker, TrackerFile, TrackerFileImage, FilamentSpool, ProjectBOMItem,
+    LibraryRoot, LibraryFolder, LibraryFile, LibraryScan
 )
 
 fake = Faker()
@@ -428,3 +430,49 @@ class ProjectBOMItemFactory(DjangoModelFactory):
     status = 'unlinked'
     notes = ''
     sort_order = factory.Sequence(lambda n: n)
+
+
+# ============================================================================
+# STL/3MF LIBRARY FACTORIES
+# ============================================================================
+
+class LibraryRootFactory(DjangoModelFactory):
+    """Factory for LibraryRoot model."""
+    class Meta:
+        model = LibraryRoot
+
+    name = factory.Sequence(lambda n: f"Library Root {n}")
+    path = factory.Sequence(lambda n: f"/mnt/share{n}")
+
+
+class LibraryFolderFactory(DjangoModelFactory):
+    """Factory for LibraryFolder model."""
+    class Meta:
+        model = LibraryFolder
+
+    root = factory.SubFactory(LibraryRootFactory)
+    parent = None
+    name = factory.Sequence(lambda n: f"folder{n}")
+    relative_path = factory.Sequence(lambda n: f"folder{n}")
+
+
+class LibraryFileFactory(DjangoModelFactory):
+    """Factory for LibraryFile model."""
+    class Meta:
+        model = LibraryFile
+
+    folder = factory.SubFactory(LibraryFolderFactory)
+    root = factory.SelfAttribute('folder.root')
+    filename = factory.Sequence(lambda n: f"model{n}.stl")
+    relative_path = factory.Sequence(lambda n: f"folder/model{n}.stl")
+    extension = 'stl'
+    size_bytes = 1024
+    modified_time = factory.LazyFunction(timezone.now)
+
+
+class LibraryScanFactory(DjangoModelFactory):
+    """Factory for LibraryScan model."""
+    class Meta:
+        model = LibraryScan
+
+    root = factory.SubFactory(LibraryRootFactory)

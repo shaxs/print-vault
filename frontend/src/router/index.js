@@ -1,6 +1,7 @@
 // src/router/index.js
 import { createRouter, createWebHistory } from 'vue-router'
 import HomeView from '../views/HomeView.vue'
+import LibraryView from '../views/LibraryView.vue'
 import InventoryCreateView from '../views/InventoryCreateView.vue'
 import InventoryDetailView from '../views/InventoryDetailView.vue'
 import InventoryEditView from '../views/InventoryEditView.vue'
@@ -85,6 +86,7 @@ const router = createRouter({
     },
 
     // Print Tracker Routes
+    { path: '/library', name: 'library', component: LibraryView },
     { path: '/trackers', name: 'tracker-list', component: TrackerListView },
     { path: '/trackers/create', name: 'tracker-create', component: CreateTrackerWizard },
     { path: '/trackers/:id', name: 'tracker-detail', component: TrackerDetailView },

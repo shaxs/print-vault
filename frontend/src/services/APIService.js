@@ -443,4 +443,61 @@ export default {
   getInventoryAllocation(inventoryItemId) {
     return apiClient.get(`inventoryitems/${inventoryItemId}/allocation/`)
   },
+
+  // STL/3MF Library
+  getLibraryRoots() {
+    return apiClient.get('library/roots/')
+  },
+  createLibraryRoot(data) {
+    return apiClient.post('library/roots/', data)
+  },
+  updateLibraryRoot(id, data) {
+    return apiClient.patch(`library/roots/${id}/`, data)
+  },
+  deleteLibraryRoot(id) {
+    return apiClient.delete(`library/roots/${id}/`)
+  },
+  rescanLibraryRoot(id) {
+    return apiClient.post(`library/roots/${id}/rescan/`)
+  },
+  regenerateLibraryThumbnails(id) {
+    return apiClient.post(`library/roots/${id}/regenerate-thumbnails/`)
+  },
+  getLibraryFolderTree(rootId) {
+    return apiClient.get('library/folders/tree/', { params: { root: rootId } })
+  },
+  getLibraryFolderContents(id, params) {
+    return apiClient.get(`library/folders/${id}/contents/`, { params })
+  },
+  rescanLibraryFolder(id) {
+    return apiClient.post(`library/folders/${id}/rescan/`)
+  },
+  getLibraryFile(id) {
+    return apiClient.get(`library/files/${id}/`)
+  },
+  // Not an API call: URL string handed to the 3D viewer, which fetches it itself
+  getLibraryFileDownloadUrl(id) {
+    return `/api/library/files/${id}/download/`
+  },
+  getLibraryScan(id) {
+    return apiClient.get(`library/scans/${id}/`)
+  },
+  getActiveLibraryScans() {
+    return apiClient.get('library/scans/', { params: { active: 'true' } })
+  },
+  getLibraryPreviewSummary(params) {
+    return apiClient.get('library/preview-summary/', { params })
+  },
+  searchLibrary(params) {
+    return apiClient.get('library/search/', { params })
+  },
+  deleteLibraryFile(id) {
+    return apiClient.delete(`library/files/${id}/`)
+  },
+  deleteLibraryFolder(id) {
+    return apiClient.delete(`library/folders/${id}/`)
+  },
+  purgeLibraryDeleted() {
+    return apiClient.post('library/purge-deleted/')
+  },
 }

@@ -9,6 +9,9 @@ const props = defineProps({
   url: { type: String, required: true },
   color: { type: String, default: '' },
   background: { type: String, default: 'dark' }, // 'dark' or 'light'
+  // Explicit 'stl' | '3mf' for URLs without a file extension (e.g. the
+  // library's /files/{id}/download/ endpoint); falls back to URL parsing.
+  format: { type: String, default: '' },
 })
 
 const containerRef = ref(null)
@@ -106,7 +109,7 @@ async function loadModel(url) {
     const response = await fetch(url)
     if (!response.ok) throw new Error(`HTTP ${response.status}`)
     const buffer = await response.arrayBuffer()
-    const ext = getExtension(url)
+    const ext = (props.format || getExtension(url)).toLowerCase()
 
     if (ext === '3mf') {
       const loader = new ThreeMFLoader()

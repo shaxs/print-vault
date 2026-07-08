@@ -36,6 +36,8 @@ test_scripts/
 
 #Local Dev Database
 db.sqlite3
+db.sqlite3-shm
+db.sqlite3-wal
 
 AGENTS.md
 
@@ -53,6 +55,7 @@ feedback.md
 # Dev startup scripts (local machine specific)
 start-dev.bat
 stop-dev.bat
+dev-manager.ps1
 
 # Git info files (generated during Docker build)
 .git_commit

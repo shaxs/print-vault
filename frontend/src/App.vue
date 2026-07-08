@@ -55,6 +55,7 @@ onMounted(fetchNotifications)
       <RouterLink to="/printers" @click="closeMobileMenu">Printers</RouterLink>
       <RouterLink to="/projects" @click="closeMobileMenu">Projects</RouterLink>
       <RouterLink to="/trackers" @click="closeMobileMenu">Print Trackers</RouterLink>
+      <RouterLink to="/library" @click="closeMobileMenu">Library</RouterLink>
       <div class="sidebar-spacer"></div>
       <RouterLink to="/settings" @click="closeMobileMenu" class="settings-menu-link"
         >Settings</RouterLink

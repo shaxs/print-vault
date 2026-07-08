@@ -92,6 +92,27 @@ DATABASES = {
     "default": {
         "ENGINE": "django.db.backends.sqlite3",
         "NAME": BASE_DIR / "db.sqlite3",
+        # Dev-only SQLite concurrency hardening. Django-Q uses this same SQLite
+        # file as its task broker, so a write-heavy Library scan (many folder/
+        # file row writes) runs concurrently with the qcluster's broker writes
+        # and multiple workers — the default rollback-journal mode lets readers
+        # block writers and only waits ~5s, surfacing as "database is locked".
+        # WAL lets readers and one writer proceed concurrently; the 30s busy
+        # timeout makes competing writers queue instead of erroring out.
+        # transaction_mode=IMMEDIATE is the crucial piece: without it, an
+        # atomic() block reads first (SHARED lock) then upgrades to a write,
+        # and if another writer already holds the lock SQLite returns
+        # "database is locked" IMMEDIATELY (the busy timeout does not apply to
+        # this deadlock-avoidance path). BEGIN IMMEDIATE grabs the write lock
+        # up front so competing writers wait out the busy timeout instead.
+        # process_file_chunk() and Django-Q's ORM broker both read-then-write.
+        # Production overrides DATABASES entirely with PostgreSQL
+        # (backend/production.py), so none of this touches prod.
+        "OPTIONS": {
+            "timeout": 30,
+            "transaction_mode": "IMMEDIATE",
+            "init_command": "PRAGMA journal_mode=WAL; PRAGMA synchronous=NORMAL;",
+        },
     }
 }
 

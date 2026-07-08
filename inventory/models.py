@@ -1678,3 +1678,202 @@ def update_tracker_stats_on_delete(sender, instance, **kwargs):
     tracker = instance.tracker
     tracker.recalculate_stats()
     tracker.save(update_fields=['total_quantity', 'printed_quantity_total', 'progress_percentage', 'updated_date'])
+
+# =============================================================================
+# STL/3MF Library — network-share file index
+# (see chat_docs/planning/STL_LIBRARY_FEATURE_PLAN.md)
+# =============================================================================
+
+class LibraryRoot(models.Model):
+    """
+    An admin-configured directory (e.g. a bind-mounted network share) whose
+    STL/3MF contents are indexed into a browsable library. Files are indexed
+    in place — metadata plus a generated thumbnail — never copied into Print
+    Vault's own storage. Multiple roots are supported; the API rejects only
+    roots whose paths duplicate or overlap (nest inside/contain) another
+    enabled root's path, since overlapping trees would double-index files.
+    """
+    name = models.CharField(max_length=255)
+    path = models.CharField(
+        max_length=1024,
+        help_text="Absolute path as visible to this app (e.g. the bind-mount point inside the container)"
+    )
+    enabled = models.BooleanField(default=True)
+    rescan_interval_hours = models.PositiveIntegerField(
+        null=True,
+        blank=True,
+        help_text="Periodic rescan interval in hours; NULL = manual rescans only"
+    )
+    thumbnail_color = models.CharField(
+        max_length=7,
+        default='#94a3b8',
+        help_text="Hex color used for rendered thumbnails and the 3D viewer "
+                  "(library files have no material context to derive one from)"
+    )
+    last_scanned_at = models.DateTimeField(null=True, blank=True)
+    last_scan_status = models.CharField(
+        max_length=16,
+        choices=[('idle', 'Idle'), ('running', 'Running'), ('success', 'Success'), ('error', 'Error')],
+        default='idle',
+    )
+    last_scan_error = models.TextField(blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        verbose_name = "Library Root"
+        verbose_name_plural = "Library Roots"
+
+    def __str__(self):
+        return f"{self.name} ({self.path})"
+
+
+class LibraryFolder(models.Model):
+    """
+    A first-class mirror of one real directory under a LibraryRoot.
+    Explicit rows (rather than deriving the tree from file path strings) keep
+    empty folders navigable and make breadcrumbs/contents indexed FK lookups.
+    """
+    root = models.ForeignKey(LibraryRoot, on_delete=models.CASCADE, related_name='folders')
+    parent = models.ForeignKey(
+        'self', null=True, blank=True, on_delete=models.CASCADE, related_name='children',
+        help_text="NULL for the root directory itself"
+    )
+    name = models.CharField(max_length=255)
+    relative_path = models.CharField(max_length=1024, db_index=True)
+    status = models.CharField(
+        max_length=16,
+        choices=[('active', 'Active'), ('deleted', 'Deleted')],
+        default='active',
+    )
+    last_seen_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        verbose_name = "Library Folder"
+        verbose_name_plural = "Library Folders"
+        unique_together = ('root', 'relative_path')
+
+    def __str__(self):
+        return f"{self.root.name}/{self.relative_path}" if self.relative_path else self.root.name
+
+
+class LibraryFile(models.Model):
+    """
+    One indexed STL/3MF file on the share. Holds derived metadata only —
+    the real bytes stay on the share and are streamed on demand.
+    """
+    # Denormalized alongside `folder` (which already implies the root) purely so
+    # "all files under this root" queries don't need a join through folder.
+    root = models.ForeignKey(LibraryRoot, on_delete=models.CASCADE, related_name='files')
+    folder = models.ForeignKey(LibraryFolder, on_delete=models.CASCADE, related_name='files')
+    filename = models.CharField(max_length=255)
+    relative_path = models.CharField(max_length=1024, db_index=True)
+    extension = models.CharField(max_length=8)  # 'stl' or '3mf', lowercase, no dot
+    size_bytes = models.PositiveBigIntegerField()
+    modified_time = models.DateTimeField()
+    sha256_hash = models.CharField(
+        max_length=64, null=True, blank=True, db_index=True,
+        help_text="NULL until first hash pass; NOT unique — legitimate duplicate files share a hash"
+    )
+    status = models.CharField(
+        max_length=16,
+        choices=[('active', 'Active'), ('deleted', 'Deleted')],
+        default='active',
+    )
+    thumbnail = models.ImageField(upload_to='library_file_thumbnails/', null=True, blank=True)
+    thumbnail_status = models.CharField(
+        max_length=16,
+        choices=[
+            ('pending', 'Pending'),       # not yet processed
+            ('rendered', 'Rendered'),     # thumbnail generated successfully
+            ('too_large', 'Too large'),   # over the render size cap — skipped by design
+            ('unrenderable', 'Unrenderable'),  # mesh could not be read (corrupt / empty geometry)
+        ],
+        default='pending',
+        db_index=True,
+        help_text="Why a file does or doesn't have a preview, so the UI can explain a missing thumbnail",
+    )
+    bounding_box_x = models.FloatField(null=True, blank=True)  # mm
+    bounding_box_y = models.FloatField(null=True, blank=True)  # mm
+    bounding_box_z = models.FloatField(null=True, blank=True)  # mm
+    embedded_metadata = models.JSONField(
+        default=dict, blank=True,
+        help_text="Embedded 3MF slicer metadata; empty dict for .stl files"
+    )
+    last_seen_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        verbose_name = "Library File"
+        verbose_name_plural = "Library Files"
+        unique_together = ('root', 'relative_path')
+
+    def __str__(self):
+        return self.relative_path
+
+
+class LibraryScan(models.Model):
+    """
+    One scan job (full-root or scoped to a folder subtree). Backs the
+    scan-status polling endpoint and doubles as the per-root concurrency
+    guard: a new scan is refused while another scan of the same root is
+    still pending/running.
+    """
+    root = models.ForeignKey(LibraryRoot, on_delete=models.CASCADE, related_name='scans')
+    folder = models.ForeignKey(
+        LibraryFolder, null=True, blank=True, on_delete=models.CASCADE, related_name='scans',
+        help_text="Subtree scope for a scoped rescan; NULL = full-root scan"
+    )
+    kind = models.CharField(
+        max_length=16,
+        choices=[('scan', 'Scan'), ('thumbnails', 'Thumbnails')],
+        default='scan',
+        help_text="What this job does — a directory scan or a thumbnail regeneration; "
+                  "lets a re-attached progress banner label the job correctly",
+    )
+    status = models.CharField(
+        max_length=16,
+        choices=[('pending', 'Pending'), ('running', 'Running'), ('success', 'Success'), ('error', 'Error')],
+        default='pending',
+    )
+    error = models.TextField(blank=True)
+    files_seen = models.PositiveIntegerField(default=0)
+    files_queued = models.PositiveIntegerField(
+        default=0, help_text="Files needing expensive processing (hash/render/parse)"
+    )
+    files_processed = models.PositiveIntegerField(default=0)
+    started_at = models.DateTimeField(null=True, blank=True)
+    finished_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        verbose_name = "Library Scan"
+        verbose_name_plural = "Library Scans"
+        ordering = ['-created_at']
+
+    def __str__(self):
+        scope = self.folder.relative_path if self.folder_id else 'full root'
+        return f"Scan of {self.root.name} ({scope}): {self.status}"
+
+
+@receiver(post_delete, sender=LibraryFile)
+def delete_library_file_thumbnail(sender, instance, **kwargs):
+    """Remove the generated thumbnail from disk when its row is hard-deleted
+    (same convention as ModFile/ProjectFile file cleanup)."""
+    if instance.thumbnail:
+        instance.thumbnail.delete(False)
+
+
+@receiver(post_save, sender=LibraryRoot)
+def sync_library_root_schedule(sender, instance, **kwargs):
+    """Keep the per-root periodic-rescan Schedule in step with the root's
+    settings on every save path (API edits, backup restore, admin)."""
+    from inventory.library_tasks import sync_root_schedule
+    sync_root_schedule(instance)
+
+
+@receiver(post_delete, sender=LibraryRoot)
+def delete_library_root_schedule(sender, instance, **kwargs):
+    """Remove the periodic-rescan Schedule when its root goes away."""
+    from inventory.library_tasks import delete_root_schedule
+    delete_root_schedule(instance.pk)

@@ -5,7 +5,8 @@ from django.utils import timezone
 from .models import (
     Brand, PartType, Location, Material, MaterialPhoto, MaterialFeature, Vendor, Printer, Mod, ModFile,
     InventoryItem, Project, ProjectLink, ProjectFile, ProjectInventory, ProjectPrinters,
-    ProjectBOMItem, Tracker, TrackerFile, TrackerFileImage, FilamentSpool
+    ProjectBOMItem, Tracker, TrackerFile, TrackerFileImage, FilamentSpool,
+    LibraryRoot, LibraryFolder, LibraryFile, LibraryScan
 )
 from .services.storage_manager import StorageManager, InsufficientStorageError, StoragePermissionError
 from .services.file_download_service import (
@@ -1269,3 +1270,159 @@ class TrackerListSerializer(serializers.ModelSerializer):
             'created_date'
         ]
         read_only_fields = ['created_date']
+
+# =============================================================================
+# STL/3MF Library serializers
+# (see chat_docs/planning/STL_LIBRARY_FEATURE_PLAN.md)
+# =============================================================================
+
+class LibraryRootSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = LibraryRoot
+        fields = [
+            'id', 'name', 'path', 'enabled', 'rescan_interval_hours', 'thumbnail_color',
+            'last_scanned_at', 'last_scan_status', 'last_scan_error', 'created_at',
+        ]
+        read_only_fields = ['last_scanned_at', 'last_scan_status', 'last_scan_error', 'created_at']
+
+    def validate_thumbnail_color(self, value):
+        import re
+        if not re.fullmatch(r'#[0-9a-fA-F]{6}', value or ''):
+            raise serializers.ValidationError("Must be a hex color like #94a3b8.")
+        return value.lower()
+
+    def validate(self, attrs):
+        """
+        Multi-root path rules (replacing v1's single-enabled-root cap):
+
+        - No two roots may share the same path (duplicate indexing of one tree).
+        - No enabled root may sit inside, or contain, another enabled root's
+          path — overlapping trees would double-index every shared file and
+          make hash-based move detection fire across roots.
+
+        Paths are compared normalized (normcase + normpath) so trivial
+        spelling differences (trailing slash, case on Windows) don't slip a
+        duplicate through.
+        """
+        import os
+
+        path = attrs.get('path', getattr(self.instance, 'path', None))
+        if not path:
+            return attrs
+
+        enabled_value = (
+            attrs.get('enabled', self.instance.enabled)
+            if self.instance else attrs.get('enabled', True)
+        )
+
+        def norm(p):
+            return os.path.normcase(os.path.normpath((p or '').strip()))
+
+        def is_within(inner, outer):
+            return inner != outer and inner.startswith(outer.rstrip(os.sep) + os.sep)
+
+        new_norm = norm(path)
+        others = LibraryRoot.objects.all()
+        if self.instance:
+            others = others.exclude(pk=self.instance.pk)
+
+        for other in others:
+            if norm(other.path) == new_norm:
+                raise serializers.ValidationError(
+                    {'path': f'This path is already indexed by the "{other.name}" library root.'}
+                )
+
+        if enabled_value:
+            for other in others.filter(enabled=True):
+                other_norm = norm(other.path)
+                if is_within(new_norm, other_norm) or is_within(other_norm, new_norm):
+                    raise serializers.ValidationError({
+                        'path': f'This path overlaps the "{other.name}" library root '
+                                f'({other.path}). Library roots cannot be nested inside one another.'
+                    })
+        return attrs
+
+
+class LibraryFolderTreeSerializer(serializers.ModelSerializer):
+    """Left-nav tree skeleton — deliberately minimal (one row per directory
+    on the share, so payload size must not grow with file count). Carries
+    `root` so the multi-root frontend can derive the active root from any
+    selected folder."""
+    parent_id = serializers.IntegerField(read_only=True)
+
+    class Meta:
+        model = LibraryFolder
+        fields = ['id', 'name', 'parent_id', 'status', 'root']
+
+
+class LibraryFolderSerializer(serializers.ModelSerializer):
+    breadcrumbs = serializers.SerializerMethodField()
+
+    class Meta:
+        model = LibraryFolder
+        fields = ['id', 'root', 'parent', 'name', 'relative_path', 'status', 'breadcrumbs']
+
+    def get_breadcrumbs(self, obj):
+        """Ancestry chain root-first, ending with the folder itself."""
+        crumbs = []
+        current = obj
+        while current:
+            crumbs.append({'id': current.id, 'name': current.name})
+            current = current.parent
+        crumbs.reverse()
+        return crumbs
+
+
+class LibraryFileListSerializer(serializers.ModelSerializer):
+    """Compact row for the folder-contents List/Grid views."""
+    class Meta:
+        model = LibraryFile
+        fields = [
+            'id', 'filename', 'extension', 'size_bytes', 'modified_time', 'status',
+            'thumbnail', 'thumbnail_status', 'bounding_box_x', 'bounding_box_y', 'bounding_box_z',
+        ]
+
+
+class LibraryFileSearchSerializer(serializers.ModelSerializer):
+    """Search hit: list fields plus enough path/folder context to jump to it.
+    Carries root id + name so multi-root results (search now spans all enabled
+    roots by default) are attributable to their owning root."""
+    root_name = serializers.CharField(source='root.name', read_only=True)
+
+    class Meta:
+        model = LibraryFile
+        fields = [
+            'id', 'filename', 'extension', 'size_bytes', 'modified_time', 'status',
+            'thumbnail', 'thumbnail_status', 'relative_path', 'folder', 'root', 'root_name',
+        ]
+
+
+class LibraryFileDetailSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = LibraryFile
+        fields = [
+            'id', 'root', 'folder', 'filename', 'relative_path', 'extension',
+            'size_bytes', 'modified_time', 'sha256_hash', 'status', 'thumbnail', 'thumbnail_status',
+            'bounding_box_x', 'bounding_box_y', 'bounding_box_z',
+            'embedded_metadata', 'last_seen_at', 'created_at',
+        ]
+
+
+class LibraryScanSerializer(serializers.ModelSerializer):
+    progress_percent = serializers.SerializerMethodField()
+    root_name = serializers.CharField(source='root.name', read_only=True)
+
+    class Meta:
+        model = LibraryScan
+        fields = [
+            'id', 'root', 'root_name', 'kind', 'folder', 'status', 'error',
+            'files_seen', 'files_queued', 'files_processed',
+            'started_at', 'finished_at', 'created_at', 'progress_percent',
+        ]
+
+    def get_progress_percent(self, obj):
+        if obj.status == 'success':
+            return 100
+        if obj.files_queued:
+            return int(obj.files_processed / obj.files_queued * 100)
+        return 0 if obj.status in ('pending', 'running') else 100

@@ -30,6 +30,10 @@ router.register(r'low-stock', views.LowStockItemsViewSet, basename='lowstock')
 router.register(r'trackers', views.TrackerViewSet)  # Print Tracker endpoints
 router.register(r'tracker-files', views.TrackerFileViewSet)  # Tracker File endpoints
 router.register(r'tracker-file-images', views.TrackerFileImageViewSet)  # Tracker File Image endpoints
+router.register(r'library/roots', views.LibraryRootViewSet)  # STL/3MF Library roots
+router.register(r'library/folders', views.LibraryFolderViewSet)  # Library folder tree/contents
+router.register(r'library/files', views.LibraryFileViewSet)  # Library file detail/download
+router.register(r'library/scans', views.LibraryScanViewSet)  # Library scan job status
 
 urlpatterns = [
     path('admin/', admin.site.urls),
@@ -43,6 +47,9 @@ urlpatterns = [
     path('api/validate-backup/', views.ValidateBackupView.as_view(), name='validate-backup'),
     path('api/import-data/', views.ImportDataView.as_view(), name='import-data'),
     path('api/delete-all-data/', views.DeleteAllData.as_view(), name='delete-all'),
+    path('api/library/search/', views.LibrarySearchView.as_view(), name='library-search'),
+    path('api/library/preview-summary/', views.LibraryPreviewSummaryView.as_view(), name='library-preview-summary'),
+    path('api/library/purge-deleted/', views.LibraryPurgeDeletedView.as_view(), name='library-purge-deleted'),
 ]
 
 if settings.DEBUG:

@@ -2,6 +2,7 @@
 import csv
 import zipfile
 import os
+from django.http import FileResponse, Http404
 import shutil
 import tempfile
 import hashlib
@@ -13,11 +14,13 @@ from datetime import date, timedelta
 from django.http import HttpResponse
 from django.utils import timezone
 from rest_framework import viewsets, filters, mixins
+from rest_framework.pagination import PageNumberPagination
+from rest_framework.fields import BooleanField
 from rest_framework.parsers import MultiPartParser
 from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
-from rest_framework import status
-from rest_framework.fields import BooleanField
+from rest_framework import status, generics
+from django.shortcuts import get_object_or_404
 from rest_framework.views import APIView
 from django.conf import settings
 from django.db import connection, models
@@ -30,15 +33,18 @@ logger = logging.getLogger(__name__)
 from .models import (
     Brand, PartType, Location, Material, MaterialPhoto, MaterialFeature, Vendor, Printer, Mod, ModFile,
     InventoryItem, Project, ProjectLink, ProjectFile, ProjectInventory, ProjectPrinters,
-    ProjectBOMItem, Tracker, TrackerFile, TrackerFileImage, AlertDismissal, FilamentSpool
+    ProjectBOMItem, Tracker, TrackerFile, TrackerFileImage, AlertDismissal, FilamentSpool,
+    LibraryRoot, LibraryFolder, LibraryFile, LibraryScan
 )
 from .serializers import (
     BrandSerializer, PartTypeSerializer, LocationSerializer, MaterialSerializer, MaterialPhotoSerializer, MaterialFeatureSerializer, VendorSerializer, PrinterSerializer, ModSerializer, ModFileSerializer,
     InventoryItemSerializer, ProjectSerializer, ProjectLinkSerializer, ProjectFileSerializer,
     ProjectInventorySerializer, ProjectPrintersSerializer, ProjectBOMItemSerializer,
-    TrackerSerializer, TrackerFileSerializer, TrackerFileImageSerializer,
-    TrackerCreateSerializer, TrackerListSerializer,
-    FilamentSpoolSerializer
+    TrackerSerializer, TrackerFileSerializer, TrackerFileImageSerializer, TrackerCreateSerializer, TrackerListSerializer,
+    FilamentSpoolSerializer,
+    LibraryRootSerializer, LibraryFolderSerializer, LibraryFolderTreeSerializer,
+    LibraryFileListSerializer, LibraryFileDetailSerializer, LibraryFileSearchSerializer,
+    LibraryScanSerializer
 )
 from .filters import InventoryItemFilter, PrinterFilter, ProjectFilter
 from .services.github_service import (
@@ -3115,12 +3121,12 @@ class TrackerViewSet(viewsets.ModelViewSet):
     
     def get_queryset(self):
         """Allow filtering by project."""
-        queryset = Tracker.objects.prefetch_related('files__images').all()
+        queryset = Tracker.objects.all()
         project_id = self.request.query_params.get('project', None)
         if project_id is not None:
             queryset = queryset.filter(project_id=project_id)
         return queryset
-
+    
     def create(self, request, *args, **kwargs):
         """
         Create a new tracker and optionally download files if storage_type is 'download'.
@@ -3343,7 +3349,7 @@ class TrackerViewSet(viewsets.ModelViewSet):
         generate_thumbnails_for_linked_files = parse_bool(
             request.data.get('generate_thumbnails_for_linked_files')
         )
-
+        
         files = request.data.get('files', [])
         
         if not name:
@@ -4538,7 +4544,7 @@ class TrackerFileViewSet(viewsets.ModelViewSet):
     
     def get_queryset(self):
         """Allow filtering by tracker."""
-        queryset = TrackerFile.objects.prefetch_related('images').all()
+        queryset = TrackerFile.objects.all()
         tracker_id = self.request.query_params.get('tracker', None)
         if tracker_id is not None:
             queryset = queryset.filter(tracker_id=tracker_id)
@@ -4558,9 +4564,8 @@ class TrackerFileViewSet(viewsets.ModelViewSet):
     def update_configuration(self, request, pk=None):
         """Custom endpoint to update file configuration (color, material, material_ids, quantity).
         
-        Primary/Accent files use tracker-level materials by default, but an explicit
-        material_ids payload sets a per-file override (material_override=True).
-        Other/Multicolor/Clear files always use custom materials.
+        Primary/Accent files ALWAYS use tracker materials (no overrides).
+        Other/Multicolor/Clear files can have custom materials.
         """
         import logging
         logger = logging.getLogger(__name__)
@@ -4572,37 +4577,35 @@ class TrackerFileViewSet(viewsets.ModelViewSet):
         file.color = new_color
         file.quantity = request.data.get('quantity', file.quantity)
         
-        material_ids_data = request.data.get('material_ids')
-        material_data = request.data.get('material')
-        
         # Handle materials based on color type
-        if new_color in ('Primary', 'Accent'):
-            if material_ids_data:  # Explicit per-file override provided
-                file.material_ids = material_ids_data
-                file.material = material_data if material_data else ''
-                file.material_override = True
-            else:
-                # Fall back to tracker-level material
-                file.material_override = False
-                if new_color == 'Primary':
-                    if tracker.primary_material:
-                        file.material_ids = [tracker.primary_material.id]
-                        file.material = tracker.primary_material.name
-                    else:
-                        file.material_ids = []
-                        file.material = ''
-                else:  # Accent
-                    if tracker.accent_material:
-                        file.material_ids = [tracker.accent_material.id]
-                        file.material = tracker.accent_material.name
-                    else:
-                        file.material_ids = []
-                        file.material = ''
+        if new_color == 'Primary':
+            # Use tracker's primary material
+            if tracker.primary_material:
+                file.material_ids = [tracker.primary_material.id]
+                file.material = tracker.primary_material.name
+            elif tracker.primary_color:
+                # Fallback to hex color if no material set
+                file.material_ids = []
+                file.material = ''  # Empty string, not None (field doesn't allow null)
+        elif new_color == 'Accent':
+            # Use tracker's accent material
+            if tracker.accent_material:
+                file.material_ids = [tracker.accent_material.id]
+                file.material = tracker.accent_material.name
+            elif tracker.accent_color:
+                # Fallback to hex color if no material set
+                file.material_ids = []
+                file.material = ''  # Empty string, not None (field doesn't allow null)
         else:
-            # Other/Multicolor/Clear - always use custom materials
-            file.material_override = False
+            # Other/Multicolor/Clear - use custom materials if provided
+            material_data = request.data.get('material')
+            material_ids_data = request.data.get('material_ids')
+            
+            # Update material_ids if provided (even if it's an empty list or null)
             if 'material_ids' in request.data:
                 file.material_ids = material_ids_data if material_ids_data else []
+            
+            # Update material string if provided
             if 'material' in request.data:
                 file.material = material_data if material_data else ''
         
@@ -4749,3 +4752,332 @@ class CheckUpdateView(APIView):
                 },
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR
             )
+
+
+# =============================================================================
+# STL/3MF Library API
+# (see chat_docs/planning/STL_LIBRARY_FEATURE_PLAN.md)
+# =============================================================================
+
+class LibraryContentsPagination(PageNumberPagination):
+    """Folder-contents/file listings can hold thousands of rows — always paged."""
+    page_size = 100
+    page_size_query_param = 'page_size'
+    max_page_size = 500
+
+
+# Whitelist for ?ordering= on folder contents; anything else falls back to filename.
+LIBRARY_FILE_ORDERINGS = {
+    'filename', '-filename',
+    'size_bytes', '-size_bytes',
+    'modified_time', '-modified_time',
+}
+
+
+class LibraryRootViewSet(viewsets.ModelViewSet):
+    queryset = LibraryRoot.objects.all().order_by('created_at')
+    serializer_class = LibraryRootSerializer
+    permission_classes = [AllowAny]
+
+    def destroy(self, request, *args, **kwargs):
+        """Refuse deletion while a scan/regeneration for this root is still
+        pending/running — a walk task mid-flight would race the cascading
+        delete of its folders/files. (The root's periodic-rescan Schedule is
+        removed by the delete_library_root_schedule post_delete signal.)"""
+        root = self.get_object()
+        if root.scans.filter(status__in=['pending', 'running']).exists():
+            return Response(
+                {'error': 'A scan is in progress for this root. '
+                          'Wait for it to finish before deleting.'},
+                status=status.HTTP_409_CONFLICT,
+            )
+        return super().destroy(request, *args, **kwargs)
+
+    @action(detail=True, methods=['post'])
+    def rescan(self, request, pk=None):
+        """Trigger an async full-root rescan. Returns the scan job (202), or
+        409 if a scan for this root is already pending/running."""
+        root = self.get_object()
+        if not root.enabled:
+            return Response(
+                {'error': 'This library root is disabled.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        from inventory.services.library_scanner import start_scan
+        scan = start_scan(root)
+        if scan is None:
+            return Response(
+                {'error': 'A scan is already in progress for this root.'},
+                status=status.HTTP_409_CONFLICT,
+            )
+        return Response(LibraryScanSerializer(scan).data, status=status.HTTP_202_ACCEPTED)
+
+    @action(detail=True, methods=['post'], url_path='regenerate-thumbnails')
+    def regenerate_thumbnails(self, request, pk=None):
+        """Re-render every active file's thumbnail in the root's current
+        thumbnail_color (async job; poll like a scan). 409 while another
+        scan/regeneration is running."""
+        root = self.get_object()
+        from inventory.services.library_scanner import start_thumbnail_regeneration
+        scan = start_thumbnail_regeneration(root)
+        if scan is None:
+            return Response(
+                {'error': 'A scan is already in progress for this root.'},
+                status=status.HTTP_409_CONFLICT,
+            )
+        return Response(LibraryScanSerializer(scan).data, status=status.HTTP_202_ACCEPTED)
+
+
+class LibraryFolderViewSet(mixins.DestroyModelMixin, viewsets.ReadOnlyModelViewSet):
+    queryset = LibraryFolder.objects.select_related('root', 'parent').all()
+    serializer_class = LibraryFolderSerializer
+    permission_classes = [AllowAny]
+
+    @action(detail=False, methods=['get'])
+    def tree(self, request):
+        """Full folder skeleton (id/name/parent_id/root) for the left-nav tree —
+        one request per enabled root, no file payload, expanded client-side."""
+        root_id = request.query_params.get('root')
+        if root_id is None:
+            root = LibraryRoot.objects.filter(enabled=True).first()
+            if root is None:
+                return Response([])
+            root_id = root.pk
+        folders = (
+            LibraryFolder.objects
+            .filter(root_id=root_id, status='active')
+            .order_by('relative_path')
+        )
+        return Response(LibraryFolderTreeSerializer(folders, many=True).data)
+
+    @action(detail=True, methods=['get'])
+    def contents(self, request, pk=None):
+        """Selected folder's subfolders + files. Files are paginated and
+        sortable (?ordering= filename|size_bytes|modified_time, ±), filterable
+        by ?extension=stl|3mf and ?include_deleted=true."""
+        folder = self.get_object()
+        include_deleted = request.query_params.get('include_deleted') in ('true', '1')
+        status_filter = {} if include_deleted else {'status': 'active'}
+
+        subfolders = folder.children.filter(**status_filter).order_by('name')
+        ordering = request.query_params.get('ordering', 'filename')
+        if ordering not in LIBRARY_FILE_ORDERINGS:
+            ordering = 'filename'
+        files = folder.files.filter(**status_filter)
+        extension = (request.query_params.get('extension') or '').lower()
+        if extension in ('stl', '3mf'):
+            files = files.filter(extension=extension)
+        files = files.order_by(ordering)
+
+        paginator = LibraryContentsPagination()
+        page = paginator.paginate_queryset(files, request)
+        files_data = LibraryFileListSerializer(
+            page, many=True, context={'request': request}
+        ).data
+
+        return Response({
+            'folder': LibraryFolderSerializer(folder).data,
+            'subfolders': LibraryFolderTreeSerializer(subfolders, many=True).data,
+            'files': {
+                'count': paginator.page.paginator.count,
+                'next': paginator.get_next_link(),
+                'previous': paginator.get_previous_link(),
+                'results': files_data,
+            },
+        })
+
+    @action(detail=True, methods=['post'])
+    def rescan(self, request, pk=None):
+        """Scoped async rescan of just this folder's subtree — deletion sweep
+        stays inside the subtree, sibling folders are never touched."""
+        folder = self.get_object()
+        from inventory.services.library_scanner import start_scan
+        scan = start_scan(folder.root, folder=folder)
+        if scan is None:
+            return Response(
+                {'error': 'A scan is already in progress for this root.'},
+                status=status.HTTP_409_CONFLICT,
+            )
+        return Response(LibraryScanSerializer(scan).data, status=status.HTTP_202_ACCEPTED)
+
+    def destroy(self, request, *args, **kwargs):
+        """Permanent delete — only for folders already soft-deleted by a scan
+        sweep, and only when nothing active still lives under the subtree
+        (there is deliberately no path from active straight to hard-deleted).
+        Cascades the subtree's rows; file thumbnails are cleaned by signal."""
+        folder = self.get_object()
+        if folder.status != 'deleted':
+            return Response(
+                {'error': 'Only folders already marked deleted can be permanently removed.'},
+                status=status.HTTP_409_CONFLICT,
+            )
+        prefix = f"{folder.relative_path}/" if folder.relative_path else ''
+        active_files = LibraryFile.objects.filter(root_id=folder.root_id, status='active')
+        active_folders = LibraryFolder.objects.filter(
+            root_id=folder.root_id, status='active'
+        ).exclude(pk=folder.pk)
+        if prefix:
+            active_files = active_files.filter(relative_path__startswith=prefix)
+            active_folders = active_folders.filter(relative_path__startswith=prefix)
+        if active_files.exists() or active_folders.exists():
+            return Response(
+                {'error': 'This folder still contains active items; rescan first.'},
+                status=status.HTTP_409_CONFLICT,
+            )
+        folder.delete()
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+
+class LibraryFileViewSet(mixins.DestroyModelMixin, viewsets.ReadOnlyModelViewSet):
+    queryset = LibraryFile.objects.select_related('root', 'folder').all()
+    serializer_class = LibraryFileDetailSerializer
+    permission_classes = [AllowAny]
+    pagination_class = LibraryContentsPagination
+
+    @action(detail=True, methods=['get'])
+    def download(self, request, pk=None):
+        """Stream the real file bytes from the share on demand (feeds the 3D
+        viewer). Never copies into media storage; path is re-validated against
+        the root before the file is opened."""
+        lib_file = self.get_object()
+        from inventory.services.library_scanner import resolve_within_root
+        path = resolve_within_root(lib_file.root, lib_file.relative_path)
+        if path is None or not os.path.isfile(path):
+            raise Http404("File is not available on the library share.")
+        return FileResponse(
+            open(path, 'rb'),
+            as_attachment=False,
+            filename=lib_file.filename,
+            content_type='application/octet-stream',
+        )
+
+    def destroy(self, request, *args, **kwargs):
+        """Permanent delete — only for files already soft-deleted by a scan
+        sweep. The post_delete signal removes the thumbnail from disk."""
+        lib_file = self.get_object()
+        if lib_file.status != 'deleted':
+            return Response(
+                {'error': 'Only files already marked deleted can be permanently removed.'},
+                status=status.HTTP_409_CONFLICT,
+            )
+        lib_file.delete()
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+
+class LibraryScanViewSet(viewsets.ReadOnlyModelViewSet):
+    """Scan job status polling (same pattern as tracker download progress).
+
+    `?active=true` narrows the list to still-running jobs (status
+    pending/running) so the Library screen can re-attach its progress banner
+    after a page refresh without pulling the full scan history.
+    """
+    queryset = LibraryScan.objects.select_related('root', 'folder').all()
+    serializer_class = LibraryScanSerializer
+    permission_classes = [AllowAny]
+
+    def get_queryset(self):
+        queryset = super().get_queryset()
+        if self.request.query_params.get('active') in ('true', '1'):
+            queryset = queryset.filter(status__in=('pending', 'running'))
+        return queryset
+
+
+class LibrarySearchView(APIView):
+    """GET /api/library/search/?q=... — filename + folder-path substring match.
+    Paginated like folder contents; supports extension and include_deleted the
+    same way. Root optional: omitted = all enabled roots (results carry
+    root/root_name); an explicit root id can reach a disabled root."""
+    permission_classes = [AllowAny]
+
+    def get(self, request):
+        q = (request.query_params.get('q') or '').strip()
+        if not q:
+            return Response({'count': 0, 'next': None, 'previous': None, 'results': []})
+
+        files = LibraryFile.objects.select_related('folder', 'root').filter(
+            models.Q(filename__icontains=q) | models.Q(relative_path__icontains=q)
+        )
+        root_id = request.query_params.get('root')
+        if root_id:
+            files = files.filter(root_id=root_id)
+        else:
+            files = files.filter(root__enabled=True)
+        if request.query_params.get('include_deleted') not in ('true', '1'):
+            files = files.filter(status='active')
+        extension = (request.query_params.get('extension') or '').lower()
+        if extension in ('stl', '3mf'):
+            files = files.filter(extension=extension)
+        files = files.order_by('relative_path')
+
+        paginator = LibraryContentsPagination()
+        page = paginator.paginate_queryset(files, request, view=self)
+        data = LibraryFileSearchSerializer(page, many=True, context={'request': request}).data
+        return Response({
+            'count': paginator.page.paginator.count,
+            'next': paginator.get_next_link(),
+            'previous': paginator.get_previous_link(),
+            'results': data,
+        })
+
+
+class LibraryPreviewSummaryView(APIView):
+    """GET /api/library/preview-summary/ — aggregate preview coverage across
+    all enabled roots (active files only), for the Library header banner:
+    how many files have no thumbnail and why (too large vs unrenderable).
+
+    Optional ?root={id} scopes the counts to one root."""
+    permission_classes = [AllowAny]
+
+    def get(self, request):
+        files = LibraryFile.objects.filter(status='active')
+        root_id = request.query_params.get('root')
+        if root_id:
+            files = files.filter(root_id=root_id)
+        else:
+            files = files.filter(root__enabled=True)
+
+        counts = {row['thumbnail_status']: row['n'] for row in
+                  files.values('thumbnail_status').annotate(n=models.Count('id'))}
+        too_large = counts.get('too_large', 0)
+        unrenderable = counts.get('unrenderable', 0)
+        return Response({
+            'total': sum(counts.values()),
+            'rendered': counts.get('rendered', 0),
+            'pending': counts.get('pending', 0),
+            'too_large': too_large,
+            'unrenderable': unrenderable,
+            'without_preview': too_large + unrenderable,
+        })
+
+
+class LibraryPurgeDeletedView(APIView):
+    """POST /api/library/purge-deleted/ — bulk hard-delete of every currently
+    soft-deleted record. Only ever touches rows already status='deleted';
+    deleted folders with anything active beneath them are skipped."""
+    permission_classes = [AllowAny]
+
+    def post(self, request):
+        deleted_files = LibraryFile.objects.filter(status='deleted')
+        files_purged = deleted_files.count()
+        deleted_files.delete()  # per-instance post_delete removes thumbnails
+
+        folders_purged = 0
+        # Leaf-first (deepest paths first) so parents empty out before their
+        # own active-descendant check runs.
+        folders = list(LibraryFolder.objects.filter(status='deleted'))
+        folders.sort(key=lambda f: f.relative_path.count('/'), reverse=True)
+        for folder in folders:
+            prefix = f"{folder.relative_path}/" if folder.relative_path else ''
+            active_files = LibraryFile.objects.filter(root_id=folder.root_id, status='active')
+            active_folders = LibraryFolder.objects.filter(
+                root_id=folder.root_id, status='active'
+            ).exclude(pk=folder.pk)
+            if prefix:
+                active_files = active_files.filter(relative_path__startswith=prefix)
+                active_folders = active_folders.filter(relative_path__startswith=prefix)
+            if active_files.exists() or active_folders.exists():
+                continue
+            folder.delete()
+            folders_purged += 1
+
+        return Response({'files_purged': files_purged, 'folders_purged': folders_purged})
