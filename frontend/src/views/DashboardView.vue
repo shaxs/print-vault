@@ -4,8 +4,17 @@ import { useRouter } from 'vue-router'
 import BaseModal from '@/components/BaseModal.vue'
 import QuickAddInventoryModal from '@/components/QuickAddInventoryModal.vue'
 import APIService from '@/services/APIService'
+import { useAppConfig } from '@/composables/useAppConfig.js'
+import { MODULES } from '@/config/modules.js'
 
 const router = useRouter()
+
+// Sidebar module visibility (Settings > Modules) — drives the hidden-modules
+// notice below. Shared reactive state, so it updates live when toggled.
+const { hiddenModules, load: loadAppConfig } = useAppConfig()
+const hiddenModuleLabels = computed(() =>
+  MODULES.filter((m) => hiddenModules.value.includes(m.key)).map((m) => m.label),
+)
 
 // State
 const dashboardData = ref({
@@ -312,6 +321,7 @@ const createProject = () => {
 // Load dashboard data on mount
 onMounted(() => {
   loadDashboard()
+  loadAppConfig()
 })
 </script>
 
@@ -324,6 +334,17 @@ onMounted(() => {
 
     <!-- Dashboard Content -->
     <div v-else class="dashboard-content">
+      <!-- Hidden-modules notice: only shown when some sidebar sections are hidden -->
+      <div v-if="hiddenModuleLabels.length" class="hidden-modules-notice">
+        <span>
+          Some sections are hidden from navigation:
+          <strong>{{ hiddenModuleLabels.join(', ') }}</strong>.
+        </span>
+        <RouterLink to="/settings?tab=modules" class="hidden-modules-link">
+          Manage in Settings
+        </RouterLink>
+      </div>
+
       <!-- Mobile: Notifications Badge -->
       <div class="notifications-mobile">
         <div
@@ -744,6 +765,33 @@ onMounted(() => {
 
 <style scoped>
 /* Base Styles */
+.hidden-modules-notice {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+  padding: 0.6rem 1rem;
+  margin-bottom: 1rem;
+  border: 1px solid var(--color-border);
+  border-left: 3px solid var(--color-alert-info);
+  border-radius: 6px;
+  background-color: var(--color-background-soft);
+  font-size: 0.9rem;
+  color: var(--color-text);
+}
+
+.hidden-modules-link {
+  color: var(--color-blue);
+  text-decoration: none;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.hidden-modules-link:hover {
+  text-decoration: underline;
+}
+
 .dashboard-container {
   padding: 1rem;
   max-width: 1400px;

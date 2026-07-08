@@ -1678,3 +1678,54 @@ def update_tracker_stats_on_delete(sender, instance, **kwargs):
     tracker = instance.tracker
     tracker.recalculate_stats()
     tracker.save(update_fields=['total_quantity', 'printed_quantity_total', 'progress_percentage', 'updated_date'])
+
+
+# Sidebar modules that a user is allowed to hide from navigation. Dashboard and
+# Settings are deliberately excluded — they are structurally always-visible
+# (Settings so a user can never lock themselves out of this very toggle;
+# Dashboard because it is the root-URL landing target, `/` -> `/dashboard`).
+# NOTE: 'library' is intentionally absent on this branch — the STL/3MF Library
+# ships on a separate feature branch. When that feature merges, add 'library'
+# here AND to the frontend registry in frontend/src/config/modules.js.
+HIDEABLE_MODULE_KEYS = ['inventory', 'filaments', 'printers', 'projects', 'trackers']
+
+
+class AppConfiguration(models.Model):
+    """
+    Global, install-wide settings singleton (its row id is pinned to 1).
+
+    Print Vault has no per-user authentication, so app-level UI configuration
+    lives on a single shared row rather than a per-user preference. Currently it
+    holds sidebar module visibility; additional global settings can be added as
+    new fields here over time. If auth is ever introduced, this becomes the
+    basis for a per-user preference.
+    """
+    hidden_modules = models.JSONField(
+        default=list,
+        blank=True,
+        help_text=(
+            "List of sidebar module keys hidden from navigation, e.g. "
+            "['trackers', 'projects']. Empty list = every module visible. "
+            "Stored as the HIDDEN set (not the visible set) so the default ([]) "
+            "shows everything and unknown/legacy keys are simply ignored on read."
+        ),
+    )
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name = "App Configuration"
+        verbose_name_plural = "App Configuration"
+
+    def __str__(self):
+        return "App Configuration"
+
+    def save(self, *args, **kwargs):
+        # Enforce the singleton: there is only ever one AppConfiguration row.
+        self.pk = 1
+        super().save(*args, **kwargs)
+
+    @classmethod
+    def load(cls):
+        """Return the singleton row, creating it (all-visible default) if absent."""
+        obj, _ = cls.objects.get_or_create(pk=1)
+        return obj

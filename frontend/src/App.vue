@@ -1,12 +1,22 @@
 <script setup>
-import { ref, onMounted } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 import { RouterLink, RouterView } from 'vue-router'
 import NotificationBell from '@/components/NotificationBell.vue'
 import APIService from '@/services/APIService.js'
+import { MODULES } from '@/config/modules.js'
+import { useAppConfig } from '@/composables/useAppConfig.js'
 
 const reminders = ref([])
 const lowStockItems = ref([])
 const isMobileMenuOpen = ref(false)
+
+// Sidebar module visibility (managed in Settings > Modules). Hidden modules
+// drop out of the nav; the Dashboard brand link and the Settings link live
+// outside this list and are always shown.
+const { hiddenModules, load: loadAppConfig } = useAppConfig()
+const visibleModules = computed(() =>
+  MODULES.filter((module) => !hiddenModules.value.includes(module.key)),
+)
 
 const fetchNotifications = async () => {
   try {
@@ -29,7 +39,10 @@ const closeMobileMenu = () => {
   isMobileMenuOpen.value = false
 }
 
-onMounted(fetchNotifications)
+onMounted(() => {
+  fetchNotifications()
+  loadAppConfig()
+})
 </script>
 
 <template>
@@ -50,11 +63,13 @@ onMounted(fetchNotifications)
           <h3>Print Vault</h3>
         </RouterLink>
       </div>
-      <RouterLink to="/inventory" @click="closeMobileMenu">Inventory</RouterLink>
-      <RouterLink to="/filaments" @click="closeMobileMenu">Filament</RouterLink>
-      <RouterLink to="/printers" @click="closeMobileMenu">Printers</RouterLink>
-      <RouterLink to="/projects" @click="closeMobileMenu">Projects</RouterLink>
-      <RouterLink to="/trackers" @click="closeMobileMenu">Print Trackers</RouterLink>
+      <RouterLink
+        v-for="module in visibleModules"
+        :key="module.key"
+        :to="module.to"
+        @click="closeMobileMenu"
+        >{{ module.label }}</RouterLink
+      >
       <div class="sidebar-spacer"></div>
       <RouterLink to="/settings" @click="closeMobileMenu" class="settings-menu-link"
         >Settings</RouterLink

@@ -39,6 +39,7 @@ urlpatterns = [
     path('api/dashboard/', views.DashboardDataView.as_view(), name='dashboard'),
     path('api/alerts/dismiss/', views.DismissAlertView.as_view(), name='dismiss-alert'),
     path('api/alerts/dismiss-all/', views.DismissAllAlertsView.as_view(), name='dismiss-all-alerts'),
+    path('api/app-config/', views.AppConfigurationView.as_view(), name='app-config'),
     path('api/export/data/', views.ExportDataView.as_view(), name='export-data'),
     path('api/validate-backup/', views.ValidateBackupView.as_view(), name='validate-backup'),
     path('api/import-data/', views.ImportDataView.as_view(), name='import-data'),

@@ -5,7 +5,8 @@ from django.utils import timezone
 from .models import (
     Brand, PartType, Location, Material, MaterialPhoto, MaterialFeature, Vendor, Printer, Mod, ModFile,
     InventoryItem, Project, ProjectLink, ProjectFile, ProjectInventory, ProjectPrinters,
-    ProjectBOMItem, Tracker, TrackerFile, TrackerFileImage, FilamentSpool
+    ProjectBOMItem, Tracker, TrackerFile, TrackerFileImage, FilamentSpool,
+    AppConfiguration, HIDEABLE_MODULE_KEYS
 )
 from .services.storage_manager import StorageManager, InsufficientStorageError, StoragePermissionError
 from .services.file_download_service import (
@@ -1264,8 +1265,37 @@ class TrackerListSerializer(serializers.ModelSerializer):
         model = Tracker
         fields = [
             'id', 'name', 'project', 'project_name', 'github_url', 'storage_type',
-            'progress_percentage', 'total_count', 'completed_count', 
+            'progress_percentage', 'total_count', 'completed_count',
             'total_quantity', 'printed_quantity_total', 'pending_quantity',
             'created_date'
         ]
         read_only_fields = ['created_date']
+
+
+class AppConfigurationSerializer(serializers.ModelSerializer):
+    """
+    Serializer for the global AppConfiguration singleton.
+
+    Validates that every key in hidden_modules is an actually-hideable module.
+    Settings, Dashboard, and unknown keys are rejected, so a bad value (or a
+    tampered backup) can never hide a structural section or persist garbage.
+    Values are de-duplicated while preserving order.
+    """
+    class Meta:
+        model = AppConfiguration
+        fields = ['hidden_modules']
+
+    def validate_hidden_modules(self, value):
+        if not isinstance(value, list):
+            raise serializers.ValidationError("hidden_modules must be a list of module keys.")
+        invalid = [key for key in value if key not in HIDEABLE_MODULE_KEYS]
+        if invalid:
+            raise serializers.ValidationError(
+                f"Not hideable / unknown module keys: {invalid}. "
+                f"Allowed keys: {HIDEABLE_MODULE_KEYS}."
+            )
+        deduped = []
+        for key in value:
+            if key not in deduped:
+                deduped.append(key)
+        return deduped
