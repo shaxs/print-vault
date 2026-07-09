@@ -16,6 +16,7 @@ vi.mock('@/services/APIService', () => ({
     getLibraryFolderTree: vi.fn(),
     getLibraryFolderContents: vi.fn(),
     searchLibrary: vi.fn(),
+    getNewLibraryFiles: vi.fn(),
     rescanLibraryFolder: vi.fn(),
     getLibraryScan: vi.fn(),
     getActiveLibraryScans: vi.fn(),
@@ -96,6 +97,9 @@ describe('LibraryView', () => {
         ],
       },
     })
+    APIService.getNewLibraryFiles.mockResolvedValue({
+      data: { count: 0, next: null, previous: null, results: [] },
+    })
   })
 
   afterEach(() => {
@@ -157,13 +161,55 @@ describe('LibraryView', () => {
     const wrapper = await mountLoaded()
     APIService.getLibraryFolderContents.mockClear()
 
-    await wrapper.find('.show-deleted-toggle input').setValue(true)
+    const showDeleted = wrapper
+      .findAll('.browser-toggle')
+      .find((l) => l.text().includes('Show deleted'))
+    await showDeleted.find('input').setValue(true)
     await flushPromises()
 
     expect(APIService.getLibraryFolderContents).toHaveBeenCalledWith(
       10,
       expect.objectContaining({ include_deleted: 'true' }),
     )
+  })
+
+  it('hides folders whose subtree has no 3D files when "hide empty folders" is on', async () => {
+    APIService.getLibraryFolderTree.mockResolvedValue({
+      data: [
+        { id: 10, name: 'NAS', parent_id: null, status: 'active', root: 1, file_count: 0 },
+        { id: 11, name: 'widgets', parent_id: 10, status: 'active', root: 1, file_count: 2 },
+        { id: 12, name: 'attic', parent_id: 10, status: 'active', root: 1, file_count: 0 },
+      ],
+    })
+    APIService.getLibraryFolderContents.mockResolvedValue({
+      data: {
+        folder: { id: 10, name: 'NAS', breadcrumbs: [{ id: 10, name: 'NAS' }] },
+        subfolders: [
+          { id: 11, name: 'widgets', parent_id: 10, status: 'active' },
+          { id: 12, name: 'attic', parent_id: 10, status: 'active' },
+        ],
+        files: { count: 0, next: null, previous: null, results: [] },
+      },
+    })
+
+    // The global setup mocks localStorage as a no-op, so spy on setItem.
+    const setItemSpy = vi.spyOn(localStorage, 'setItem')
+    const wrapper = await mountLoaded()
+    // Both subfolders show while the toggle is off.
+    expect(wrapper.text()).toContain('widgets')
+    expect(wrapper.text()).toContain('attic')
+
+    const hideEmpty = wrapper
+      .findAll('.browser-toggle')
+      .find((l) => l.text().includes('Hide empty folders'))
+    await hideEmpty.find('input').setValue(true)
+    await flushPromises()
+
+    // 'attic' (no files anywhere in its subtree) is filtered out of both the
+    // tree and the content pane; 'widgets' (2 files) stays. Purely client-side.
+    expect(wrapper.text()).toContain('widgets')
+    expect(wrapper.text()).not.toContain('attic')
+    expect(setItemSpy).toHaveBeenCalledWith('library-hide-empty-folders', 'true')
   })
 
   it('search input debounces and shows results header', async () => {
@@ -181,6 +227,77 @@ describe('LibraryView', () => {
     expect(APIService.searchLibrary).toHaveBeenCalledWith(expect.objectContaining({ q: 'gear' }))
     expect(APIService.searchLibrary.mock.calls[0][0]).not.toHaveProperty('root')
     expect(wrapper.text()).toContain('1 result for')
+  })
+
+  it('New Models toggle loads and shows the new-files results pane', async () => {
+    APIService.getNewLibraryFiles.mockResolvedValue({
+      data: {
+        count: 2,
+        next: null,
+        previous: null,
+        results: [
+          {
+            id: 7,
+            filename: 'new_a.stl',
+            extension: 'stl',
+            size_bytes: 1024,
+            status: 'active',
+            thumbnail: null,
+            relative_path: 'widgets/new_a.stl',
+            root_name: 'NAS',
+          },
+          {
+            id: 8,
+            filename: 'new_b.stl',
+            extension: 'stl',
+            size_bytes: 1024,
+            status: 'active',
+            thumbnail: null,
+            relative_path: 'new_b.stl',
+            root_name: 'NAS',
+          },
+        ],
+      },
+    })
+    const wrapper = await mountLoaded()
+
+    const newToggle = wrapper
+      .findAll('.browser-toggle')
+      .find((l) => l.text().includes('Show new models'))
+    await newToggle.find('input').setValue(true)
+    await flushPromises()
+
+    expect(APIService.getNewLibraryFiles).toHaveBeenCalled()
+    expect(wrapper.text()).toContain('2 new models since the last scan')
+    expect(wrapper.text()).toContain('new_a.stl')
+    expect(wrapper.text()).toContain('new_b.stl')
+  })
+
+  it('New models empty state renders when nothing is new since the last scan', async () => {
+    const wrapper = await mountLoaded()
+
+    const newToggle = wrapper
+      .findAll('.browser-toggle')
+      .find((l) => l.text().includes('Show new models'))
+    await newToggle.find('input').setValue(true)
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('No new models since the last scan')
+  })
+
+  it('unchecking Show new models returns to folder contents', async () => {
+    const wrapper = await mountLoaded()
+    const newToggle = () =>
+      wrapper.findAll('.browser-toggle').find((l) => l.text().includes('Show new models'))
+
+    await newToggle().find('input').setValue(true)
+    await flushPromises()
+    expect(wrapper.text()).toContain('No new models since the last scan')
+
+    await newToggle().find('input').setValue(false)
+    await flushPromises()
+    // Back to the folder view — the mounted folder's file is shown again.
+    expect(wrapper.text()).toContain('part.stl')
   })
 
   it('clicking a subfolder row navigates via the router query', async () => {
@@ -246,7 +363,7 @@ describe('LibraryView', () => {
 
     expect(wrapper.find('.job-banner').exists()).toBe(true)
     expect(wrapper.text()).toContain('Scanning NAS…')
-    expect(wrapper.text()).toContain('42 files seen, 30% processed')
+    expect(wrapper.text()).toContain('42 files found, 30% processed')
   })
 
   it('renders a top-level tree node per enabled root (merged multi-root tree)', async () => {

@@ -6,7 +6,7 @@ from .models import (
     Brand, PartType, Location, Material, MaterialPhoto, MaterialFeature, Vendor, Printer, Mod, ModFile,
     InventoryItem, Project, ProjectLink, ProjectFile, ProjectInventory, ProjectPrinters,
     ProjectBOMItem, Tracker, TrackerFile, TrackerFileImage, FilamentSpool,
-    LibraryRoot, LibraryFolder, LibraryFile, LibraryScan
+    LibraryRoot, LibraryFolder, LibraryFile, LibraryScan, TrackerThumbnailJob
 )
 from .services.storage_manager import StorageManager, InsufficientStorageError, StoragePermissionError
 from .services.file_download_service import (
@@ -1277,13 +1277,48 @@ class TrackerListSerializer(serializers.ModelSerializer):
 # =============================================================================
 
 class LibraryRootSerializer(serializers.ModelSerializer):
+    # When the next periodic rescan will run, read from the root's django-Q
+    # Schedule row (authoritative; accounts for the real last run). Null when
+    # no interval is set (manual-only) or no schedule exists yet.
+    next_scan_at = serializers.SerializerMethodField()
+    # Summary of the most recent directory scan (kind='scan') so the settings
+    # UI can show "what the last scan found". Null before the first scan.
+    last_scan = serializers.SerializerMethodField()
+
     class Meta:
         model = LibraryRoot
         fields = [
             'id', 'name', 'path', 'enabled', 'rescan_interval_hours', 'thumbnail_color',
             'last_scanned_at', 'last_scan_status', 'last_scan_error', 'created_at',
+            'next_scan_at', 'last_scan',
         ]
         read_only_fields = ['last_scanned_at', 'last_scan_status', 'last_scan_error', 'created_at']
+
+    def get_next_scan_at(self, obj):
+        if not (obj.enabled and obj.rescan_interval_hours):
+            return None
+        from django_q.models import Schedule
+        from inventory.library_tasks import SCHEDULE_NAME_PREFIX
+        schedule = Schedule.objects.filter(name=f"{SCHEDULE_NAME_PREFIX}{obj.pk}").first()
+        return schedule.next_run if schedule else None
+
+    def get_last_scan(self, obj):
+        scan = (
+            obj.scans.filter(kind='scan', finished_at__isnull=False)
+            .order_by('-finished_at')
+            .first()
+        )
+        if scan is None:
+            return None
+        return {
+            'id': scan.id,
+            'status': scan.status,
+            'files_seen': scan.files_seen,
+            'files_new': scan.files_new,
+            'files_updated': scan.files_updated,
+            'files_deleted': scan.files_deleted,
+            'finished_at': scan.finished_at,
+        }
 
     def validate_thumbnail_color(self, value):
         import re
@@ -1347,12 +1382,23 @@ class LibraryFolderTreeSerializer(serializers.ModelSerializer):
     """Left-nav tree skeleton — deliberately minimal (one row per directory
     on the share, so payload size must not grow with file count). Carries
     `root` so the multi-root frontend can derive the active root from any
-    selected folder."""
+    selected folder, and `file_count` (direct active files only) so the client
+    can compute subtree emptiness for the 'hide empty folders' toggle."""
     parent_id = serializers.IntegerField(read_only=True)
+    file_count = serializers.SerializerMethodField()
 
     class Meta:
         model = LibraryFolder
-        fields = ['id', 'name', 'parent_id', 'status', 'root']
+        fields = ['id', 'name', 'parent_id', 'status', 'root', 'file_count']
+
+    def get_file_count(self, obj):
+        # Prefer the annotation set by the tree/contents endpoints (one query
+        # for the whole set); fall back to a direct count when the serializer is
+        # used on an unannotated instance so it never raises.
+        count = getattr(obj, 'active_file_count', None)
+        if count is not None:
+            return count
+        return obj.files.filter(status='active').count()
 
 
 class LibraryFolderSerializer(serializers.ModelSerializer):
@@ -1417,6 +1463,28 @@ class LibraryScanSerializer(serializers.ModelSerializer):
         fields = [
             'id', 'root', 'root_name', 'kind', 'folder', 'status', 'error',
             'files_seen', 'files_queued', 'files_processed',
+            'files_new', 'files_updated', 'files_deleted',
+            'started_at', 'finished_at', 'created_at', 'progress_percent',
+        ]
+
+    def get_progress_percent(self, obj):
+        if obj.status == 'success':
+            return 100
+        if obj.files_queued:
+            return int(obj.files_processed / obj.files_queued * 100)
+        return 0 if obj.status in ('pending', 'running') else 100
+
+
+class TrackerThumbnailJobSerializer(serializers.ModelSerializer):
+    """Progress polling for the tracker page's thumbnail-regeneration banner —
+    same shape/idea as LibraryScanSerializer."""
+    progress_percent = serializers.SerializerMethodField()
+
+    class Meta:
+        model = TrackerThumbnailJob
+        fields = [
+            'id', 'tracker', 'include_linked', 'status', 'error',
+            'files_queued', 'files_processed', 'files_generated',
             'started_at', 'finished_at', 'created_at', 'progress_percent',
         ]
 

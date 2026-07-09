@@ -25,7 +25,7 @@ from rest_framework.views import APIView
 from django.conf import settings
 from django.db import connection, models
 from django_filters.rest_framework import DjangoFilterBackend
-from django.db.models import F, Sum, Q
+from django.db.models import Count, F, Sum, Q
 from rest_framework.decorators import action
 
 logger = logging.getLogger(__name__)
@@ -34,7 +34,7 @@ from .models import (
     Brand, PartType, Location, Material, MaterialPhoto, MaterialFeature, Vendor, Printer, Mod, ModFile,
     InventoryItem, Project, ProjectLink, ProjectFile, ProjectInventory, ProjectPrinters,
     ProjectBOMItem, Tracker, TrackerFile, TrackerFileImage, AlertDismissal, FilamentSpool,
-    LibraryRoot, LibraryFolder, LibraryFile, LibraryScan
+    LibraryRoot, LibraryFolder, LibraryFile, LibraryScan, TrackerThumbnailJob
 )
 from .serializers import (
     BrandSerializer, PartTypeSerializer, LocationSerializer, MaterialSerializer, MaterialPhotoSerializer, MaterialFeatureSerializer, VendorSerializer, PrinterSerializer, ModSerializer, ModFileSerializer,
@@ -44,7 +44,7 @@ from .serializers import (
     FilamentSpoolSerializer,
     LibraryRootSerializer, LibraryFolderSerializer, LibraryFolderTreeSerializer,
     LibraryFileListSerializer, LibraryFileDetailSerializer, LibraryFileSearchSerializer,
-    LibraryScanSerializer
+    LibraryScanSerializer, TrackerThumbnailJobSerializer
 )
 from .filters import InventoryItemFilter, PrinterFilter, ProjectFilter
 from .services.github_service import (
@@ -4501,25 +4501,25 @@ class TrackerViewSet(viewsets.ModelViewSet):
         }
 
         Skips files that already have a manually-uploaded image. Runs
-        asynchronously via Django-Q since a tracker can have hundreds of
-        files — this endpoint queues the work and returns immediately.
+        asynchronously via Django-Q as a TrackerThumbnailJob whose progress the
+        tracker page polls ("N of M rendered"). The render work is split into
+        time-budgeted chunks so a large tracker can't blow the worker timeout.
+        Returns the job (202); 409 if a job for this tracker is already running.
         """
         tracker = self.get_object()
         include_linked = parse_bool(request.data.get('include_linked'))
 
-        from django_q.tasks import async_task
-        async_task(
-            'inventory.tasks.regenerate_tracker_thumbnails_task',
-            tracker.id,
-            include_linked,
+        from inventory.services.tracker_thumbnail_jobs import (
+            start_tracker_thumbnail_regeneration,
         )
-
+        job = start_tracker_thumbnail_regeneration(tracker, include_linked=include_linked)
+        if job is None:
+            return Response(
+                {'error': 'A thumbnail regeneration is already in progress for this tracker.'},
+                status=status.HTTP_409_CONFLICT,
+            )
         return Response(
-            {
-                'status': 'queued',
-                'tracker_id': tracker.id,
-                'include_linked': include_linked,
-            },
+            TrackerThumbnailJobSerializer(job).data,
             status=status.HTTP_202_ACCEPTED,
         )
 
@@ -4846,6 +4846,7 @@ class LibraryFolderViewSet(mixins.DestroyModelMixin, viewsets.ReadOnlyModelViewS
         folders = (
             LibraryFolder.objects
             .filter(root_id=root_id, status='active')
+            .annotate(active_file_count=Count('files', filter=Q(files__status='active')))
             .order_by('relative_path')
         )
         return Response(LibraryFolderTreeSerializer(folders, many=True).data)
@@ -4859,7 +4860,11 @@ class LibraryFolderViewSet(mixins.DestroyModelMixin, viewsets.ReadOnlyModelViewS
         include_deleted = request.query_params.get('include_deleted') in ('true', '1')
         status_filter = {} if include_deleted else {'status': 'active'}
 
-        subfolders = folder.children.filter(**status_filter).order_by('name')
+        subfolders = (
+            folder.children.filter(**status_filter)
+            .annotate(active_file_count=Count('files', filter=Q(files__status='active')))
+            .order_by('name')
+        )
         ordering = request.query_params.get('ordering', 'filename')
         if ordering not in LIBRARY_FILE_ORDERINGS:
             ordering = 'filename'
@@ -4982,6 +4987,26 @@ class LibraryScanViewSet(viewsets.ReadOnlyModelViewSet):
         return queryset
 
 
+class TrackerThumbnailJobViewSet(viewsets.ReadOnlyModelViewSet):
+    """Tracker thumbnail-regeneration job status polling — mirrors
+    LibraryScanViewSet. `?tracker={id}` scopes to one tracker and `?active=true`
+    narrows to still-running jobs, so the tracker page can re-attach its
+    progress banner after a refresh without pulling the full job history.
+    """
+    queryset = TrackerThumbnailJob.objects.select_related('tracker').all()
+    serializer_class = TrackerThumbnailJobSerializer
+    permission_classes = [AllowAny]
+
+    def get_queryset(self):
+        queryset = super().get_queryset()
+        tracker_id = self.request.query_params.get('tracker')
+        if tracker_id:
+            queryset = queryset.filter(tracker_id=tracker_id)
+        if self.request.query_params.get('active') in ('true', '1'):
+            queryset = queryset.filter(status__in=('pending', 'running'))
+        return queryset
+
+
 class LibrarySearchView(APIView):
     """GET /api/library/search/?q=... — filename + folder-path substring match.
     Paginated like folder contents; supports extension and include_deleted the
@@ -5047,6 +5072,63 @@ class LibraryPreviewSummaryView(APIView):
             'too_large': too_large,
             'unrenderable': unrenderable,
             'without_preview': too_large + unrenderable,
+        })
+
+
+class LibraryNewFilesView(APIView):
+    """GET /api/library/new-files/ — active files first indexed by the most
+    recent successful scan of each root (i.e. created_at >= that scan's start):
+    "new models since the last scan". Root optional: omitted = all enabled
+    roots, each measured against its own last scan. Moved files keep their
+    original row (and created_at), so they correctly do NOT appear here.
+
+    Paginated like search/contents; supports ?extension=stl|3mf. Results use
+    the search serializer, so each carries path + root context for navigation.
+    """
+    permission_classes = [AllowAny]
+
+    def get(self, request):
+        root_id = request.query_params.get('root')
+        if root_id:
+            roots = LibraryRoot.objects.filter(pk=root_id)
+        else:
+            roots = LibraryRoot.objects.filter(enabled=True)
+
+        # OR one "created since this root's last successful scan" clause per
+        # root — each root has its own scan cadence and boundary.
+        boundary = models.Q()
+        has_boundary = False
+        for root in roots:
+            last = (
+                root.scans.filter(kind='scan', status='success', started_at__isnull=False)
+                .order_by('-started_at')
+                .first()
+            )
+            if last:
+                boundary |= models.Q(root=root, created_at__gte=last.started_at)
+                has_boundary = True
+
+        if not has_boundary:
+            return Response({'count': 0, 'next': None, 'previous': None, 'results': []})
+
+        files = (
+            LibraryFile.objects.select_related('folder', 'root')
+            .filter(status='active')
+            .filter(boundary)
+        )
+        extension = (request.query_params.get('extension') or '').lower()
+        if extension in ('stl', '3mf'):
+            files = files.filter(extension=extension)
+        files = files.order_by('-created_at', 'relative_path')  # newest first
+
+        paginator = LibraryContentsPagination()
+        page = paginator.paginate_queryset(files, request, view=self)
+        data = LibraryFileSearchSerializer(page, many=True, context={'request': request}).data
+        return Response({
+            'count': paginator.page.paginator.count,
+            'next': paginator.get_next_link(),
+            'previous': paginator.get_previous_link(),
+            'results': data,
         })
 
 

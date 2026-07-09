@@ -241,10 +241,14 @@ const regenerateThumbnails = async () => {
   try {
     await APIService.regenerateTrackerThumbnails(route.params.id, includeLinkedForRegenerate.value)
     regenerateMessage.value =
-      'Thumbnail regeneration queued. New/updated thumbnails will appear shortly.'
+      'Thumbnail regeneration queued. Open the tracker page to watch progress; ' +
+      'new thumbnails appear as they finish.'
   } catch (err) {
     console.error('Failed to queue thumbnail regeneration:', err)
-    error.value = 'Failed to queue thumbnail regeneration. Please try again.'
+    error.value =
+      err.response?.status === 409
+        ? 'A thumbnail regeneration is already running for this tracker.'
+        : 'Failed to queue thumbnail regeneration. Please try again.'
   } finally {
     regenerating.value = false
   }

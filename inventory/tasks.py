@@ -30,6 +30,10 @@ def generate_auto_thumbnail_task(tracker_file_id):
 
 
 def regenerate_tracker_thumbnails_task(tracker_id, include_linked=False):
+    """Legacy synchronous whole-tracker regeneration (one task renders every
+    file). Superseded for the API by the chunked TrackerThumbnailJob queue
+    below, which can't blow the worker timeout on large trackers; retained as a
+    stable entry point for ad-hoc/backward-compatible use."""
     from inventory.models import Tracker
 
     try:
@@ -41,3 +45,19 @@ def regenerate_tracker_thumbnails_task(tracker_id, include_linked=False):
         return None
 
     return regenerate_tracker_thumbnails(tracker, include_linked=include_linked)
+
+
+def run_tracker_thumbnail_regeneration_task(job_id):
+    """Queue-up phase of a TrackerThumbnailJob (enqueued by
+    start_tracker_thumbnail_regeneration)."""
+    from inventory.services.tracker_thumbnail_jobs import run_regeneration
+
+    return run_regeneration(job_id)
+
+
+def process_tracker_thumbnail_chunk_task(job_id, file_ids):
+    """Time-budgeted per-file render phase, enqueued in chunks by
+    run_tracker_thumbnail_regeneration_task."""
+    from inventory.services.tracker_thumbnail_jobs import process_chunk
+
+    return process_chunk(job_id, file_ids)

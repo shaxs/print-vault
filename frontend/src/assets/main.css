@@ -197,6 +197,23 @@ body {
   border-color: #b02a37;
 }
 
+/* --- OUTLINE BUTTONS (Transparent fill, gray border) --- */
+/* Matches the .header-button treatment used across list-view headers: a
+   transparent fill (so it reads as the page/header background) with a gray
+   outline to denote a button. Use for neutral/inactive controls — e.g. the
+   inactive state of toggle groups — where a solid gray (.btn-secondary) fill
+   looks too heavy sitting next to a blue active button. */
+.btn-outline {
+  color: var(--color-text);
+  background-color: transparent;
+  border-color: var(--color-border);
+}
+.btn-outline:hover {
+  color: var(--color-text);
+  border-color: var(--color-border-hover);
+  background-color: var(--color-background-mute);
+}
+
 /* --- BUTTON SIZES --- */
 
 /* Small buttons - for inline actions, content areas, secondary actions */

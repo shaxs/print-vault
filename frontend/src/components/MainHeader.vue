@@ -23,26 +23,33 @@ const clearSearch = () => {
   <div class="main-header">
     <h1 class="header-title">{{ title }}</h1>
     <div class="header-actions">
-      <button v-if="showFilterButton" @click="emit('open-filter')" class="header-button">
-        Filter
-      </button>
-      <button v-if="showColumnButton" @click="emit('open-columns')" class="header-button">
-        Columns
-      </button>
-      <button v-if="showImportButton" @click="emit('open-import')" class="header-button">
-        Import
-      </button>
-      <div v-if="showSearch" class="search-container">
-        <input
-          type="text"
-          placeholder="Search..."
-          class="search-bar"
-          :value="modelValue"
-          @input="emit('update:modelValue', $event.target.value)"
-        />
-        <button v-if="modelValue" @click="clearSearch" class="search-clear-button">&times;</button>
-      </div>
-      <RouterLink v-if="showAddButton" :to="createUrl" class="add-button">Add</RouterLink>
+      <!-- Views with a custom control set (e.g. the Library) inject their own
+           actions here; the default Filter/Columns/Import/search/Add layout is
+           the fallback used by every standard list view. -->
+      <slot name="actions">
+        <button v-if="showFilterButton" @click="emit('open-filter')" class="header-button">
+          Filter
+        </button>
+        <button v-if="showColumnButton" @click="emit('open-columns')" class="header-button">
+          Columns
+        </button>
+        <button v-if="showImportButton" @click="emit('open-import')" class="header-button">
+          Import
+        </button>
+        <div v-if="showSearch" class="search-container">
+          <input
+            type="text"
+            placeholder="Search..."
+            class="search-bar"
+            :value="modelValue"
+            @input="emit('update:modelValue', $event.target.value)"
+          />
+          <button v-if="modelValue" @click="clearSearch" class="search-clear-button">
+            &times;
+          </button>
+        </div>
+        <RouterLink v-if="showAddButton" :to="createUrl" class="add-button">Add</RouterLink>
+      </slot>
     </div>
   </div>
 </template>

@@ -29,6 +29,7 @@ caught up with files_queued and finalizes it.
 import hashlib
 import logging
 import os
+import time
 from datetime import datetime, timezone as dt_timezone
 
 from django.core.files.base import ContentFile
@@ -45,10 +46,16 @@ logger = logging.getLogger(__name__)
 
 SUPPORTED_EXTENSIONS = {'stl', '3mf'}
 
-# Files per processing task. Each file costs a full read (hash) plus a render;
-# 20 keeps a chunk comfortably inside Q_CLUSTER's 300s task timeout even for
-# large files on a slow share.
+# Files per processing task. Each file costs a full read (hash) plus a render.
+# CHUNK_SIZE bounds how many tasks are enqueued up front; CHUNK_TIME_BUDGET is
+# the real safety net — a chunk task re-enqueues whatever it hasn't finished
+# once the budget trips, so 20 large files on a slow share can no longer blow
+# Q_CLUSTER's 300s task timeout (the original "reincarnated worker" bug).
 CHUNK_SIZE = 20
+
+# Wall-clock budget per chunk task, with headroom under the 300s worker timeout
+# for one more (network read + render) file after the check trips.
+CHUNK_TIME_BUDGET_SECONDS = 150
 
 # Batch size for bulk last_seen_at bumps during the walk.
 BULK_BATCH_SIZE = 500
@@ -188,10 +195,12 @@ def run_scan(scan_id):
             return None
 
         to_process = _walk(scan, root, root_path, start_path, scope_rel, scan_time)
-        _sweep_deletions(root, scope_rel, scan_time)
+        scan.files_deleted = _sweep_deletions(root, scope_rel, scan_time)
 
         scan.files_queued = len(to_process)
-        scan.save(update_fields=['files_seen', 'files_queued'])
+        scan.save(update_fields=[
+            'files_seen', 'files_queued', 'files_new', 'files_updated', 'files_deleted',
+        ])
 
         if not to_process:
             _finalize_scan(scan, success=True)
@@ -220,6 +229,8 @@ def _walk(scan, root, root_path, start_path, scope_rel, scan_time):
     seen_file_ids = []  # unchanged files: last_seen bump only
     to_process = []
     files_seen = 0
+    new_count = 0       # walk-created rows (paths not previously indexed)
+    updated_count = 0   # stat-changed rows reprocessed
 
     if scope_rel:
         # Scoped rescan: the scope folder row already exists (the UI navigated
@@ -286,6 +297,7 @@ def _walk(scan, root, root_path, start_path, scope_rel, scan_time):
                     last_seen_at=scan_time,
                 )
                 to_process.append(created.pk)
+                new_count += 1
                 continue
 
             unchanged = (
@@ -307,6 +319,7 @@ def _walk(scan, root, root_path, start_path, scope_rel, scan_time):
                     'folder', 'size_bytes', 'modified_time', 'status', 'last_seen_at',
                 ])
                 to_process.append(existing.pk)
+                updated_count += 1
 
             if len(seen_file_ids) >= BULK_BATCH_SIZE:
                 _bump_seen(LibraryFile, seen_file_ids, scan_time)
@@ -319,6 +332,8 @@ def _walk(scan, root, root_path, start_path, scope_rel, scan_time):
     _bump_seen(LibraryFile, seen_file_ids, scan_time)
     _bump_seen(LibraryFolder, seen_folder_ids, scan_time)
     scan.files_seen = files_seen
+    scan.files_new = new_count
+    scan.files_updated = updated_count
     return to_process
 
 
@@ -357,7 +372,10 @@ def _bump_seen(model, ids, scan_time):
 
 def _sweep_deletions(root, scope_rel, scan_time):
     """Soft-delete every active row in scope the walk didn't touch.
-    One bulk UPDATE per table — no per-row loop, no in-memory id sets."""
+    One bulk UPDATE per table — no per-row loop, no in-memory id sets.
+
+    Returns the number of files soft-deleted (for the scan's result summary);
+    folder sweeps aren't counted since the UI reports the file-level diff."""
     from inventory.models import LibraryFile, LibraryFolder
 
     stale = Q(last_seen_at__lt=scan_time) | Q(last_seen_at__isnull=True)
@@ -369,7 +387,7 @@ def _sweep_deletions(root, scope_rel, scan_time):
         folders = folders.filter(relative_path__startswith=prefix)
         files = files.filter(relative_path__startswith=prefix)
     folders.filter(stale).update(status='deleted')
-    files.filter(stale).update(status='deleted')
+    return files.filter(stale).update(status='deleted')
 
 
 def process_file_chunk(scan_id, file_ids, force_render=False):
@@ -385,13 +403,29 @@ def process_file_chunk(scan_id, file_ids, force_render=False):
     if scan is None:
         return None
 
-    for file_id in file_ids:
+    started = time.monotonic()
+    processed = 0
+    for index, file_id in enumerate(file_ids):
         try:
             _process_one_file(scan.root, file_id, force_render=force_render)
         except Exception:
             logger.exception(f"Library scan {scan_id}: processing file {file_id} failed")
+        processed += 1
 
-    LibraryScan.objects.filter(pk=scan_id).update(files_processed=F('files_processed') + len(file_ids))
+        # Time budget: if files remain and we've spent the budget, hand the rest
+        # to a fresh task rather than risk exceeding the worker timeout.
+        remaining = file_ids[index + 1:]
+        if remaining and time.monotonic() - started >= CHUNK_TIME_BUDGET_SECONDS:
+            LibraryScan.objects.filter(pk=scan_id).update(
+                files_processed=F('files_processed') + processed
+            )
+            async_task(
+                'inventory.library_tasks.process_library_file_chunk',
+                scan_id, remaining, force_render,
+            )
+            return None
+
+    LibraryScan.objects.filter(pk=scan_id).update(files_processed=F('files_processed') + processed)
     scan.refresh_from_db()
     if scan.status == 'running' and scan.files_processed >= scan.files_queued:
         _finalize_scan(scan, success=True)

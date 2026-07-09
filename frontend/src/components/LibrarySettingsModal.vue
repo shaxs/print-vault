@@ -103,6 +103,31 @@ function scanStatusLabel(root) {
   ] || root.last_scan_status
 }
 
+// "Next scan in ~5 h" from the periodic schedule's next-run time. Empty when
+// the root has no rescan interval (manual-only) — nothing to show.
+function nextScanLabel(root) {
+  if (!root.next_scan_at) return ''
+  const diffMs = new Date(root.next_scan_at).getTime() - Date.now()
+  if (diffMs <= 0) return 'Next scan due now'
+  const hours = diffMs / 3_600_000
+  if (hours < 1) {
+    const mins = Math.max(1, Math.round(diffMs / 60_000))
+    return `Next scan in ${mins} min`
+  }
+  if (hours < 24) return `Next scan in ${Math.round(hours)} h`
+  const days = Math.round(hours / 24)
+  return `Next scan in ${days} day${days === 1 ? '' : 's'}`
+}
+
+// "Last scan: 12 new · 3 updated · 1 removed" from the most recent directory
+// scan's result counts. Empty before the first scan.
+function lastScanLabel(root) {
+  const s = root.last_scan
+  if (!s) return ''
+  if (s.status === 'error') return 'Last scan failed'
+  return `Last scan: ${s.files_new} new · ${s.files_updated} updated · ${s.files_deleted} removed`
+}
+
 async function handleSave() {
   errorMessage.value = ''
   saving.value = true
@@ -224,6 +249,8 @@ async function handlePurge() {
               </span>
               <span v-if="!root.enabled" class="status-pill status-disabled">disabled</span>
             </div>
+            <div v-if="lastScanLabel(root)" class="root-meta">{{ lastScanLabel(root) }}</div>
+            <div v-if="nextScanLabel(root)" class="root-meta">{{ nextScanLabel(root) }}</div>
           </div>
           <div class="root-actions">
             <button class="btn btn-sm btn-secondary" @click="openForm(root)">Edit</button>
@@ -381,6 +408,13 @@ async function handlePurge() {
   margin-top: 4px;
   display: flex;
   gap: 6px;
+}
+
+.root-meta {
+  margin-top: 4px;
+  color: var(--color-text);
+  opacity: 0.75;
+  font-size: 0.8rem;
 }
 
 .status-pill {

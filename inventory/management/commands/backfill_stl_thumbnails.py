@@ -44,12 +44,20 @@ class Command(BaseCommand):
             '--dry-run', action='store_true',
             help='Show what would be processed without generating anything'
         )
+        parser.add_argument(
+            '--async', action='store_true', dest='use_async',
+            help="Dispatch a background TrackerThumbnailJob per affected tracker "
+                 "(chunked + time-budgeted, and trackable on the tracker page) "
+                 "instead of rendering inline. Requires the Django-Q cluster to "
+                 "be running; --limit is ignored in this mode."
+        )
 
     def handle(self, *args, **options):
         tracker_id = options.get('tracker_id')
         limit = options.get('limit') or 0
         include_linked = options.get('include_linked', False)
         dry_run = options.get('dry_run', False)
+        use_async = options.get('use_async', False)
 
         storage_types = ['local', 'link'] if include_linked else ['local']
         queryset = TrackerFile.objects.filter(
@@ -70,12 +78,39 @@ class Command(BaseCommand):
 
         candidates = [tf for tf in queryset if tf.filename.lower().endswith(SUPPORTED_EXTENSIONS)]
 
-        if limit > 0:
-            candidates = candidates[:limit]
-
         if not candidates:
             self.stdout.write(self.style.SUCCESS('No eligible files found. Nothing to do.'))
             return
+
+        # --async dispatches one chunked background job per affected tracker,
+        # so a large backfill can't wedge on a single long-running task and its
+        # progress shows on each tracker page. --limit doesn't apply here (the
+        # job recomputes eligibility per tracker).
+        if use_async and not dry_run:
+            from inventory.services.tracker_thumbnail_jobs import (
+                start_tracker_thumbnail_regeneration,
+            )
+
+            tracker_ids = sorted({tf.tracker_id for tf in candidates})
+            queued = 0
+            for tracker in Tracker.objects.filter(id__in=tracker_ids):
+                job = start_tracker_thumbnail_regeneration(tracker, include_linked=include_linked)
+                if job:
+                    queued += 1
+                    self.stdout.write(self.style.SUCCESS(
+                        f'Queued job {job.id} for tracker: {tracker.name}'
+                    ))
+                else:
+                    self.stdout.write(self.style.WARNING(
+                        f'Skipped {tracker.name}: a regeneration is already in progress'
+                    ))
+            self.stdout.write(self.style.SUCCESS(
+                f'Queued {queued} background job(s) across {len(tracker_ids)} tracker(s).'
+            ))
+            return
+
+        if limit > 0:
+            candidates = candidates[:limit]
 
         self.stdout.write(f'Found {len(candidates)} eligible file(s)')
 

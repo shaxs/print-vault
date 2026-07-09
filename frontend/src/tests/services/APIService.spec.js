@@ -58,6 +58,14 @@ describe('APIService', () => {
     it('should have regenerateTrackerThumbnails method', () => {
       expect(typeof APIService.regenerateTrackerThumbnails).toBe('function')
     })
+
+    it('should have getTrackerThumbnailJob method', () => {
+      expect(typeof APIService.getTrackerThumbnailJob).toBe('function')
+    })
+
+    it('should have getActiveTrackerThumbnailJobs method', () => {
+      expect(typeof APIService.getActiveTrackerThumbnailJobs).toBe('function')
+    })
   })
 
   describe('Tracker Files', () => {

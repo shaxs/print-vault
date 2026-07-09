@@ -1842,6 +1842,20 @@ class LibraryScan(models.Model):
         default=0, help_text="Files needing expensive processing (hash/render/parse)"
     )
     files_processed = models.PositiveIntegerField(default=0)
+    # Per-scan result breakdown (walk-level), so the UI can show "what the last
+    # scan found". A moved file counts as one new + one removed here (its old
+    # path is swept and a fresh row appears at the new path); processing later
+    # re-links it, but these walk counts are a fair filesystem-diff summary and
+    # aren't retro-adjusted. Always 0 for kind='thumbnails' regeneration jobs.
+    files_new = models.PositiveIntegerField(
+        default=0, help_text="New files discovered by this scan"
+    )
+    files_updated = models.PositiveIntegerField(
+        default=0, help_text="Changed files reprocessed (stat mismatch)"
+    )
+    files_deleted = models.PositiveIntegerField(
+        default=0, help_text="Files soft-deleted by this scan's deletion sweep"
+    )
     started_at = models.DateTimeField(null=True, blank=True)
     finished_at = models.DateTimeField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
@@ -1877,3 +1891,45 @@ def delete_library_root_schedule(sender, instance, **kwargs):
     """Remove the periodic-rescan Schedule when its root goes away."""
     from inventory.library_tasks import delete_root_schedule
     delete_root_schedule(instance.pk)
+
+
+class TrackerThumbnailJob(models.Model):
+    """
+    One tracker-scoped thumbnail (re)generation job. Mirrors LibraryScan:
+    it backs the tracker page's progress banner ("N of M rendered") and
+    doubles as the per-tracker concurrency guard — a new job is refused while
+    another for the same tracker is still pending/running. The heavy rendering
+    runs in time-budgeted Django-Q chunks (see services/tracker_thumbnail_jobs)
+    so no single worker task can exceed the cluster timeout, however many files
+    the tracker has.
+    """
+    tracker = models.ForeignKey(Tracker, on_delete=models.CASCADE, related_name='thumbnail_jobs')
+    include_linked = models.BooleanField(
+        default=False,
+        help_text="Also (re)render storage_type='link' files for this run",
+    )
+    status = models.CharField(
+        max_length=16,
+        choices=[('pending', 'Pending'), ('running', 'Running'), ('success', 'Success'), ('error', 'Error')],
+        default='pending',
+    )
+    error = models.TextField(blank=True)
+    files_queued = models.PositiveIntegerField(
+        default=0,
+        help_text="Eligible files needing a render (excludes manual-image and non-STL/3MF files)",
+    )
+    files_processed = models.PositiveIntegerField(default=0)
+    files_generated = models.PositiveIntegerField(
+        default=0, help_text="Of the processed files, how many produced a thumbnail"
+    )
+    started_at = models.DateTimeField(null=True, blank=True)
+    finished_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        verbose_name = "Tracker Thumbnail Job"
+        verbose_name_plural = "Tracker Thumbnail Jobs"
+        ordering = ['-created_at']
+
+    def __str__(self):
+        return f"Thumbnail job for {self.tracker.name}: {self.status}"

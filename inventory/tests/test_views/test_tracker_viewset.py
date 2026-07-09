@@ -8,7 +8,7 @@ from unittest import mock
 import pytest
 from rest_framework import status
 from rest_framework.test import APIClient
-from inventory.models import Tracker, TrackerFile, TrackerFileImage
+from inventory.models import Tracker, TrackerFile, TrackerFileImage, TrackerThumbnailJob
 from inventory.tests.factories import (
     TrackerFactory,
     TrackerFileFactory,
@@ -311,23 +311,25 @@ class TestTrackerProgress:
 class TestRegenerateThumbnailsAction:
     """Test POST /api/trackers/{id}/regenerate-thumbnails/"""
 
-    def test_queues_regeneration_task(self, api_client):
+    def test_queues_regeneration_job(self, api_client):
         tracker = TrackerFactory()
 
-        with mock.patch('django_q.tasks.async_task') as mock_async_task:
+        with mock.patch('inventory.services.tracker_thumbnail_jobs.async_task') as mock_async_task:
             response = api_client.post(f'/api/trackers/{tracker.pk}/regenerate-thumbnails/')
 
         assert response.status_code == status.HTTP_202_ACCEPTED
-        assert response.data['status'] == 'queued'
+        assert response.data['status'] == 'pending'
         assert response.data['include_linked'] is False
+        job = TrackerThumbnailJob.objects.get(pk=response.data['id'])
+        assert job.tracker_id == tracker.pk
         mock_async_task.assert_called_once_with(
-            'inventory.tasks.regenerate_tracker_thumbnails_task', tracker.pk, False
+            'inventory.tasks.run_tracker_thumbnail_regeneration_task', job.pk
         )
 
     def test_include_linked_flag_passed_through(self, api_client):
         tracker = TrackerFactory()
 
-        with mock.patch('django_q.tasks.async_task') as mock_async_task:
+        with mock.patch('inventory.services.tracker_thumbnail_jobs.async_task'):
             response = api_client.post(
                 f'/api/trackers/{tracker.pk}/regenerate-thumbnails/',
                 {'include_linked': True},
@@ -336,15 +338,13 @@ class TestRegenerateThumbnailsAction:
 
         assert response.status_code == status.HTTP_202_ACCEPTED
         assert response.data['include_linked'] is True
-        mock_async_task.assert_called_once_with(
-            'inventory.tasks.regenerate_tracker_thumbnails_task', tracker.pk, True
-        )
+        assert TrackerThumbnailJob.objects.get(pk=response.data['id']).include_linked is True
 
     def test_string_false_is_parsed_as_false(self, api_client):
         """String 'false' (form-encoded/non-JSON clients) must not enable linked downloads."""
         tracker = TrackerFactory()
 
-        with mock.patch('django_q.tasks.async_task') as mock_async_task:
+        with mock.patch('inventory.services.tracker_thumbnail_jobs.async_task'):
             response = api_client.post(
                 f'/api/trackers/{tracker.pk}/regenerate-thumbnails/',
                 {'include_linked': 'false'},
@@ -353,14 +353,11 @@ class TestRegenerateThumbnailsAction:
 
         assert response.status_code == status.HTTP_202_ACCEPTED
         assert response.data['include_linked'] is False
-        mock_async_task.assert_called_once_with(
-            'inventory.tasks.regenerate_tracker_thumbnails_task', tracker.pk, False
-        )
 
     def test_string_zero_is_parsed_as_false(self, api_client):
         tracker = TrackerFactory()
 
-        with mock.patch('django_q.tasks.async_task') as mock_async_task:
+        with mock.patch('inventory.services.tracker_thumbnail_jobs.async_task'):
             response = api_client.post(
                 f'/api/trackers/{tracker.pk}/regenerate-thumbnails/',
                 {'include_linked': '0'},
@@ -369,9 +366,16 @@ class TestRegenerateThumbnailsAction:
 
         assert response.status_code == status.HTTP_202_ACCEPTED
         assert response.data['include_linked'] is False
-        mock_async_task.assert_called_once_with(
-            'inventory.tasks.regenerate_tracker_thumbnails_task', tracker.pk, False
-        )
+
+    def test_409_when_job_already_running(self, api_client):
+        tracker = TrackerFactory()
+        TrackerThumbnailJob.objects.create(tracker=tracker, status='running')
+
+        with mock.patch('inventory.services.tracker_thumbnail_jobs.async_task') as mock_async_task:
+            response = api_client.post(f'/api/trackers/{tracker.pk}/regenerate-thumbnails/')
+
+        assert response.status_code == status.HTTP_409_CONFLICT
+        mock_async_task.assert_not_called()
 
     def test_invalid_boolean_value_returns_400(self, api_client):
         tracker = TrackerFactory()

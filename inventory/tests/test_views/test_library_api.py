@@ -6,12 +6,14 @@ Tests for the STL/3MF Library API endpoints:
 - /api/library/files/ (detail + streamed download with path validation)
 - /api/library/scans/ (job status polling)
 """
+from datetime import timedelta
 from unittest import mock
 
 import pytest
+from django.utils import timezone
 from rest_framework.test import APIClient
 
-from inventory.models import LibraryRoot, LibraryScan
+from inventory.models import LibraryFile, LibraryRoot, LibraryScan
 from inventory.services import library_scanner
 from inventory.tests.factories import (
     LibraryFileFactory,
@@ -170,10 +172,27 @@ class TestFolderTree:
 
         assert resp.status_code == 200
         for item in resp.data:
-            # `root` lets the multi-root frontend attribute each folder.
-            assert set(item.keys()) == {'id', 'name', 'parent_id', 'status', 'root'}
+            # `root` lets the multi-root frontend attribute each folder;
+            # `file_count` drives the client-side "hide empty folders" toggle.
+            assert set(item.keys()) == {'id', 'name', 'parent_id', 'status', 'root', 'file_count'}
             assert item['root'] == root.id
         assert deleted_folder.id not in [item['id'] for item in resp.data]
+
+    def test_folder_tree_file_count_counts_active_files_only(self, client):
+        root = LibraryRootFactory()
+        folder = LibraryFolderFactory(root=root)
+        empty = LibraryFolderFactory(root=root)
+        LibraryFileFactory(folder=folder, filename='a.stl', relative_path='a.stl')
+        LibraryFileFactory(folder=folder, filename='b.3mf', relative_path='b.3mf')
+        LibraryFileFactory(
+            folder=folder, filename='gone.stl', relative_path='gone.stl', status='deleted'
+        )
+
+        resp = client.get('/api/library/folders/tree/', {'root': root.id})
+
+        counts = {item['id']: item['file_count'] for item in resp.data}
+        assert counts[folder.id] == 2  # two active files, the deleted one excluded
+        assert counts[empty.id] == 0
 
 
 @pytest.mark.django_db
@@ -348,6 +367,18 @@ class TestScanStatus:
         assert resp.status_code == 200
         assert resp.data['root_name'] == 'NAS Prints'
         assert resp.data['kind'] == 'thumbnails'
+
+    def test_scan_serializer_exposes_result_counts(self, client):
+        """The scan payload carries the per-scan new/updated/removed breakdown."""
+        scan = LibraryScanFactory(
+            status='success', files_new=5, files_updated=2, files_deleted=1
+        )
+
+        resp = client.get(f'/api/library/scans/{scan.id}/')
+
+        assert resp.data['files_new'] == 5
+        assert resp.data['files_updated'] == 2
+        assert resp.data['files_deleted'] == 1
 
 
 @pytest.mark.django_db
@@ -530,6 +561,153 @@ class TestLibrarySearch:
 
         assert data['count'] == 1
         assert data['results'][0]['filename'] == 'test.3mf'
+
+
+@pytest.mark.django_db
+class TestNewFilesSince:
+    """GET /api/library/new-files/ — files first indexed by each root's most
+    recent successful scan (created_at >= that scan's start)."""
+
+    def _scan(self, root, started_at):
+        return LibraryScanFactory(
+            root=root, kind='scan', status='success', started_at=started_at,
+            finished_at=started_at + timedelta(minutes=1),
+        )
+
+    def test_lists_files_created_since_last_scan(self, client):
+        root = LibraryRootFactory(path='/mnt/nas')
+        folder = LibraryFolderFactory(root=root)
+        boundary = timezone.now() - timedelta(hours=1)
+        self._scan(root, boundary)
+
+        # "new": created after the scan started (factory sets created_at=now).
+        LibraryFileFactory(folder=folder, filename='fresh.stl', relative_path='fresh.stl')
+        # "old": created well before the boundary (auto_now_add only fires on
+        # insert, so a follow-up .update() can backdate created_at).
+        old = LibraryFileFactory(folder=folder, filename='old.stl', relative_path='old.stl')
+        LibraryFile.objects.filter(pk=old.pk).update(created_at=boundary - timedelta(hours=2))
+
+        data = client.get('/api/library/new-files/').json()
+
+        assert data['count'] == 1
+        assert data['results'][0]['filename'] == 'fresh.stl'
+
+    def test_empty_when_no_scan_yet(self, client):
+        folder = LibraryFolderFactory()
+        LibraryFileFactory(folder=folder)
+
+        data = client.get('/api/library/new-files/').json()
+
+        assert data['count'] == 0
+        assert data['results'] == []
+
+    def test_excludes_deleted_files(self, client):
+        root = LibraryRootFactory()
+        folder = LibraryFolderFactory(root=root)
+        self._scan(root, timezone.now() - timedelta(hours=1))
+        LibraryFileFactory(folder=folder, status='deleted')
+
+        assert client.get('/api/library/new-files/').json()['count'] == 0
+
+    def test_extension_filter(self, client):
+        root = LibraryRootFactory()
+        folder = LibraryFolderFactory(root=root)
+        self._scan(root, timezone.now() - timedelta(hours=1))
+        LibraryFileFactory(folder=folder, filename='a.stl', relative_path='a.stl', extension='stl')
+        LibraryFileFactory(folder=folder, filename='a.3mf', relative_path='a.3mf', extension='3mf')
+
+        data = client.get('/api/library/new-files/', {'extension': '3mf'}).json()
+
+        assert data['count'] == 1
+        assert data['results'][0]['extension'] == '3mf'
+
+    def test_spans_enabled_roots_excludes_disabled(self, client):
+        enabled = LibraryRootFactory(path='/mnt/on')
+        disabled = LibraryRootFactory(path='/mnt/off', enabled=False)
+        self._scan(enabled, timezone.now() - timedelta(hours=1))
+        self._scan(disabled, timezone.now() - timedelta(hours=1))
+        LibraryFileFactory(
+            folder=LibraryFolderFactory(root=enabled), filename='on.stl', relative_path='on.stl'
+        )
+        LibraryFileFactory(
+            folder=LibraryFolderFactory(root=disabled), filename='off.stl', relative_path='off.stl'
+        )
+
+        data = client.get('/api/library/new-files/').json()
+
+        assert data['count'] == 1
+        assert data['results'][0]['filename'] == 'on.stl'
+
+    def test_measures_against_most_recent_scan(self, client):
+        """Only the latest scan defines 'since last scan': a file indexed
+        between an older and a newer scan is not new relative to the newer one."""
+        root = LibraryRootFactory()
+        folder = LibraryFolderFactory(root=root)
+        self._scan(root, timezone.now() - timedelta(hours=2))
+        mid = LibraryFileFactory(folder=folder, filename='mid.stl', relative_path='mid.stl')
+        LibraryFile.objects.filter(pk=mid.pk).update(created_at=timezone.now() - timedelta(hours=1))
+        self._scan(root, timezone.now() - timedelta(minutes=1))
+
+        assert client.get('/api/library/new-files/').json()['count'] == 0
+
+
+@pytest.mark.django_db
+class TestRootScanSummary:
+    """LibraryRootSerializer's next_scan_at + last_scan (settings-screen extras)."""
+
+    def test_last_scan_summary_exposed(self, client):
+        root = LibraryRootFactory()
+        LibraryScanFactory(
+            root=root, kind='scan', status='success', finished_at=timezone.now(),
+            files_seen=40, files_new=12, files_updated=3, files_deleted=1,
+        )
+
+        resp = client.get(f'/api/library/roots/{root.id}/')
+
+        summary = resp.data['last_scan']
+        assert summary['status'] == 'success'
+        assert summary['files_new'] == 12
+        assert summary['files_updated'] == 3
+        assert summary['files_deleted'] == 1
+
+    def test_last_scan_null_before_any_scan(self, client):
+        root = LibraryRootFactory()
+
+        resp = client.get(f'/api/library/roots/{root.id}/')
+
+        assert resp.data['last_scan'] is None
+
+    def test_last_scan_ignores_thumbnail_jobs(self, client):
+        """A later thumbnail regeneration must not overwrite the shown scan
+        summary — only kind='scan' jobs count as 'the last scan'."""
+        root = LibraryRootFactory()
+        LibraryScanFactory(
+            root=root, kind='scan', status='success',
+            finished_at=timezone.now() - timedelta(minutes=5), files_new=7,
+        )
+        LibraryScanFactory(
+            root=root, kind='thumbnails', status='success', finished_at=timezone.now(),
+        )
+
+        resp = client.get(f'/api/library/roots/{root.id}/')
+
+        assert resp.data['last_scan']['files_new'] == 7
+
+    def test_next_scan_at_present_with_interval(self, client):
+        """A root with a rescan interval has a periodic Schedule (created by the
+        post_save signal); next_scan_at surfaces its next run time."""
+        root = LibraryRootFactory(rescan_interval_hours=6)
+
+        resp = client.get(f'/api/library/roots/{root.id}/')
+
+        assert resp.data['next_scan_at'] is not None
+
+    def test_next_scan_at_null_without_interval(self, client):
+        root = LibraryRootFactory()  # manual-only, no interval
+
+        resp = client.get(f'/api/library/roots/{root.id}/')
+
+        assert resp.data['next_scan_at'] is None
 
 
 @pytest.mark.django_db

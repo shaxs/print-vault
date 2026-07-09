@@ -293,6 +293,10 @@ const THUMBNAIL_POLL_INTERVAL_MS = 5000
 const MAX_THUMBNAIL_POLL_ATTEMPTS = 24 // ~2 minutes
 let thumbnailPollTimer = null
 let thumbnailPollAttempts = 0
+// True while we're polling for background auto-thumbnails (after tracker
+// creation or adding files, where generation runs per-file via signal rather
+// than as a tracked TrackerThumbnailJob) — drives the progress banner.
+const thumbnailPollActive = ref(false)
 
 const hasFilesAwaitingThumbnail = () => {
   if (!tracker.value?.files) return false
@@ -320,11 +324,13 @@ const stopThumbnailPolling = () => {
     clearInterval(thumbnailPollTimer)
     thumbnailPollTimer = null
   }
+  thumbnailPollActive.value = false
 }
 
 const startThumbnailPolling = () => {
   if (thumbnailPollTimer || !hasFilesAwaitingThumbnail()) return
 
+  thumbnailPollActive.value = true
   thumbnailPollAttempts = 0
   thumbnailPollTimer = setInterval(async () => {
     thumbnailPollAttempts++
@@ -334,6 +340,73 @@ const startThumbnailPolling = () => {
       stopThumbnailPolling()
     }
   }, THUMBNAIL_POLL_INTERVAL_MS)
+}
+
+// ---- Thumbnail regeneration job (progress banner) ----
+// A "Regenerate Thumbnails" action (triggered from Edit Tracker) runs as a
+// backend TrackerThumbnailJob. Mirroring the library's scan banner, we
+// re-attach to any in-flight job on mount and poll it so the user sees
+// "N of M rendered" instead of wondering whether a big regeneration stalled.
+const JOB_POLL_INTERVAL_MS = 2000
+const thumbnailJob = ref(null) // active job snapshot being polled, or null
+const thumbnailJobNotice = ref('') // transient completion line
+let jobPollTimer = null
+
+const thumbnailJobLabel = computed(() => {
+  const job = thumbnailJob.value
+  if (!job) return ''
+  const total = job.files_queued || 0
+  return total
+    ? `Regenerating thumbnails… ${job.files_processed} of ${total} rendered (${job.progress_percent}%)`
+    : 'Regenerating thumbnails…'
+})
+
+const stopJobPolling = () => {
+  if (jobPollTimer) {
+    clearInterval(jobPollTimer)
+    jobPollTimer = null
+  }
+}
+
+const pollThumbnailJob = async () => {
+  if (!thumbnailJob.value) {
+    stopJobPolling()
+    return
+  }
+  try {
+    const { data } = await APIService.getTrackerThumbnailJob(thumbnailJob.value.id)
+    if (data.status === 'success' || data.status === 'error') {
+      stopJobPolling()
+      thumbnailJob.value = null
+      thumbnailJobNotice.value =
+        data.status === 'error'
+          ? 'Thumbnail regeneration failed.'
+          : `Thumbnails regenerated — ${data.files_generated} of ${data.files_queued} rendered.`
+      setTimeout(() => (thumbnailJobNotice.value = ''), 6000)
+      await refreshThumbnails()
+    } else {
+      thumbnailJob.value = data
+    }
+  } catch (err) {
+    // Transient failure: keep the last snapshot and retry next tick.
+    console.error('Failed to poll thumbnail job:', err)
+  }
+}
+
+const trackThumbnailJob = (job) => {
+  if (!job || job.id == null) return
+  thumbnailJob.value = job
+  if (!jobPollTimer) jobPollTimer = setInterval(pollThumbnailJob, JOB_POLL_INTERVAL_MS)
+}
+
+const resumeThumbnailJob = async () => {
+  try {
+    const { data } = await APIService.getActiveTrackerThumbnailJobs(route.params.id)
+    const rows = Array.isArray(data) ? data : data.results || []
+    if (rows.length) trackThumbnailJob(rows[0])
+  } catch (err) {
+    console.error('Failed to load active thumbnail job:', err)
+  }
 }
 
 // Group files by directory
@@ -1145,10 +1218,12 @@ onMounted(async () => {
   await loadTracker()
   loadMaterials()
   startThumbnailPolling()
+  resumeThumbnailJob()
 })
 
 onBeforeUnmount(() => {
   stopThumbnailPolling()
+  stopJobPolling()
 })
 </script>
 
@@ -1170,6 +1245,25 @@ onBeforeUnmount(() => {
 
       <!-- Tracker Content -->
       <div v-else-if="tracker">
+        <!-- Thumbnail progress. A regenerate action runs as a tracked job with
+             precise "N of M" progress; initial generation after creating a
+             tracker / adding files runs per-file in the background, shown as a
+             simple "generating…" line while we poll for the images to appear. -->
+        <div
+          v-if="thumbnailJob || thumbnailPollActive || thumbnailJobNotice"
+          class="thumbnail-job-banner"
+        >
+          <div v-if="thumbnailJob" class="job-line job-active">
+            <span class="job-spinner" aria-hidden="true"></span>
+            <span>{{ thumbnailJobLabel }}</span>
+          </div>
+          <div v-else-if="thumbnailPollActive" class="job-line job-active">
+            <span class="job-spinner" aria-hidden="true"></span>
+            <span>Generating thumbnails…</span>
+          </div>
+          <div v-else class="job-line job-success">{{ thumbnailJobNotice }}</div>
+        </div>
+
         <!-- Header with Actions -->
         <div class="detail-header">
           <div class="header-content">
@@ -1885,6 +1979,47 @@ onBeforeUnmount(() => {
 }
 
 /* Header */
+/* ---- Thumbnail regeneration progress banner (mirrors the library banner) ---- */
+.thumbnail-job-banner {
+  margin-bottom: 16px;
+}
+
+.thumbnail-job-banner .job-line {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 12px;
+  border-radius: 6px;
+  font-size: 0.9rem;
+  color: var(--color-text);
+}
+
+.thumbnail-job-banner .job-active {
+  background-color: rgba(59, 130, 246, 0.1);
+  border: 1px solid rgba(59, 130, 246, 0.3);
+}
+
+.thumbnail-job-banner .job-success {
+  background-color: rgba(34, 197, 94, 0.1);
+  border: 1px solid rgba(34, 197, 94, 0.3);
+}
+
+.thumbnail-job-banner .job-spinner {
+  flex-shrink: 0;
+  width: 14px;
+  height: 14px;
+  border: 2px solid rgba(59, 130, 246, 0.35);
+  border-top-color: var(--color-blue);
+  border-radius: 50%;
+  animation: thumb-job-spin 0.8s linear infinite;
+}
+
+@keyframes thumb-job-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
 .detail-header {
   display: flex;
   justify-content: space-between;

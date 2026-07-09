@@ -418,6 +418,60 @@ class ThumbnailRegenerationTest(LibraryScannerTestBase):
         )
 
 
+class ScanResultCountsTest(LibraryScannerTestBase):
+    """The per-scan result breakdown (files_new / files_updated / files_deleted)
+    that backs the settings screen's 'what the last scan found' summary."""
+
+    def test_initial_scan_counts_all_files_new(self):
+        scan = self.scan()
+
+        self.assertEqual(scan.files_new, 3)
+        self.assertEqual(scan.files_updated, 0)
+        self.assertEqual(scan.files_deleted, 0)
+
+    def test_unchanged_rescan_counts_zero(self):
+        self.scan()
+
+        rescan = self.scan()
+
+        self.assertEqual(rescan.files_new, 0)
+        self.assertEqual(rescan.files_updated, 0)
+        self.assertEqual(rescan.files_deleted, 0)
+
+    def test_added_file_counts_as_new(self):
+        self.scan()
+        write_stl(os.path.join(self.share_dir, 'widgets', 'new_part.stl'))
+
+        rescan = self.scan()
+
+        self.assertEqual(rescan.files_new, 1)
+        self.assertEqual(rescan.files_updated, 0)
+        self.assertEqual(rescan.files_deleted, 0)
+
+    def test_changed_file_counts_as_updated(self):
+        self.scan()
+        gear_path = os.path.join(self.share_dir, 'widgets', 'gear.stl')
+        write_stl(gear_path, extents=(1, 2, 3))
+        st = os.stat(gear_path)
+        os.utime(gear_path, (st.st_atime, st.st_mtime + 60))
+
+        rescan = self.scan()
+
+        self.assertEqual(rescan.files_new, 0)
+        self.assertEqual(rescan.files_updated, 1)
+        self.assertEqual(rescan.files_deleted, 0)
+
+    def test_removed_file_counts_as_deleted(self):
+        self.scan()
+        os.remove(os.path.join(self.share_dir, 'top.stl'))
+
+        rescan = self.scan()
+
+        self.assertEqual(rescan.files_new, 0)
+        self.assertEqual(rescan.files_updated, 0)
+        self.assertEqual(rescan.files_deleted, 1)
+
+
 @override_settings(MEDIA_ROOT=TEST_MEDIA_ROOT)
 class ThumbnailStatusTest(TestCase):
     """_render_and_save records WHY a file does/doesn't get a preview so the UI

@@ -93,6 +93,39 @@ describe('LibrarySettingsModal', () => {
     expect(btn(wrapper, 'Purge Deleted Records')).toBeTruthy()
   })
 
+  it('shows the last-scan result summary on the root row', async () => {
+    const root = {
+      ...ROOT,
+      last_scan: {
+        status: 'success',
+        files_seen: 40,
+        files_new: 12,
+        files_updated: 3,
+        files_deleted: 1,
+        finished_at: '2026-07-09T00:00:00Z',
+      },
+    }
+    const wrapper = await open([root])
+
+    expect(wrapper.find('.root-row').text()).toContain(
+      'Last scan: 12 new · 3 updated · 1 removed',
+    )
+  })
+
+  it('shows the next-scan countdown when a rescan interval is set', async () => {
+    const root = { ...ROOT, next_scan_at: new Date(Date.now() + 5 * 3600 * 1000).toISOString() }
+    const wrapper = await open([root])
+
+    expect(wrapper.find('.root-row').text()).toContain('Next scan in 5 h')
+  })
+
+  it('omits the next-scan line for manual-only roots (no interval)', async () => {
+    const root = { ...ROOT, rescan_interval_hours: null, next_scan_at: null }
+    const wrapper = await open([root])
+
+    expect(wrapper.find('.root-row').text()).not.toContain('Next scan')
+  })
+
   it('Add Path opens a blank create form', async () => {
     const wrapper = await open([ROOT])
 

@@ -13,11 +13,13 @@
 import { computed, onBeforeUnmount, onMounted, provide, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import APIService from '@/services/APIService'
+import MainHeader from '@/components/MainHeader.vue'
 import LibraryFolderTreeNode from '@/components/LibraryFolderTreeNode.vue'
 import LibraryFileDetailModal from '@/components/LibraryFileDetailModal.vue'
 import LibrarySettingsModal from '@/components/LibrarySettingsModal.vue'
 
 const VIEW_MODE_KEY = 'library-view-mode'
+const HIDE_EMPTY_KEY = 'library-hide-empty-folders'
 const PAGE_SIZE = 100
 
 const route = useRoute()
@@ -55,6 +57,7 @@ const sortDirection = ref('asc')
 const viewMode = ref(localStorage.getItem(VIEW_MODE_KEY) || 'list')
 const extensionFilter = ref('') // '' | 'stl' | '3mf'
 const showDeleted = ref(false)
+const hideEmptyFolders = ref(localStorage.getItem(HIDE_EMPTY_KEY) === 'true')
 
 const loadingTree = ref(true)
 const loadingContents = ref(false)
@@ -71,6 +74,14 @@ const searchResults = ref(null)
 const searchPage = ref(1)
 const searchLoading = ref(false)
 let searchDebounce = null
+
+// "New models since the last scan" mode — like search, it takes over the right
+// pane with a flat, paginated file list (files first indexed by each root's
+// most recent scan). Mutually exclusive with search.
+const newFilesActive = ref(false)
+const newFilesResults = ref(null)
+const newFilesPage = ref(1)
+const newFilesLoading = ref(false)
 
 // Async job tracking — a single poll loop drives the progress banner for every
 // in-flight job (full-root scan, scoped-folder rescan, and thumbnail
@@ -120,20 +131,54 @@ const childrenIndex = computed(() => {
   return index
 })
 
+// Whether each folder's subtree (itself + all descendants) holds any active 3D
+// file. The tree payload carries `file_count` (direct active files) per folder;
+// rolling it up once here lets the "hide empty folders" toggle drop whole
+// branches that only contain empty subdirectories. Memoized post-order walk.
+const subtreeHasFiles = computed(() => {
+  const index = childrenIndex.value
+  const result = new Map()
+  const compute = (id) => {
+    if (result.has(id)) return result.get(id)
+    const folder = folderMap.value.get(id)
+    let has = (folder?.file_count || 0) > 0
+    for (const child of index.get(id) || []) {
+      // Always recurse (don't short-circuit) so every node gets memoized.
+      if (compute(child.id)) has = true
+    }
+    result.set(id, has)
+    return has
+  }
+  for (const folder of folders.value) compute(folder.id)
+  return result
+})
+
+// A folder is hidden only when we positively know its subtree is empty; unknown
+// ids (e.g. soft-deleted folders absent from the active tree) stay visible.
+function folderPassesEmptyFilter(id) {
+  if (!hideEmptyFolders.value) return true
+  return subtreeHasFiles.value.get(id) !== false
+}
+
 // One top-level node per enabled root (each root's tree has its own null-parent
 // folder, named for the root). Ordered to match the roots list.
 const rootFolders = computed(() => {
   const order = new Map(roots.value.map((r, i) => [r.id, i]))
   return folders.value
-    .filter((f) => f.parent_id == null)
+    .filter((f) => f.parent_id == null && folderPassesEmptyFilter(f.id))
     .slice()
     .sort((a, b) => (order.get(a.root) ?? 0) - (order.get(b.root) ?? 0))
 })
 
+// Subfolders shown in the right pane, with the same empty-folder filter applied.
+const visibleSubfolders = computed(() =>
+  (contents.value?.subfolders || []).filter((s) => folderPassesEmptyFilter(s.id)),
+)
+
 provide(
   'libraryTree',
   reactive({
-    childrenOf: (id) => childrenIndex.value.get(id) || [],
+    childrenOf: (id) => (childrenIndex.value.get(id) || []).filter((f) => folderPassesEmptyFilter(f.id)),
     isExpanded: (id) => expandedIds.value.has(id),
     get selectedId() {
       return selectedFolderId.value
@@ -185,6 +230,18 @@ async function loadLibrary() {
   }
 }
 
+async function refreshRoots() {
+  // Re-pull roots so the settings modal's per-root last-scan summary and
+  // next-scan time stay current after a scan finishes. Best-effort: a failure
+  // keeps the existing (slightly stale) roots rather than blanking the UI.
+  try {
+    const response = await APIService.getLibraryRoots()
+    roots.value = response.data
+  } catch (err) {
+    console.error('Failed to refresh library roots:', err)
+  }
+}
+
 async function reloadTree() {
   // Fetch every enabled root's skeleton in parallel and merge into one flat
   // list. Folder ids are globally unique, so folderMap/childrenIndex work
@@ -207,6 +264,7 @@ onBeforeUnmount(() => {
 
 function selectFolder(id) {
   clearSearch()
+  clearNewFiles()
   if (id === selectedFolderId.value) return
   router.replace({ query: { ...route.query, folder: id } })
 }
@@ -243,6 +301,8 @@ async function fetchContents(folderId) {
 function refreshCurrentView() {
   if (searchMode.value) {
     runSearch(searchPage.value)
+  } else if (newFilesMode.value) {
+    loadNewFiles(newFilesPage.value)
   } else if (selectedFolderId.value != null) {
     fetchContents(selectedFolderId.value)
   }
@@ -265,6 +325,7 @@ watch(searchQuery, (value) => {
 async function runSearch(pageN) {
   const q = searchQuery.value.trim()
   if (q.length < 2 || !enabledRoots.value.length) return
+  if (newFilesActive.value) clearNewFiles() // search wins over new-models mode
   searchLoading.value = true
   searchPage.value = pageN
   try {
@@ -287,9 +348,60 @@ function clearSearch() {
   searchResults.value = null
 }
 
-const searchTotalPages = computed(() =>
-  searchResults.value ? Math.max(1, Math.ceil(searchResults.value.count / PAGE_SIZE)) : 1,
+// ---- New models since last scan ----
+
+const newFilesMode = computed(() => newFilesActive.value && !searchMode.value)
+const newFilesCount = computed(() => newFilesResults.value?.count ?? 0)
+
+async function loadNewFiles(pageN) {
+  if (!enabledRoots.value.length) return
+  newFilesLoading.value = true
+  newFilesPage.value = pageN
+  try {
+    const params = { page: pageN, page_size: PAGE_SIZE }
+    if (extensionFilter.value) params.extension = extensionFilter.value
+    const response = await APIService.getNewLibraryFiles(params)
+    newFilesResults.value = response.data
+  } catch (err) {
+    console.error('Failed to load new models:', err)
+    loadError.value = 'Failed to load new models.'
+  } finally {
+    newFilesLoading.value = false
+  }
+}
+
+function toggleNewFiles() {
+  if (newFilesActive.value) {
+    clearNewFiles()
+    return
+  }
+  clearSearch()
+  newFilesActive.value = true
+  loadNewFiles(1)
+}
+
+function clearNewFiles() {
+  newFilesActive.value = false
+  newFilesResults.value = null
+  newFilesPage.value = 1
+}
+
+// ---- Unified results pane (search OR new-models share one table + pager) ----
+
+const resultsMode = computed(() => searchMode.value || newFilesMode.value)
+const resultsData = computed(() => (searchMode.value ? searchResults.value : newFilesResults.value))
+const resultsLoading = computed(() =>
+  searchMode.value ? searchLoading.value : newFilesLoading.value,
 )
+const resultsPage = computed(() => (searchMode.value ? searchPage.value : newFilesPage.value))
+const resultsTotalPages = computed(() =>
+  resultsData.value ? Math.max(1, Math.ceil(resultsData.value.count / PAGE_SIZE)) : 1,
+)
+
+function gotoResultsPage(pageN) {
+  if (searchMode.value) runSearch(pageN)
+  else loadNewFiles(pageN)
+}
 
 // ---- Sorting / paging / view mode / filters ----
 
@@ -327,6 +439,7 @@ function setExtensionFilter(value) {
   if (extensionFilter.value === value) return
   extensionFilter.value = value
   page.value = 1
+  newFilesPage.value = 1
   refreshCurrentView()
 }
 
@@ -334,6 +447,12 @@ function toggleShowDeleted() {
   showDeleted.value = !showDeleted.value
   page.value = 1
   refreshCurrentView()
+}
+
+function toggleHideEmptyFolders() {
+  hideEmptyFolders.value = !hideEmptyFolders.value
+  localStorage.setItem(HIDE_EMPTY_KEY, String(hideEmptyFolders.value))
+  // Purely a client-side view filter over data we already hold — no refetch.
 }
 
 // ---- Async job tracking (progress banner) ----
@@ -401,6 +520,7 @@ async function pollJobs() {
     await reloadTree()
     refreshCurrentView()
     loadPreviewSummary() // counts may have changed after a scan/regeneration
+    refreshRoots() // refresh last-scan summary / next-scan time shown in Settings
   }
 
   if (!activeJobs.value.length) stopJobPolling()
@@ -423,7 +543,7 @@ function pushJobNotice(scan) {
       text:
         scan.kind === 'thumbnails'
           ? `Thumbnails for ${rootName} regenerated — ${scan.files_processed} re-rendered.`
-          : `Scan of ${rootName} complete — ${scan.files_seen} files seen, ${scan.files_processed} processed.`,
+          : `Scan of ${rootName} complete — ${scan.files_seen} files found, ${scan.files_processed} new or updated.`,
     }
   }
   jobNotices.value = [...jobNotices.value, notice]
@@ -436,7 +556,7 @@ function jobLabel(job) {
   const rootName = job.root_name || 'library'
   return job.kind === 'thumbnails'
     ? `Regenerating thumbnails for ${rootName}… ${job.progress_percent}%`
-    : `Scanning ${rootName}… ${job.files_seen} files seen, ${job.progress_percent}% processed`
+    : `Scanning ${rootName}… ${job.files_seen} files found, ${job.progress_percent}% processed`
 }
 
 async function rescanCurrentFolder() {
@@ -544,23 +664,68 @@ const breadcrumbs = computed(() => contents.value?.folder?.breadcrumbs || [])
 
 <template>
   <div class="library-page">
-    <div class="page-header">
-      <div class="page-title">
-        <h1>Library</h1>
-        <p
-          v-if="previewIssueText"
-          class="preview-summary-note"
-          title="Files with no preview image. 'Too large' exceeds the render size cap; 'unreadable' means the 3D mesh couldn't be parsed for a thumbnail. The file itself is still indexed and openable."
-        >
-          {{ previewIssueText }}
-        </p>
-      </div>
-      <div class="header-actions">
-        <button class="btn btn-secondary" @click="showSettingsModal = true">
+    <MainHeader title="Library">
+      <template #actions>
+        <template v-if="hasAnyRoot">
+        <div class="ext-filter">
+          <button
+            class="btn"
+            :class="extensionFilter === '' ? 'btn-primary' : 'btn-outline'"
+            @click="setExtensionFilter('')"
+          >
+            All
+          </button>
+          <button
+            class="btn"
+            :class="extensionFilter === 'stl' ? 'btn-primary' : 'btn-outline'"
+            @click="setExtensionFilter('stl')"
+          >
+            STL
+          </button>
+          <button
+            class="btn"
+            :class="extensionFilter === '3mf' ? 'btn-primary' : 'btn-outline'"
+            @click="setExtensionFilter('3mf')"
+          >
+            3MF
+          </button>
+        </div>
+        <div class="view-toggle">
+          <button
+            class="btn"
+            :class="viewMode === 'list' ? 'btn-primary' : 'btn-outline'"
+            @click="setViewMode('list')"
+          >
+            List
+          </button>
+          <button
+            class="btn"
+            :class="viewMode === 'grid' ? 'btn-primary' : 'btn-outline'"
+            @click="setViewMode('grid')"
+          >
+            Grid
+          </button>
+        </div>
+        <input
+          type="text"
+          v-model="searchQuery"
+          class="search-input"
+          placeholder="Search library…"
+          spellcheck="false"
+        />
+        </template>
+        <button class="btn btn-outline" @click="showSettingsModal = true">
           {{ hasAnyRoot ? 'Settings' : 'Configure Library' }}
         </button>
-      </div>
-    </div>
+      </template>
+    </MainHeader>
+    <p
+      v-if="previewIssueText"
+      class="preview-summary-note"
+      title="Files with no preview image. 'Too large' exceeds the render size cap; 'unreadable' means the 3D mesh couldn't be parsed for a thumbnail. The file itself is still indexed and openable."
+    >
+      {{ previewIssueText }}
+    </p>
 
     <!-- No configured root yet -->
     <div v-if="!loadingTree && !hasAnyRoot" class="empty-state">
@@ -609,7 +774,7 @@ const breadcrumbs = computed(() => contents.value?.folder?.breadcrumbs || [])
       <!-- Right pane: folder contents or search results -->
       <main class="contents-pane">
         <div class="contents-toolbar">
-          <nav v-if="!searchMode" class="breadcrumbs">
+          <nav v-if="!resultsMode" class="breadcrumbs">
             <template v-for="(crumb, index) in breadcrumbs" :key="crumb.id">
               <span v-if="index > 0" class="crumb-separator">/</span>
               <a
@@ -621,132 +786,105 @@ const breadcrumbs = computed(() => contents.value?.folder?.breadcrumbs || [])
               <span v-else class="crumb-current">{{ crumb.name }}</span>
             </template>
           </nav>
-          <div v-else class="search-summary">
+          <div v-else-if="searchMode" class="search-summary">
             {{ searchResults.count }} result{{ searchResults.count === 1 ? '' : 's' }} for
             “{{ searchQuery.trim() }}”
             <button class="btn btn-sm btn-secondary" @click="clearSearch">Clear</button>
           </div>
+          <div v-else class="search-summary">
+            {{ newFilesCount }} new model{{ newFilesCount === 1 ? '' : 's' }} since the last scan
+          </div>
 
-          <div class="toolbar-controls">
-            <input
-              type="text"
-              v-model="searchQuery"
-              class="search-input"
-              placeholder="Search library…"
-              spellcheck="false"
-            />
-            <div class="ext-filter">
-              <button
-                class="btn btn-sm"
-                :class="extensionFilter === '' ? 'btn-primary' : 'btn-secondary'"
-                @click="setExtensionFilter('')"
-              >
-                All
-              </button>
-              <button
-                class="btn btn-sm"
-                :class="extensionFilter === 'stl' ? 'btn-primary' : 'btn-secondary'"
-                @click="setExtensionFilter('stl')"
-              >
-                STL
-              </button>
-              <button
-                class="btn btn-sm"
-                :class="extensionFilter === '3mf' ? 'btn-primary' : 'btn-secondary'"
-                @click="setExtensionFilter('3mf')"
-              >
-                3MF
-              </button>
-            </div>
-            <div class="view-toggle">
-              <button
-                class="btn btn-sm"
-                :class="viewMode === 'list' ? 'btn-primary' : 'btn-secondary'"
-                @click="setViewMode('list')"
-              >
-                List
-              </button>
-              <button
-                class="btn btn-sm"
-                :class="viewMode === 'grid' ? 'btn-primary' : 'btn-secondary'"
-                @click="setViewMode('grid')"
-              >
-                Grid
-              </button>
-            </div>
-            <label class="show-deleted-toggle">
+          <div class="toolbar-toggles">
+            <label v-if="!searchMode" class="browser-toggle">
+              <input type="checkbox" :checked="newFilesActive" @change="toggleNewFiles" />
+              Show new models
+            </label>
+            <label v-if="!resultsMode" class="browser-toggle">
+              <input type="checkbox" :checked="hideEmptyFolders" @change="toggleHideEmptyFolders" />
+              Hide empty folders
+            </label>
+            <label v-if="!newFilesMode" class="browser-toggle">
               <input type="checkbox" :checked="showDeleted" @change="toggleShowDeleted" />
               Show deleted
             </label>
             <button
-              v-if="!searchMode"
+              v-if="!resultsMode"
               class="btn btn-sm btn-secondary"
               :disabled="anyJobActive"
               @click="rescanCurrentFolder"
             >
-              {{ scanJobActive ? 'Rescanning…' : 'Rescan Folder' }}
+              {{ scanJobActive ? 'Rescanning…' : 'Rescan This Folder' }}
             </button>
           </div>
         </div>
 
-        <!-- SEARCH RESULTS -->
-        <template v-if="searchMode">
-          <div v-if="searchLoading" class="pane-state">Searching…</div>
-          <table v-else class="file-table">
-            <thead>
-              <tr>
-                <th class="col-thumb"></th>
-                <th class="col-name">Name</th>
-                <th class="col-path">Location</th>
-                <th class="col-size">Size</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr
-                v-for="file in searchResults.results"
-                :key="`hit-${file.id}`"
-                class="row-clickable"
-                :class="{ 'row-deleted': file.status === 'deleted' }"
-                @click="openFile(file)"
-              >
-                <td class="col-thumb">
-                  <img v-if="file.thumbnail" :src="thumbSrc(file)" class="row-thumb" />
-                  <span v-else class="row-thumb-placeholder">{{ file.extension }}</span>
-                </td>
-                <td class="col-name">
-                  {{ file.filename }}
-                  <span class="ext-badge">{{ file.extension }}</span>
-                  <span v-if="file.status === 'deleted'" class="deleted-badge">deleted</span>
-                </td>
-                <td class="col-path">
-                  <span class="hit-root">{{ file.root_name }}</span
-                  >{{ parentPath(file.relative_path) ? ' / ' + parentPath(file.relative_path) : '' }}
-                </td>
-                <td class="col-size">{{ formatSize(file.size_bytes) }}</td>
-              </tr>
-              <tr v-if="!searchResults.results.length">
-                <td colspan="4" class="pane-state">No matching files.</td>
-              </tr>
-            </tbody>
-          </table>
-
-          <div v-if="searchTotalPages > 1" class="pagination">
-            <button
-              class="btn btn-sm btn-secondary"
-              :disabled="searchPage <= 1"
-              @click="runSearch(searchPage - 1)"
-            >
-              Previous
-            </button>
-            <span class="page-label">Page {{ searchPage }} of {{ searchTotalPages }}</span>
-            <button
-              class="btn btn-sm btn-secondary"
-              :disabled="searchPage >= searchTotalPages"
-              @click="runSearch(searchPage + 1)"
-            >
-              Next
-            </button>
+        <!-- RESULTS PANE (search OR new-models — shared flat file list) -->
+        <template v-if="resultsMode">
+          <div v-if="resultsLoading" class="pane-state">
+            {{ searchMode ? 'Searching…' : 'Loading…' }}
           </div>
+          <template v-else-if="resultsData">
+            <table class="file-table">
+              <thead>
+                <tr>
+                  <th class="col-thumb"></th>
+                  <th class="col-name">Name</th>
+                  <th class="col-path">Location</th>
+                  <th class="col-size">Size</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr
+                  v-for="file in resultsData.results"
+                  :key="`hit-${file.id}`"
+                  class="row-clickable"
+                  :class="{ 'row-deleted': file.status === 'deleted' }"
+                  @click="openFile(file)"
+                >
+                  <td class="col-thumb">
+                    <img v-if="file.thumbnail" :src="thumbSrc(file)" class="row-thumb" />
+                    <span v-else class="row-thumb-placeholder">{{ file.extension }}</span>
+                  </td>
+                  <td class="col-name">
+                    {{ file.filename }}
+                    <span class="ext-badge">{{ file.extension }}</span>
+                    <span v-if="file.status === 'deleted'" class="deleted-badge">deleted</span>
+                  </td>
+                  <td class="col-path">
+                    <span class="hit-root">{{ file.root_name }}</span
+                    >{{
+                      parentPath(file.relative_path) ? ' / ' + parentPath(file.relative_path) : ''
+                    }}
+                  </td>
+                  <td class="col-size">{{ formatSize(file.size_bytes) }}</td>
+                </tr>
+                <tr v-if="!resultsData.results.length">
+                  <td colspan="4" class="pane-state">
+                    {{ searchMode ? 'No matching files.' : 'No new models since the last scan.' }}
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+
+            <div v-if="resultsTotalPages > 1" class="pagination">
+              <button
+                class="btn btn-sm btn-secondary"
+                :disabled="resultsPage <= 1"
+                @click="gotoResultsPage(resultsPage - 1)"
+              >
+                Previous
+              </button>
+              <span class="page-label">Page {{ resultsPage }} of {{ resultsTotalPages }}</span>
+              <button
+                class="btn btn-sm btn-secondary"
+                :disabled="resultsPage >= resultsTotalPages"
+                @click="gotoResultsPage(resultsPage + 1)"
+              >
+                Next
+              </button>
+            </div>
+          </template>
         </template>
 
         <div v-else-if="loadingContents" class="pane-state">Loading…</div>
@@ -770,7 +908,7 @@ const breadcrumbs = computed(() => contents.value?.folder?.breadcrumbs || [])
             </thead>
             <tbody>
               <tr
-                v-for="subfolder in contents.subfolders"
+                v-for="subfolder in visibleSubfolders"
                 :key="`folder-${subfolder.id}`"
                 class="row-clickable"
                 :class="{ 'row-deleted': subfolder.status === 'deleted' }"
@@ -811,7 +949,7 @@ const breadcrumbs = computed(() => contents.value?.folder?.breadcrumbs || [])
                 <td class="col-size">{{ formatSize(file.size_bytes) }}</td>
                 <td class="col-date">{{ formatDate(file.modified_time) }}</td>
               </tr>
-              <tr v-if="!contents.subfolders.length && !contents.files.results.length">
+              <tr v-if="!visibleSubfolders.length && !contents.files.results.length">
                 <td colspan="4" class="pane-state">This folder is empty.</td>
               </tr>
             </tbody>
@@ -820,7 +958,7 @@ const breadcrumbs = computed(() => contents.value?.folder?.breadcrumbs || [])
           <!-- GRID VIEW -->
           <div v-else class="file-grid">
             <div
-              v-for="subfolder in contents.subfolders"
+              v-for="subfolder in visibleSubfolders"
               :key="`folder-${subfolder.id}`"
               class="grid-card"
               :class="{ 'row-deleted': subfolder.status === 'deleted' }"
@@ -850,7 +988,7 @@ const breadcrumbs = computed(() => contents.value?.folder?.breadcrumbs || [])
               </div>
             </div>
             <div
-              v-if="!contents.subfolders.length && !contents.files.results.length"
+              v-if="!visibleSubfolders.length && !contents.files.results.length"
               class="pane-state"
             >
               This folder is empty.
@@ -903,29 +1041,12 @@ const breadcrumbs = computed(() => contents.value?.folder?.breadcrumbs || [])
 
 <style scoped>
 .library-page {
-  padding: 20px;
-}
-
-.page-header {
-  margin-bottom: 16px;
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-}
-
-.page-header h1 {
-  color: var(--color-heading);
-  margin: 0;
-}
-
-.page-title {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
+  /* No padding here: the app shell's .main-content already supplies 20px, so
+     the header aligns with the other views (e.g. Print Trackers). */
 }
 
 .preview-summary-note {
-  margin: 0;
+  margin: 0 0 16px;
   font-size: 0.85rem;
   color: var(--color-text);
   opacity: 0.75;
@@ -1085,22 +1206,17 @@ const breadcrumbs = computed(() => contents.value?.folder?.breadcrumbs || [])
   font-weight: 600;
 }
 
-.toolbar-controls {
-  display: flex;
-  gap: 16px;
-  flex-shrink: 0;
-  align-items: center;
-  flex-wrap: wrap;
-}
-
 .search-input {
-  width: 190px;
-  padding: 6px 10px;
+  flex: none;
+  width: 200px;
+  padding: 8px 12px;
   border: 1px solid var(--color-border);
-  border-radius: 4px;
-  background-color: var(--color-background);
+  border-radius: 5px;
+  background-color: var(--color-background-soft);
   color: var(--color-text);
-  font-size: 0.9rem;
+  font-size: 1rem;
+  height: 41px;
+  box-sizing: border-box;
 }
 
 /* Search/filter inputs use the gray, no-shadow focus state (design system) */
@@ -1117,7 +1233,14 @@ const breadcrumbs = computed(() => contents.value?.folder?.breadcrumbs || [])
   flex-shrink: 0;
 }
 
-.show-deleted-toggle {
+.toolbar-toggles {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  flex-shrink: 0;
+}
+
+.browser-toggle {
   display: flex;
   align-items: center;
   gap: 6px;

@@ -2,12 +2,14 @@
 Tests for the backfill_stl_thumbnails management command.
 """
 from io import StringIO
+from unittest import mock
 
 import pytest
 import trimesh
 from django.core.files.base import ContentFile
 from django.core.management import call_command
 
+from inventory.models import TrackerThumbnailJob
 from inventory.tests.factories import (
     TrackerFactory,
     TrackerFileFactory,
@@ -83,3 +85,23 @@ class TestBackfillStlThumbnailsCommand:
 
         generated_count = sum(1 for tf in tracker.files.all() if tf.images.exists())
         assert generated_count == 1
+
+    def test_async_dispatches_a_chunked_job_per_tracker(self):
+        tracker_a = TrackerFactory()
+        tracker_b = TrackerFactory()
+        fa = TrackerFileFactory(tracker=tracker_a, storage_type='local', filename='a.stl')
+        fa.local_file.save('a.stl', ContentFile(_stl_bytes()), save=True)
+        fb = TrackerFileFactory(tracker=tracker_b, storage_type='local', filename='b.stl')
+        fb.local_file.save('b.stl', ContentFile(_stl_bytes()), save=True)
+
+        out = StringIO()
+        # Mock the enqueue so the orchestrator isn't actually run by a worker;
+        # we only assert a job row is created per affected tracker.
+        with mock.patch('inventory.services.tracker_thumbnail_jobs.async_task'):
+            call_command('backfill_stl_thumbnails', '--async', stdout=out)
+
+        assert TrackerThumbnailJob.objects.filter(tracker=tracker_a).count() == 1
+        assert TrackerThumbnailJob.objects.filter(tracker=tracker_b).count() == 1
+        # --async does not render inline.
+        assert fa.images.count() == 0
+        assert 'Queued 2 background job(s)' in out.getvalue()

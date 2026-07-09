@@ -306,6 +306,14 @@ export default {
       include_linked: includeLinked,
     })
   },
+  getTrackerThumbnailJob(id) {
+    return apiClient.get(`tracker-thumbnail-jobs/${id}/`)
+  },
+  getActiveTrackerThumbnailJobs(trackerId) {
+    return apiClient.get('tracker-thumbnail-jobs/', {
+      params: { tracker: trackerId, active: 'true' },
+    })
+  },
   downloadTrackerZip(trackerId) {
     return apiClient.get(`trackers/${trackerId}/download-zip/`, {
       responseType: 'blob', // Important for binary file downloads
@@ -490,6 +498,9 @@ export default {
   },
   searchLibrary(params) {
     return apiClient.get('library/search/', { params })
+  },
+  getNewLibraryFiles(params) {
+    return apiClient.get('library/new-files/', { params })
   },
   deleteLibraryFile(id) {
     return apiClient.delete(`library/files/${id}/`)
