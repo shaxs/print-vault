@@ -178,3 +178,53 @@ describe('MaterialDetailView – hasPrintSettings', () => {
     expect(hasPrintSettings({})).toBe(false)
   })
 })
+
+// ---------------------------------------------------------------------------
+// Favorite toggle button (regression: there was previously no way to favorite
+// a blueprint from any reachable view — only an orphaned, unrouted component
+// had a working star toggle).
+// ---------------------------------------------------------------------------
+
+/**
+ * Pure version of the `v-if="!material.is_generic"` guard on the favorite button.
+ * Generic materials can't be favorited (the backend 400s), so the button is hidden.
+ */
+const shouldShowFavoriteToggle = (material) => !material.is_generic
+
+/**
+ * Pure version of toggleFavorite()'s state update after a successful API call.
+ */
+const applyFavoriteToggleResponse = (material, response) => {
+  material.is_favorite = response.is_favorite
+  material.favorite_order = response.favorite_order
+  return material
+}
+
+describe('MaterialDetailView – favorite toggle visibility', () => {
+  it('shows the toggle for a blueprint (is_generic: false)', () => {
+    expect(shouldShowFavoriteToggle({ is_generic: false })).toBe(true)
+  })
+
+  it('hides the toggle for a generic material (is_generic: true)', () => {
+    expect(shouldShowFavoriteToggle({ is_generic: true })).toBe(false)
+  })
+})
+
+describe('MaterialDetailView – applyFavoriteToggleResponse', () => {
+  it('sets is_favorite and favorite_order from the toggle response', () => {
+    const material = { id: 1, is_favorite: false, favorite_order: null }
+    const result = applyFavoriteToggleResponse(material, { is_favorite: true, favorite_order: 3 })
+    expect(result.is_favorite).toBe(true)
+    expect(result.favorite_order).toBe(3)
+  })
+
+  it('clears favorite_order when unfavorited', () => {
+    const material = { id: 1, is_favorite: true, favorite_order: 2 }
+    const result = applyFavoriteToggleResponse(material, {
+      is_favorite: false,
+      favorite_order: null,
+    })
+    expect(result.is_favorite).toBe(false)
+    expect(result.favorite_order).toBeNull()
+  })
+})

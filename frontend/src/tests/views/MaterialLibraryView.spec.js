@@ -92,6 +92,7 @@ describe('MaterialLibraryView — colorFamilyOptions', () => {
 describe('MaterialLibraryView — availableColumns', () => {
   // Mirrors availableColumns from MaterialLibraryView.vue
   const availableColumns = [
+    { value: 'favorite', text: 'Favorite' },
     { value: 'photo', text: 'Photo' },
     { value: 'brand', text: 'Brand' },
     { value: 'name', text: 'Name' },
@@ -101,15 +102,19 @@ describe('MaterialLibraryView — availableColumns', () => {
     { value: 'diameter', text: 'Diameter' },
   ]
 
-  // All 7 are visible by default
+  // All 8 are visible by default
   const defaultVisibleColumns = availableColumns.map((c) => c.value)
 
-  it('has 7 available columns', () => {
-    expect(availableColumns).toHaveLength(7)
+  it('has 8 available columns', () => {
+    expect(availableColumns).toHaveLength(8)
   })
 
-  it('all 7 columns are visible by default', () => {
-    expect(defaultVisibleColumns).toHaveLength(7)
+  it('all 8 columns are visible by default', () => {
+    expect(defaultVisibleColumns).toHaveLength(8)
+  })
+
+  it('favorite column is included', () => {
+    expect(availableColumns.find((c) => c.value === 'favorite')).toBeDefined()
   })
 
   it('photo column is included', () => {

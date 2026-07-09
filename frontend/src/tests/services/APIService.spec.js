@@ -157,6 +157,10 @@ describe('APIService', () => {
       expect(typeof APIService.getMaterials).toBe('function')
     })
 
+    it('should have toggleMaterialFavorite method', () => {
+      expect(typeof APIService.toggleMaterialFavorite).toBe('function')
+    })
+
     it('should have getVendors method', () => {
       expect(typeof APIService.getVendors).toBe('function')
     })

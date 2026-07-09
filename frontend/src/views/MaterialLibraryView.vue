@@ -46,6 +46,7 @@ const baseMaterials = ref([])
 
 // Column visibility configuration
 const availableColumns = [
+  { value: 'favorite', text: 'Favorite' },
   { value: 'photo', text: 'Photo' },
   { value: 'brand', text: 'Brand' },
   { value: 'name', text: 'Name' },
@@ -56,6 +57,7 @@ const availableColumns = [
 ]
 
 const visibleColumns = ref([
+  'favorite',
   'photo',
   'brand',
   'name',
