@@ -1,6 +1,15 @@
 # printvault/inventory/filters.py
 from django_filters import rest_framework as filters
-from .models import InventoryItem, Printer, Project
+from .models import InventoryItem, Printer, Project, Material
+
+class MaterialFilter(filters.FilterSet):
+    class Meta:
+        model = Material
+        fields = {
+            'brand': ['exact'],
+            'base_material': ['exact'],
+            'color_family': ['exact'],
+        }
 
 class InventoryItemFilter(filters.FilterSet):
     class Meta:

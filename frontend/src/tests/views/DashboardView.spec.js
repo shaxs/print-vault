@@ -250,3 +250,23 @@ describe('DashboardView — navigateToStat() routing map', () => {
     expect(statRoutes['unknown_stat']).toBeUndefined()
   })
 })
+
+// ── "In Use" widget printer name access ──────────────────────────────────
+
+describe('DashboardView — In Use widget printer name', () => {
+  // Mirrors the assigned_printer access in the "In Use" widget template.
+  // Regression: FilamentSpoolSerializer.get_assigned_printer() returns
+  // {id, title} (matching Printer.title), but the widget used to read
+  // spool.assigned_printer?.name, which is always undefined.
+  const getPrinterLabel = (spool) => spool.assigned_printer?.title
+
+  it('reads the printer title from assigned_printer', () => {
+    const spool = { assigned_printer: { id: 1, title: 'Prusa MK4' } }
+    expect(getPrinterLabel(spool)).toBe('Prusa MK4')
+  })
+
+  it('returns undefined when no printer is assigned', () => {
+    const spool = { assigned_printer: null }
+    expect(getPrinterLabel(spool)).toBeUndefined()
+  })
+})

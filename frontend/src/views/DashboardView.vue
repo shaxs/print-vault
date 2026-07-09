@@ -685,7 +685,7 @@ onMounted(() => {
                 </div>
                 <div class="spool-info">
                   <span class="spool-name">{{ spool.filament_type?.name || 'Unknown' }}</span>
-                  <span class="spool-printer">{{ spool.assigned_printer?.name }}</span>
+                  <span class="spool-printer">{{ spool.assigned_printer?.title }}</span>
                 </div>
               </div>
             </div>

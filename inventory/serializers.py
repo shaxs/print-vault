@@ -427,11 +427,20 @@ class FilamentSpoolSerializer(serializers.ModelSerializer):
     
     def update(self, instance, validated_data):
         request_data = self.context['request'].data
-        
+
         # Handle NFC tag - convert empty string to None
         if 'nfc_tag_id' in validated_data and not validated_data['nfc_tag_id']:
             validated_data['nfc_tag_id'] = None
-        
+
+        # Enforce the same rule as FilamentSpool.archive(): only empty spools can be
+        # archived. A plain PATCH bypasses that model method entirely, so re-check here.
+        if validated_data.get('status') == 'archived' and instance.status != 'archived':
+            if instance.status != 'empty':
+                raise serializers.ValidationError(
+                    {"status": "Only empty spools can be archived."}
+                )
+            validated_data['date_archived'] = timezone.now()
+
         # Handle filament_type FK
         if 'filament_type_id' in request_data:
             filament_type_id = request_data.get('filament_type_id')
