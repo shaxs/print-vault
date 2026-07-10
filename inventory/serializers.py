@@ -6,7 +6,7 @@ from .models import (
     Brand, PartType, Location, Material, MaterialPhoto, MaterialFeature, Vendor, Printer, Mod, ModFile,
     InventoryItem, Project, ProjectLink, ProjectFile, ProjectInventory, ProjectPrinters,
     ProjectBOMItem, Tracker, TrackerFile, TrackerFileImage, FilamentSpool,
-    LibraryRoot, LibraryFolder, LibraryFile, LibraryScan, TrackerThumbnailJob
+    LibraryRoot, LibraryFolder, LibraryFile, LibraryScan, TrackerThumbnailJob, Tag
 )
 from .services.storage_manager import StorageManager, InsufficientStorageError, StoragePermissionError
 from .services.file_download_service import (
@@ -1426,7 +1426,32 @@ class LibraryFileListSerializer(serializers.ModelSerializer):
         fields = [
             'id', 'filename', 'extension', 'size_bytes', 'modified_time', 'status',
             'thumbnail', 'thumbnail_status', 'bounding_box_x', 'bounding_box_y', 'bounding_box_z',
+            'is_favorite',
         ]
+
+
+class TagSerializer(serializers.ModelSerializer):
+    """A shared, cross-entity label. `slug` is server-derived (normalized from
+    name) and read-only. `usage_count` is present only when the queryset
+    annotates it (the /api/tags/ list); null in nested contexts, so reading a
+    file's tags never triggers a per-tag count query."""
+    usage_count = serializers.SerializerMethodField()
+
+    class Meta:
+        model = Tag
+        fields = ['id', 'name', 'slug', 'usage_count']
+        read_only_fields = ['slug']
+
+    def get_usage_count(self, obj):
+        return getattr(obj, 'usage_count', None)
+
+    def validate_name(self, value):
+        name = (value or '').strip()
+        if len(name) < 1:
+            raise serializers.ValidationError('Tag name cannot be blank.')
+        if not Tag.slug_for(name):
+            raise serializers.ValidationError('Tag name must contain letters or numbers.')
+        return name
 
 
 class LibraryFileSearchSerializer(serializers.ModelSerializer):
@@ -1434,24 +1459,44 @@ class LibraryFileSearchSerializer(serializers.ModelSerializer):
     Carries root id + name so multi-root results (search now spans all enabled
     roots by default) are attributable to their owning root."""
     root_name = serializers.CharField(source='root.name', read_only=True)
+    tags = TagSerializer(many=True, read_only=True)
 
     class Meta:
         model = LibraryFile
         fields = [
             'id', 'filename', 'extension', 'size_bytes', 'modified_time', 'status',
             'thumbnail', 'thumbnail_status', 'relative_path', 'folder', 'root', 'root_name',
+            'notes', 'tags', 'is_favorite',
         ]
 
 
 class LibraryFileDetailSerializer(serializers.ModelSerializer):
+    tags = TagSerializer(many=True, read_only=True)
+
     class Meta:
         model = LibraryFile
         fields = [
             'id', 'root', 'folder', 'filename', 'relative_path', 'extension',
             'size_bytes', 'modified_time', 'sha256_hash', 'status', 'thumbnail', 'thumbnail_status',
             'bounding_box_x', 'bounding_box_y', 'bounding_box_z',
-            'embedded_metadata', 'last_seen_at', 'created_at',
+            'embedded_metadata', 'notes', 'tags', 'is_favorite', 'last_seen_at', 'created_at',
         ]
+
+
+class LibraryFileUpdateSerializer(serializers.ModelSerializer):
+    """Write serializer for PATCHing a library file's user-editable fields
+    (notes + tags + is_favorite). Deliberately narrow so a client update can
+    never touch scanner-owned fields (path, hash, thumbnail, status, etc.).
+    `tag_ids` (write) sets the M2M; `tags` (read) returns the nested result."""
+    tags = TagSerializer(many=True, read_only=True)
+    tag_ids = serializers.PrimaryKeyRelatedField(
+        many=True, queryset=Tag.objects.all(), write_only=True, required=False, source='tags',
+    )
+
+    class Meta:
+        model = LibraryFile
+        fields = ['id', 'notes', 'tags', 'tag_ids', 'is_favorite']
+        read_only_fields = ['id']
 
 
 class LibraryScanSerializer(serializers.ModelSerializer):

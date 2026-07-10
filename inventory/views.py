@@ -34,7 +34,7 @@ from .models import (
     Brand, PartType, Location, Material, MaterialPhoto, MaterialFeature, Vendor, Printer, Mod, ModFile,
     InventoryItem, Project, ProjectLink, ProjectFile, ProjectInventory, ProjectPrinters,
     ProjectBOMItem, Tracker, TrackerFile, TrackerFileImage, AlertDismissal, FilamentSpool,
-    LibraryRoot, LibraryFolder, LibraryFile, LibraryScan, TrackerThumbnailJob
+    LibraryRoot, LibraryFolder, LibraryFile, LibraryScan, TrackerThumbnailJob, Tag
 )
 from .serializers import (
     BrandSerializer, PartTypeSerializer, LocationSerializer, MaterialSerializer, MaterialPhotoSerializer, MaterialFeatureSerializer, VendorSerializer, PrinterSerializer, ModSerializer, ModFileSerializer,
@@ -44,6 +44,7 @@ from .serializers import (
     FilamentSpoolSerializer,
     LibraryRootSerializer, LibraryFolderSerializer, LibraryFolderTreeSerializer,
     LibraryFileListSerializer, LibraryFileDetailSerializer, LibraryFileSearchSerializer,
+    LibraryFileUpdateSerializer, TagSerializer,
     LibraryScanSerializer, TrackerThumbnailJobSerializer
 )
 from .filters import InventoryItemFilter, PrinterFilter, ProjectFilter
@@ -4933,11 +4934,19 @@ class LibraryFolderViewSet(mixins.DestroyModelMixin, viewsets.ReadOnlyModelViewS
         return Response(status=status.HTTP_204_NO_CONTENT)
 
 
-class LibraryFileViewSet(mixins.DestroyModelMixin, viewsets.ReadOnlyModelViewSet):
+class LibraryFileViewSet(mixins.UpdateModelMixin, mixins.DestroyModelMixin,
+                         viewsets.ReadOnlyModelViewSet):
     queryset = LibraryFile.objects.select_related('root', 'folder').all()
     serializer_class = LibraryFileDetailSerializer
     permission_classes = [AllowAny]
     pagination_class = LibraryContentsPagination
+
+    def get_serializer_class(self):
+        # Writes (PATCH/PUT) only ever set user fields (notes + tags) — every
+        # other field is scanner-owned and must not be client-writable.
+        if self.action in ('update', 'partial_update'):
+            return LibraryFileUpdateSerializer
+        return LibraryFileDetailSerializer
 
     @action(detail=True, methods=['get'])
     def download(self, request, pk=None):
@@ -5007,21 +5016,121 @@ class TrackerThumbnailJobViewSet(viewsets.ReadOnlyModelViewSet):
         return queryset
 
 
+class TagViewSet(viewsets.ModelViewSet):
+    """Shared tag CRUD. `?q=` filters by name/slug for autocomplete.
+
+    Every listed tag is annotated with `usage_count` (how many library files
+    carry it) and the list is ordered **most-used first** (ties broken by name),
+    so popular tags surface in autocomplete and the tag browser. `?in_use=true`
+    returns only tags applied to at least one file (hides orphaned tags — ones
+    created then removed from every file).
+
+    Create is idempotent on the normalized slug: POSTing a name that resolves
+    to an existing tag's slug (e.g. "Gridfinity" when "gridfinity" exists)
+    returns that tag with 200 instead of erroring — so free-create from the tag
+    input never duplicates or fails on a repeat/race."""
+    queryset = Tag.objects.all()
+    serializer_class = TagSerializer
+    permission_classes = [AllowAny]
+
+    def get_queryset(self):
+        # usage_count = number of library files carrying the tag. Computed live
+        # (not a stored field) so it's always accurate with no bookkeeping.
+        qs = super().get_queryset().annotate(
+            usage_count=models.Count('library_files', distinct=True)
+        )
+        q = (self.request.query_params.get('q') or '').strip()
+        if q:
+            qs = qs.filter(models.Q(name__icontains=q) | models.Q(slug__icontains=q))
+        if self.request.query_params.get('in_use') in ('true', '1'):
+            qs = qs.filter(usage_count__gt=0)
+        return qs.order_by('-usage_count', 'name')
+
+    def create(self, request, *args, **kwargs):
+        name = (request.data.get('name') or '').strip()
+        slug = Tag.slug_for(name)
+        if not slug:
+            return Response(
+                {'name': ['Tag name must contain letters or numbers.']},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        # get_or_create on the unique slug is idempotent and race-safe (Django
+        # re-fetches on the IntegrityError of a concurrent insert).
+        tag, created = Tag.objects.get_or_create(slug=slug, defaults={'name': name})
+        serializer = self.get_serializer(tag)
+        return Response(
+            serializer.data,
+            status=status.HTTP_201_CREATED if created else status.HTTP_200_OK,
+        )
+
+
 class LibrarySearchView(APIView):
-    """GET /api/library/search/?q=... — filename + folder-path substring match.
+    """GET /api/library/search/?q=...&fields=name,notes,tags&tags=slug1,slug2
+
+    Substring search and/or tag-browse. `fields` is a comma-separated,
+    forward-compatible set of text-search scopes:
+      - name  -> filename + relative_path (folder path)
+      - notes -> user-authored notes
+      - tags  -> tag name/slug
+    Omitted / unknown / 'all' -> every known scope, so a plain search matches a
+    term that appears only in a file's notes or tags.
+
+    `tags` is a separate structured filter (comma-separated tag slugs) for
+    "browse by tag". `tag_mode` controls multi-tag semantics: `all` (default) =
+    files carrying EVERY selected tag (intersection); `any` = files carrying at
+    least one. `favorites=true` filters to favorited files. All of `q`, `tags`,
+    and `favorites` combine (AND) when given together, and each works on its own
+    — so a tags-only or favorites-only request browses without a text query.
+
     Paginated like folder contents; supports extension and include_deleted the
     same way. Root optional: omitted = all enabled roots (results carry
     root/root_name); an explicit root id can reach a disabled root."""
     permission_classes = [AllowAny]
 
+    # scope -> callable(q) -> Q. Single source of truth shared with the
+    # frontend scope dropdown. A tags scope joins the M2M, hence distinct() below.
+    SEARCH_FIELD_QUERIES = {
+        'name': lambda q: models.Q(filename__icontains=q) | models.Q(relative_path__icontains=q),
+        'notes': lambda q: models.Q(notes__icontains=q),
+        'tags': lambda q: models.Q(tags__name__icontains=q) | models.Q(tags__slug__icontains=q),
+    }
+
+    def _resolve_scopes(self, request):
+        raw = (request.query_params.get('fields') or '').strip().lower()
+        if not raw or raw == 'all':
+            return list(self.SEARCH_FIELD_QUERIES)
+        requested = [f.strip() for f in raw.split(',') if f.strip()]
+        scopes = [f for f in requested if f in self.SEARCH_FIELD_QUERIES]
+        # Unknown-only or empty selection falls back to searching everything
+        # rather than silently returning nothing.
+        return scopes or list(self.SEARCH_FIELD_QUERIES)
+
     def get(self, request):
         q = (request.query_params.get('q') or '').strip()
-        if not q:
+        tag_slugs = [s.strip() for s in (request.query_params.get('tags') or '').split(',') if s.strip()]
+        favorites_only = request.query_params.get('favorites') in ('true', '1')
+
+        # Nothing to go on (no text query, tag filter, or favorites) -> empty.
+        if not q and not tag_slugs and not favorites_only:
             return Response({'count': 0, 'next': None, 'previous': None, 'results': []})
 
-        files = LibraryFile.objects.select_related('folder', 'root').filter(
-            models.Q(filename__icontains=q) | models.Q(relative_path__icontains=q)
-        )
+        files = LibraryFile.objects.select_related('folder', 'root').prefetch_related('tags')
+        if q:
+            scope_q = models.Q()
+            for scope in self._resolve_scopes(request):
+                scope_q |= self.SEARCH_FIELD_QUERIES[scope](q)
+            files = files.filter(scope_q)
+        if favorites_only:
+            files = files.filter(is_favorite=True)
+        if tag_slugs:
+            if (request.query_params.get('tag_mode') or 'all').lower() == 'any':
+                files = files.filter(tags__slug__in=tag_slugs)
+            else:
+                # 'all' (default): the file must carry every selected tag. One
+                # filter per slug intersects the M2M.
+                for slug in tag_slugs:
+                    files = files.filter(tags__slug=slug)
+
         root_id = request.query_params.get('root')
         if root_id:
             files = files.filter(root_id=root_id)
@@ -5032,7 +5141,8 @@ class LibrarySearchView(APIView):
         extension = (request.query_params.get('extension') or '').lower()
         if extension in ('stl', '3mf'):
             files = files.filter(extension=extension)
-        files = files.order_by('relative_path')
+        # M2M joins (tags scope / tags filter) can multiply rows — collapse them.
+        files = files.distinct().order_by('relative_path')
 
         paginator = LibraryContentsPagination()
         page = paginator.paginate_queryset(files, request, view=self)
@@ -5082,6 +5192,12 @@ class LibraryNewFilesView(APIView):
     roots, each measured against its own last scan. Moved files keep their
     original row (and created_at), so they correctly do NOT appear here.
 
+    A root is only included once it has **at least two** successful scans: "new
+    since the last scan" needs a prior scan as a baseline. On a root's first
+    scan every file is first-indexed in that single pass, so everything would
+    trivially look "new" — those roots are excluded until a second scan (full
+    or a scoped folder rescan — both are kind='scan') establishes a baseline.
+
     Paginated like search/contents; supports ?extension=stl|3mf. Results use
     the search serializer, so each carries path + root context for navigation.
     """
@@ -5095,17 +5211,17 @@ class LibraryNewFilesView(APIView):
             roots = LibraryRoot.objects.filter(enabled=True)
 
         # OR one "created since this root's last successful scan" clause per
-        # root — each root has its own scan cadence and boundary.
+        # root — each root has its own scan cadence and boundary. Roots with
+        # fewer than two successful scans have no baseline and are skipped.
         boundary = models.Q()
         has_boundary = False
         for root in roots:
-            last = (
+            recent = list(
                 root.scans.filter(kind='scan', status='success', started_at__isnull=False)
-                .order_by('-started_at')
-                .first()
+                .order_by('-started_at')[:2]
             )
-            if last:
-                boundary |= models.Q(root=root, created_at__gte=last.started_at)
+            if len(recent) >= 2:
+                boundary |= models.Q(root=root, created_at__gte=recent[0].started_at)
                 has_boundary = True
 
         if not has_boundary:

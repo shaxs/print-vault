@@ -483,6 +483,9 @@ export default {
   getLibraryFile(id) {
     return apiClient.get(`library/files/${id}/`)
   },
+  updateLibraryFile(id, data) {
+    return apiClient.patch(`library/files/${id}/`, data)
+  },
   // Not an API call: URL string handed to the 3D viewer, which fetches it itself
   getLibraryFileDownloadUrl(id) {
     return `/api/library/files/${id}/download/`
@@ -510,5 +513,14 @@ export default {
   },
   purgeLibraryDeleted() {
     return apiClient.post('library/purge-deleted/')
+  },
+
+  // Tags (shared, cross-entity; v1 wired to the Library only)
+  getTags(params) {
+    return apiClient.get('tags/', { params })
+  },
+  createTag(name) {
+    // Idempotent server-side: an existing tag comes back instead of erroring.
+    return apiClient.post('tags/', { name })
   },
 }

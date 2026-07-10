@@ -6,10 +6,11 @@
  * wide localStorage setting — unlike trackers there is no per-entity
  * filament color context to justify a per-record setting here.
  */
-import { ref, watch, computed } from 'vue'
+import { ref, watch, computed, nextTick, onMounted, onBeforeUnmount } from 'vue'
 import APIService from '@/services/APIService'
 import BaseModal from '@/components/BaseModal.vue'
 import ModelViewer from '@/components/ModelViewer.vue'
+import TagInput from '@/components/TagInput.vue'
 
 const props = defineProps({
   show: { type: Boolean, required: true },
@@ -19,7 +20,7 @@ const props = defineProps({
   renderColor: { type: String, default: '' },
 })
 
-const emit = defineEmits(['close', 'deleted'])
+const emit = defineEmits(['close', 'deleted', 'favorite-changed'])
 
 const VIEWER_BG_KEY = 'library-viewer-background'
 
@@ -27,17 +28,42 @@ const file = ref(null)
 const loading = ref(false)
 const error = ref(null)
 const viewerBackground = ref(localStorage.getItem(VIEWER_BG_KEY) || 'dark')
+const viewerFullscreen = ref(false)
+
+// Notes editing — a user-writable field on a library file.
+const notesDraft = ref('')
+const notesSaving = ref(false)
+const notesError = ref(null)
+const notesJustSaved = ref(false)
+const notesDirty = computed(() => notesDraft.value !== (file.value?.notes || ''))
+
+// Tags — persisted immediately on add/remove (no explicit save, unlike notes).
+const fileTags = ref([])
+const tagsError = ref(null)
+
+// Favorite — a one-click toggle, persisted immediately.
+const isFavorite = ref(false)
+const favoriteSaving = ref(false)
 
 watch(
   () => [props.show, props.fileId],
   async ([show, fileId]) => {
+    // Leaving fullscreen whenever the modal is (re)opened or closed keeps the
+    // fixed overlay from lingering across file switches.
+    viewerFullscreen.value = false
     if (!show || !fileId) return
     file.value = null
     error.value = null
+    notesError.value = null
+    notesJustSaved.value = false
+    tagsError.value = null
     loading.value = true
     try {
       const response = await APIService.getLibraryFile(fileId)
       file.value = response.data
+      notesDraft.value = response.data.notes || ''
+      fileTags.value = response.data.tags || []
+      isFavorite.value = !!response.data.is_favorite
     } catch (err) {
       console.error('Failed to load library file:', err)
       error.value = 'Failed to load file details.'
@@ -47,6 +73,81 @@ watch(
   },
   { immediate: true },
 )
+
+async function saveNotes() {
+  if (!file.value || notesSaving.value) return
+  notesSaving.value = true
+  notesError.value = null
+  notesJustSaved.value = false
+  try {
+    const response = await APIService.updateLibraryFile(file.value.id, { notes: notesDraft.value })
+    file.value.notes = response.data.notes
+    notesDraft.value = response.data.notes
+    notesJustSaved.value = true
+  } catch (err) {
+    console.error('Failed to save notes:', err)
+    notesError.value = 'Failed to save notes.'
+  } finally {
+    notesSaving.value = false
+  }
+}
+
+async function saveTags(newTags) {
+  if (!file.value) return
+  const previous = fileTags.value
+  fileTags.value = newTags // optimistic
+  tagsError.value = null
+  try {
+    const response = await APIService.updateLibraryFile(file.value.id, {
+      tag_ids: newTags.map((t) => t.id),
+    })
+    fileTags.value = response.data.tags
+    file.value.tags = response.data.tags
+  } catch (err) {
+    console.error('Failed to save tags:', err)
+    fileTags.value = previous // roll back
+    tagsError.value = 'Failed to update tags.'
+  }
+}
+
+async function toggleFavorite() {
+  if (!file.value || favoriteSaving.value) return
+  const next = !isFavorite.value
+  isFavorite.value = next // optimistic
+  favoriteSaving.value = true
+  try {
+    const response = await APIService.updateLibraryFile(file.value.id, { is_favorite: next })
+    isFavorite.value = response.data.is_favorite
+    file.value.is_favorite = response.data.is_favorite
+    // Let the browser sync the row's star without a refetch.
+    emit('favorite-changed', { id: file.value.id, is_favorite: response.data.is_favorite })
+  } catch (err) {
+    console.error('Failed to update favorite:', err)
+    isFavorite.value = !next // roll back
+  } finally {
+    favoriteSaving.value = false
+  }
+}
+
+function toggleFullscreen() {
+  viewerFullscreen.value = !viewerFullscreen.value
+  // The viewer wrapper resizes via CSS only; nudge the ModelViewer's existing
+  // window-resize handler so the WebGL canvas re-fits the new dimensions
+  // (avoids a remount + model re-download).
+  nextTick(() => window.dispatchEvent(new Event('resize')))
+}
+
+// ESC exits fullscreen first (and is swallowed) so it doesn't also close the
+// whole modal via BaseModal's own ESC handler.
+function handleKeydown(event) {
+  if (event.key === 'Escape' && viewerFullscreen.value) {
+    event.stopPropagation()
+    event.preventDefault()
+    toggleFullscreen()
+  }
+}
+onMounted(() => document.addEventListener('keydown', handleKeydown, true))
+onBeforeUnmount(() => document.removeEventListener('keydown', handleKeydown, true))
 
 const downloadUrl = computed(() =>
   file.value ? APIService.getLibraryFileDownloadUrl(file.value.id) : '',
@@ -122,14 +223,42 @@ async function handlePermanentDelete() {
       <div v-else-if="error" class="modal-state modal-error">{{ error }}</div>
 
       <template v-else-if="file">
+        <!-- Favorite toggle -->
+        <div class="file-actions">
+          <button
+            type="button"
+            class="star-toggle"
+            :class="{ active: isFavorite }"
+            :disabled="favoriteSaving"
+            :title="isFavorite ? 'Remove from favorites' : 'Add to favorites'"
+            @click="toggleFavorite"
+          >
+            <span class="star-glyph">{{ isFavorite ? '★' : '☆' }}</span>
+            {{ isFavorite ? 'Favorited' : 'Favorite' }}
+          </button>
+        </div>
+
         <!-- 3D viewer -->
         <div class="viewer-header">
           <h4>3D Preview</h4>
-          <button type="button" class="btn btn-sm btn-secondary" @click="toggleViewerBackground">
-            {{ viewerBackground === 'light' ? 'Switch to Dark Background' : 'Switch to Light Background' }}
-          </button>
+          <div class="viewer-actions">
+            <button type="button" class="btn btn-sm btn-secondary" @click="toggleViewerBackground">
+              {{ viewerBackground === 'light' ? 'Switch to Dark Background' : 'Switch to Light Background' }}
+            </button>
+            <button type="button" class="btn btn-sm btn-secondary" @click="toggleFullscreen">
+              Fullscreen
+            </button>
+          </div>
         </div>
-        <div class="viewer-wrap">
+        <div class="viewer-wrap" :class="{ 'is-fullscreen': viewerFullscreen }">
+          <div v-if="viewerFullscreen" class="viewer-fullscreen-bar">
+            <button type="button" class="btn btn-sm btn-secondary" @click="toggleViewerBackground">
+              {{ viewerBackground === 'light' ? 'Switch to Dark Background' : 'Switch to Light Background' }}
+            </button>
+            <button type="button" class="btn btn-sm btn-secondary" @click="toggleFullscreen">
+              Exit Fullscreen
+            </button>
+          </div>
           <ModelViewer
             :key="`${file.id}-${viewerBackground}-${renderColor}`"
             :url="downloadUrl"
@@ -140,6 +269,39 @@ async function handlePermanentDelete() {
         </div>
 
         <p v-if="previewNotice" class="preview-notice">{{ previewNotice }}</p>
+
+        <!-- Notes -->
+        <div class="notes-header">
+          <h4 class="section-title">Notes</h4>
+          <span v-if="notesJustSaved && !notesDirty" class="notes-saved">Saved</span>
+        </div>
+        <textarea
+          v-model="notesDraft"
+          class="notes-input"
+          rows="3"
+          placeholder="Add notes about this file… (searchable)"
+          spellcheck="true"
+        ></textarea>
+        <div class="notes-actions">
+          <span v-if="notesError" class="notes-error">{{ notesError }}</span>
+          <button
+            type="button"
+            class="btn btn-sm btn-primary"
+            :disabled="!notesDirty || notesSaving"
+            @click="saveNotes"
+          >
+            {{ notesSaving ? 'Saving…' : 'Save Notes' }}
+          </button>
+        </div>
+
+        <!-- Tags (persist immediately on add/remove) -->
+        <h4 class="section-title">Tags</h4>
+        <TagInput
+          :model-value="fileTags"
+          placeholder="Add tags… (type to search or create)"
+          @update:model-value="saveTags"
+        />
+        <p v-if="tagsError" class="notes-error">{{ tagsError }}</p>
 
         <!-- File metadata -->
         <h4 class="section-title">Details</h4>
@@ -231,6 +393,47 @@ async function handlePermanentDelete() {
   color: var(--color-text);
 }
 
+.file-actions {
+  display: flex;
+  justify-content: flex-end;
+  margin-bottom: 10px;
+}
+
+/* Amber star favorite toggle — matches the app's existing favorite convention
+   (Material blueprint favorites use the same #f59e0b star). */
+.star-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 12px;
+  border: 1px solid var(--color-border);
+  border-radius: 5px;
+  background-color: var(--color-background);
+  color: var(--color-text);
+  font-size: 0.9rem;
+  cursor: pointer;
+}
+
+.star-toggle:hover {
+  border-color: var(--color-border-hover, var(--color-border));
+}
+
+.star-toggle.active {
+  border-color: #f59e0b;
+  color: #f59e0b;
+}
+
+.star-toggle .star-glyph {
+  color: #f59e0b;
+  font-size: 1.05rem;
+  line-height: 1;
+}
+
+.star-toggle:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
 .viewer-header {
   display: flex;
   justify-content: space-between;
@@ -243,15 +446,47 @@ async function handlePermanentDelete() {
   color: var(--color-heading);
 }
 
+.viewer-actions {
+  display: flex;
+  gap: 8px;
+}
+
 .viewer-wrap {
+  position: relative;
   height: 320px;
   border: 1px solid var(--color-border);
   border-radius: 6px;
   overflow: hidden;
 }
 
-.viewer-wrap :deep(> div),
+/* Fullscreen: lift the viewer out to a fixed, full-viewport overlay. Sits
+   above BaseModal (whose overlay is ~1000) so the model fills the screen. */
+.viewer-wrap.is-fullscreen {
+  position: fixed;
+  inset: 0;
+  z-index: 3000;
+  height: 100vh;
+  width: 100vw;
+  border: none;
+  border-radius: 0;
+  background-color: var(--color-background);
+}
+
+.viewer-fullscreen-bar {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  z-index: 1;
+  display: flex;
+  gap: 8px;
+}
+
 .viewer-wrap :deep(canvas) {
+  width: 100%;
+  height: 100%;
+}
+
+.viewer-wrap :deep(.model-viewer-wrapper) {
   width: 100%;
   height: 100%;
 }
@@ -259,6 +494,49 @@ async function handlePermanentDelete() {
 .section-title {
   margin: 20px 0 8px;
   color: var(--color-heading);
+}
+
+.notes-header {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+}
+
+.notes-saved {
+  color: var(--color-text-muted, var(--color-text));
+  font-size: 0.85rem;
+}
+
+.notes-input {
+  width: 100%;
+  padding: 8px 12px;
+  border: 1px solid var(--color-border);
+  border-radius: 4px;
+  box-sizing: border-box;
+  background-color: var(--color-background);
+  color: var(--color-text);
+  font-size: 1rem;
+  font-family: inherit;
+  resize: vertical;
+}
+
+.notes-input:focus {
+  outline: none;
+  border-color: var(--color-blue);
+  box-shadow: 0 0 0 2px rgba(13, 110, 253, 0.15);
+}
+
+.notes-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-top: 8px;
+}
+
+.notes-error {
+  color: var(--color-text);
+  font-size: 0.85rem;
 }
 
 .preview-notice {

@@ -35,6 +35,7 @@ router.register(r'library/roots', views.LibraryRootViewSet)  # STL/3MF Library r
 router.register(r'library/folders', views.LibraryFolderViewSet)  # Library folder tree/contents
 router.register(r'library/files', views.LibraryFileViewSet)  # Library file detail/download
 router.register(r'library/scans', views.LibraryScanViewSet)  # Library scan job status
+router.register(r'tags', views.TagViewSet)  # Shared cross-entity tags (v1: Library only)
 
 urlpatterns = [
     path('admin/', admin.site.urls),

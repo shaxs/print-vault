@@ -17,10 +17,24 @@ import MainHeader from '@/components/MainHeader.vue'
 import LibraryFolderTreeNode from '@/components/LibraryFolderTreeNode.vue'
 import LibraryFileDetailModal from '@/components/LibraryFileDetailModal.vue'
 import LibrarySettingsModal from '@/components/LibrarySettingsModal.vue'
+import TagBadge from '@/components/TagBadge.vue'
+import LibraryTagBrowser from '@/components/LibraryTagBrowser.vue'
 
 const VIEW_MODE_KEY = 'library-view-mode'
 const HIDE_EMPTY_KEY = 'library-hide-empty-folders'
+const SEARCH_SCOPE_KEY = 'library-search-scope'
 const PAGE_SIZE = 100
+
+// Which field(s) a search matches against. `value` maps straight to the
+// backend `fields` param ('all' is sent as an omitted param = every scope).
+// Add { value: 'tags', label: 'Tags' } here when tags ship — the dropdown and
+// request both build off this one list.
+const SEARCH_SCOPES = [
+  { value: 'all', label: 'All fields' },
+  { value: 'name', label: 'File name' },
+  { value: 'notes', label: 'Notes' },
+  { value: 'tags', label: 'Tags' },
+]
 
 const route = useRoute()
 const router = useRouter()
@@ -73,6 +87,11 @@ const searchQuery = ref('')
 const searchResults = ref(null)
 const searchPage = ref(1)
 const searchLoading = ref(false)
+const searchScope = ref(
+  SEARCH_SCOPES.some((s) => s.value === localStorage.getItem(SEARCH_SCOPE_KEY))
+    ? localStorage.getItem(SEARCH_SCOPE_KEY)
+    : 'all',
+)
 let searchDebounce = null
 
 // "New models since the last scan" mode — like search, it takes over the right
@@ -82,6 +101,22 @@ const newFilesActive = ref(false)
 const newFilesResults = ref(null)
 const newFilesPage = ref(1)
 const newFilesLoading = ref(false)
+
+// Browse-by-tag mode — like search/new-models, a cross-folder results view
+// driven by the left-pane tag browser. Mutually exclusive with search and
+// new-models (entering any one clears the others). OR semantics across tags.
+const selectedTags = ref([]) // selected tag objects { id, name, slug }
+const tagMatchMode = ref('all') // 'all' (AND) | 'any' (OR)
+const tagResults = ref(null)
+const tagPage = ref(1)
+const tagLoading = ref(false)
+
+// Favorites mode — a results view of favorited files, like new-models. Mutually
+// exclusive with search / tag-browse / new-models.
+const favoritesActive = ref(false)
+const favoritesResults = ref(null)
+const favoritesPage = ref(1)
+const favoritesLoading = ref(false)
 
 // Async job tracking — a single poll loop drives the progress banner for every
 // in-flight job (full-root scan, scoped-folder rescan, and thumbnail
@@ -215,10 +250,13 @@ async function loadLibrary() {
     await reloadTree()
 
     const requested = Number(route.query.folder)
-    const startId =
-      requested && folderMap.value.has(requested) ? requested : rootFolders.value[0]?.id
+    const hasRequested = requested && folderMap.value.has(requested)
+    const startId = hasRequested ? requested : rootFolders.value[0]?.id
     if (startId != null) {
-      expandAncestorsOf(startId)
+      // Open the top root's contents on load (or the URL-requested folder), but
+      // only EXPAND the tree for a deep link — a fresh landing shows the root's
+      // files while leaving the tree collapsed (selecting ≠ expanding).
+      if (hasRequested) expandAncestorsOf(startId)
       selectedFolderId.value = startId
       await fetchContents(startId)
     }
@@ -301,6 +339,10 @@ async function fetchContents(folderId) {
 function refreshCurrentView() {
   if (searchMode.value) {
     runSearch(searchPage.value)
+  } else if (tagBrowseMode.value) {
+    loadTagResults(tagPage.value)
+  } else if (favoritesMode.value) {
+    loadFavorites(favoritesPage.value)
   } else if (newFilesMode.value) {
     loadNewFiles(newFilesPage.value)
   } else if (selectedFolderId.value != null) {
@@ -326,6 +368,8 @@ async function runSearch(pageN) {
   const q = searchQuery.value.trim()
   if (q.length < 2 || !enabledRoots.value.length) return
   if (newFilesActive.value) clearNewFiles() // search wins over new-models mode
+  if (selectedTags.value.length) clearTagBrowse() // and over tag-browse
+  if (favoritesActive.value) clearFavorites() // and over favorites
   searchLoading.value = true
   searchPage.value = pageN
   try {
@@ -333,6 +377,9 @@ async function runSearch(pageN) {
     const params = { q, page: pageN, page_size: PAGE_SIZE }
     if (extensionFilter.value) params.extension = extensionFilter.value
     if (showDeleted.value) params.include_deleted = 'true'
+    // 'all' searches every field, which is the backend default when `fields`
+    // is omitted — so only send the param for a narrowed scope.
+    if (searchScope.value !== 'all') params.fields = searchScope.value
     const response = await APIService.searchLibrary(params)
     searchResults.value = response.data
   } catch (err) {
@@ -348,9 +395,19 @@ function clearSearch() {
   searchResults.value = null
 }
 
+function setSearchScope(value) {
+  if (searchScope.value === value) return
+  searchScope.value = value
+  localStorage.setItem(SEARCH_SCOPE_KEY, value)
+  // Re-run an in-flight search against the newly selected field(s).
+  if (searchQuery.value.trim().length >= 2) runSearch(1)
+}
+
 // ---- New models since last scan ----
 
-const newFilesMode = computed(() => newFilesActive.value && !searchMode.value)
+const newFilesMode = computed(
+  () => newFilesActive.value && !searchMode.value && !tagBrowseMode.value && !favoritesMode.value,
+)
 const newFilesCount = computed(() => newFilesResults.value?.count ?? 0)
 
 async function loadNewFiles(pageN) {
@@ -376,6 +433,8 @@ function toggleNewFiles() {
     return
   }
   clearSearch()
+  clearTagBrowse()
+  clearFavorites()
   newFilesActive.value = true
   loadNewFiles(1)
 }
@@ -386,20 +445,158 @@ function clearNewFiles() {
   newFilesPage.value = 1
 }
 
-// ---- Unified results pane (search OR new-models share one table + pager) ----
+// ---- Browse by tag ----
 
-const resultsMode = computed(() => searchMode.value || newFilesMode.value)
-const resultsData = computed(() => (searchMode.value ? searchResults.value : newFilesResults.value))
-const resultsLoading = computed(() =>
-  searchMode.value ? searchLoading.value : newFilesLoading.value,
+const tagBrowseMode = computed(() => tagResults.value !== null)
+const tagCount = computed(() => tagResults.value?.count ?? 0)
+
+// Driven by the left-pane tag browser's v-model. Selecting the first tag takes
+// over the right pane (clearing search/new-models); clearing all tags returns
+// to the folder view.
+function onTagSelectionChange(tags) {
+  selectedTags.value = tags
+  if (!tags.length) {
+    tagResults.value = null
+    tagPage.value = 1
+    return
+  }
+  clearSearch()
+  clearNewFiles()
+  clearFavorites()
+  loadTagResults(1)
+}
+
+async function loadTagResults(pageN) {
+  if (!selectedTags.value.length || !enabledRoots.value.length) return
+  tagLoading.value = true
+  tagPage.value = pageN
+  try {
+    const params = {
+      tags: selectedTags.value.map((t) => t.slug).join(','),
+      page: pageN,
+      page_size: PAGE_SIZE,
+    }
+    // 'all' (AND) is the backend default — only send tag_mode to opt into 'any'.
+    if (tagMatchMode.value === 'any') params.tag_mode = 'any'
+    if (extensionFilter.value) params.extension = extensionFilter.value
+    if (showDeleted.value) params.include_deleted = 'true'
+    const response = await APIService.searchLibrary(params)
+    tagResults.value = response.data
+  } catch (err) {
+    console.error('Tag browse failed:', err)
+    loadError.value = 'Failed to load tagged files.'
+  } finally {
+    tagLoading.value = false
+  }
+}
+
+function clearTagBrowse() {
+  selectedTags.value = []
+  tagResults.value = null
+  tagPage.value = 1
+}
+
+function removeTag(tag) {
+  onTagSelectionChange(selectedTags.value.filter((t) => t.slug !== tag.slug))
+}
+
+function onTagMatchModeChange(mode) {
+  tagMatchMode.value = mode
+  if (selectedTags.value.length) loadTagResults(1)
+}
+
+// ---- Favorites ----
+
+const favoritesMode = computed(
+  () => favoritesActive.value && !searchMode.value && !tagBrowseMode.value,
 )
-const resultsPage = computed(() => (searchMode.value ? searchPage.value : newFilesPage.value))
+const favoritesCount = computed(() => favoritesResults.value?.count ?? 0)
+
+async function loadFavorites(pageN) {
+  if (!enabledRoots.value.length) return
+  favoritesLoading.value = true
+  favoritesPage.value = pageN
+  try {
+    const params = { favorites: 'true', page: pageN, page_size: PAGE_SIZE }
+    if (extensionFilter.value) params.extension = extensionFilter.value
+    if (showDeleted.value) params.include_deleted = 'true'
+    const response = await APIService.searchLibrary(params)
+    favoritesResults.value = response.data
+  } catch (err) {
+    console.error('Failed to load favorites:', err)
+    loadError.value = 'Failed to load favorites.'
+  } finally {
+    favoritesLoading.value = false
+  }
+}
+
+function toggleFavoritesMode() {
+  if (favoritesActive.value) {
+    clearFavorites()
+    return
+  }
+  clearSearch()
+  clearTagBrowse()
+  clearNewFiles()
+  favoritesActive.value = true
+  loadFavorites(1)
+}
+
+function clearFavorites() {
+  favoritesActive.value = false
+  favoritesResults.value = null
+  favoritesPage.value = 1
+}
+
+// Keep a visible row's star in sync after the detail modal toggles it, without
+// a refetch. If a file is un-favorited while browsing favorites, drop it.
+function onFavoriteChanged({ id, is_favorite }) {
+  for (const list of [
+    contents.value?.files?.results,
+    searchResults.value?.results,
+    tagResults.value?.results,
+    favoritesResults.value?.results,
+    newFilesResults.value?.results,
+  ]) {
+    const row = list?.find((f) => f.id === id)
+    if (row) row.is_favorite = is_favorite
+  }
+  if (favoritesMode.value && !is_favorite) {
+    loadFavorites(favoritesPage.value)
+  }
+}
+
+// ---- Unified results pane (search / tag-browse / new-models share one table) ----
+
+const resultsMode = computed(
+  () => searchMode.value || tagBrowseMode.value || favoritesMode.value || newFilesMode.value,
+)
+const resultsData = computed(() => {
+  if (searchMode.value) return searchResults.value
+  if (tagBrowseMode.value) return tagResults.value
+  if (favoritesMode.value) return favoritesResults.value
+  return newFilesResults.value
+})
+const resultsLoading = computed(() => {
+  if (searchMode.value) return searchLoading.value
+  if (tagBrowseMode.value) return tagLoading.value
+  if (favoritesMode.value) return favoritesLoading.value
+  return newFilesLoading.value
+})
+const resultsPage = computed(() => {
+  if (searchMode.value) return searchPage.value
+  if (tagBrowseMode.value) return tagPage.value
+  if (favoritesMode.value) return favoritesPage.value
+  return newFilesPage.value
+})
 const resultsTotalPages = computed(() =>
   resultsData.value ? Math.max(1, Math.ceil(resultsData.value.count / PAGE_SIZE)) : 1,
 )
 
 function gotoResultsPage(pageN) {
   if (searchMode.value) runSearch(pageN)
+  else if (tagBrowseMode.value) loadTagResults(pageN)
+  else if (favoritesMode.value) loadFavorites(pageN)
   else loadNewFiles(pageN)
 }
 
@@ -641,6 +838,20 @@ function openFile(file) {
   showFileModal.value = true
 }
 
+// Quick favorite toggle from a grid/list row (doesn't open the file).
+async function toggleRowFavorite(file) {
+  const next = !file.is_favorite
+  file.is_favorite = next // optimistic
+  try {
+    await APIService.updateLibraryFile(file.id, { is_favorite: next })
+    // If un-favorited while browsing favorites, drop it from the list.
+    if (favoritesMode.value && !next) loadFavorites(favoritesPage.value)
+  } catch (err) {
+    console.error('Failed to update favorite:', err)
+    file.is_favorite = !next // roll back
+  }
+}
+
 // ---- Formatting ----
 
 function formatSize(bytes) {
@@ -667,52 +878,25 @@ const breadcrumbs = computed(() => contents.value?.folder?.breadcrumbs || [])
     <MainHeader title="Library">
       <template #actions>
         <template v-if="hasAnyRoot">
-        <div class="ext-filter">
-          <button
-            class="btn"
-            :class="extensionFilter === '' ? 'btn-primary' : 'btn-outline'"
-            @click="setExtensionFilter('')"
+        <div class="search-group">
+          <select
+            class="search-scope"
+            :value="searchScope"
+            aria-label="Search in"
+            @change="setSearchScope($event.target.value)"
           >
-            All
-          </button>
-          <button
-            class="btn"
-            :class="extensionFilter === 'stl' ? 'btn-primary' : 'btn-outline'"
-            @click="setExtensionFilter('stl')"
-          >
-            STL
-          </button>
-          <button
-            class="btn"
-            :class="extensionFilter === '3mf' ? 'btn-primary' : 'btn-outline'"
-            @click="setExtensionFilter('3mf')"
-          >
-            3MF
-          </button>
+            <option v-for="scope in SEARCH_SCOPES" :key="scope.value" :value="scope.value">
+              {{ scope.label }}
+            </option>
+          </select>
+          <input
+            type="text"
+            v-model="searchQuery"
+            class="search-input"
+            placeholder="Search library…"
+            spellcheck="false"
+          />
         </div>
-        <div class="view-toggle">
-          <button
-            class="btn"
-            :class="viewMode === 'list' ? 'btn-primary' : 'btn-outline'"
-            @click="setViewMode('list')"
-          >
-            List
-          </button>
-          <button
-            class="btn"
-            :class="viewMode === 'grid' ? 'btn-primary' : 'btn-outline'"
-            @click="setViewMode('grid')"
-          >
-            Grid
-          </button>
-        </div>
-        <input
-          type="text"
-          v-model="searchQuery"
-          class="search-input"
-          placeholder="Search library…"
-          spellcheck="false"
-        />
         </template>
         <button class="btn btn-outline" @click="showSettingsModal = true">
           {{ hasAnyRoot ? 'Settings' : 'Configure Library' }}
@@ -760,8 +944,14 @@ const breadcrumbs = computed(() => contents.value?.folder?.breadcrumbs || [])
       </div>
 
       <div class="library-layout">
-      <!-- Left pane: folder tree -->
+      <!-- Left pane: browse-by-tag control + folder tree -->
       <aside class="tree-pane">
+        <LibraryTagBrowser
+          :model-value="selectedTags"
+          :match-mode="tagMatchMode"
+          @update:model-value="onTagSelectionChange"
+          @update:match-mode="onTagMatchModeChange"
+        />
         <div v-if="loadingTree" class="pane-state">Loading folders…</div>
         <ul v-else-if="rootFolders.length" class="tree-root">
           <LibraryFolderTreeNode v-for="rf in rootFolders" :key="rf.id" :folder="rf" />
@@ -791,14 +981,72 @@ const breadcrumbs = computed(() => contents.value?.folder?.breadcrumbs || [])
             “{{ searchQuery.trim() }}”
             <button class="btn btn-sm btn-secondary" @click="clearSearch">Clear</button>
           </div>
+          <div v-else-if="tagBrowseMode" class="search-summary tag-summary">
+            <span>{{ tagCount }} file{{ tagCount === 1 ? '' : 's' }} tagged</span>
+            <TagBadge
+              v-for="tag in selectedTags"
+              :key="tag.id"
+              :tag="tag"
+              :removable="true"
+              @remove="removeTag"
+            />
+            <button class="btn btn-sm btn-secondary" @click="clearTagBrowse">Clear</button>
+          </div>
+          <div v-else-if="favoritesMode" class="search-summary">
+            {{ favoritesCount }} favorite{{ favoritesCount === 1 ? '' : 's' }}
+          </div>
           <div v-else class="search-summary">
             {{ newFilesCount }} new model{{ newFilesCount === 1 ? '' : 's' }} since the last scan
           </div>
 
           <div class="toolbar-toggles">
+            <div class="ext-filter">
+              <button
+                class="btn btn-sm"
+                :class="extensionFilter === '' ? 'btn-primary' : 'btn-outline'"
+                @click="setExtensionFilter('')"
+              >
+                All
+              </button>
+              <button
+                class="btn btn-sm"
+                :class="extensionFilter === 'stl' ? 'btn-primary' : 'btn-outline'"
+                @click="setExtensionFilter('stl')"
+              >
+                STL
+              </button>
+              <button
+                class="btn btn-sm"
+                :class="extensionFilter === '3mf' ? 'btn-primary' : 'btn-outline'"
+                @click="setExtensionFilter('3mf')"
+              >
+                3MF
+              </button>
+            </div>
+            <div v-if="!resultsMode" class="view-toggle">
+              <button
+                class="btn btn-sm"
+                :class="viewMode === 'list' ? 'btn-primary' : 'btn-outline'"
+                @click="setViewMode('list')"
+              >
+                List
+              </button>
+              <button
+                class="btn btn-sm"
+                :class="viewMode === 'grid' ? 'btn-primary' : 'btn-outline'"
+                @click="setViewMode('grid')"
+              >
+                Grid
+              </button>
+            </div>
+            <span class="toolbar-divider" aria-hidden="true"></span>
             <label v-if="!searchMode" class="browser-toggle">
               <input type="checkbox" :checked="newFilesActive" @change="toggleNewFiles" />
               Show new models
+            </label>
+            <label v-if="!searchMode" class="browser-toggle">
+              <input type="checkbox" :checked="favoritesActive" @change="toggleFavoritesMode" />
+              Show favorites
             </label>
             <label v-if="!resultsMode" class="browser-toggle">
               <input type="checkbox" :checked="hideEmptyFolders" @change="toggleHideEmptyFolders" />
@@ -809,7 +1057,7 @@ const breadcrumbs = computed(() => contents.value?.folder?.breadcrumbs || [])
               Show deleted
             </label>
             <button
-              v-if="!resultsMode"
+              v-if="!resultsMode && selectedFolderId != null"
               class="btn btn-sm btn-secondary"
               :disabled="anyJobActive"
               @click="rescanCurrentFolder"
@@ -831,6 +1079,7 @@ const breadcrumbs = computed(() => contents.value?.folder?.breadcrumbs || [])
                   <th class="col-thumb"></th>
                   <th class="col-name">Name</th>
                   <th class="col-path">Location</th>
+                  <th class="col-notes">Notes</th>
                   <th class="col-size">Size</th>
                 </tr>
               </thead>
@@ -847,9 +1096,21 @@ const breadcrumbs = computed(() => contents.value?.folder?.breadcrumbs || [])
                     <span v-else class="row-thumb-placeholder">{{ file.extension }}</span>
                   </td>
                   <td class="col-name">
+                    <button
+                      type="button"
+                      class="row-star"
+                      :class="{ active: file.is_favorite }"
+                      :title="file.is_favorite ? 'Remove from favorites' : 'Add to favorites'"
+                      @click.stop="toggleRowFavorite(file)"
+                    >
+                      {{ file.is_favorite ? '★' : '☆' }}
+                    </button>
                     {{ file.filename }}
                     <span class="ext-badge">{{ file.extension }}</span>
                     <span v-if="file.status === 'deleted'" class="deleted-badge">deleted</span>
+                    <span v-if="file.tags && file.tags.length" class="row-tags">
+                      <TagBadge v-for="tag in file.tags" :key="tag.id" :tag="tag" />
+                    </span>
                   </td>
                   <td class="col-path">
                     <span class="hit-root">{{ file.root_name }}</span
@@ -857,10 +1118,15 @@ const breadcrumbs = computed(() => contents.value?.folder?.breadcrumbs || [])
                       parentPath(file.relative_path) ? ' / ' + parentPath(file.relative_path) : ''
                     }}
                   </td>
+                  <td class="col-notes">
+                    <span v-if="file.notes" class="notes-preview" :title="file.notes">{{
+                      file.notes
+                    }}</span>
+                  </td>
                   <td class="col-size">{{ formatSize(file.size_bytes) }}</td>
                 </tr>
                 <tr v-if="!resultsData.results.length">
-                  <td colspan="4" class="pane-state">
+                  <td colspan="5" class="pane-state">
                     {{ searchMode ? 'No matching files.' : 'No new models since the last scan.' }}
                   </td>
                 </tr>
@@ -942,6 +1208,15 @@ const breadcrumbs = computed(() => contents.value?.folder?.breadcrumbs || [])
                   <span v-else class="row-thumb-placeholder">{{ file.extension }}</span>
                 </td>
                 <td class="col-name">
+                  <button
+                    type="button"
+                    class="row-star"
+                    :class="{ active: file.is_favorite }"
+                    :title="file.is_favorite ? 'Remove from favorites' : 'Add to favorites'"
+                    @click.stop="toggleRowFavorite(file)"
+                  >
+                    {{ file.is_favorite ? '★' : '☆' }}
+                  </button>
                   {{ file.filename }}
                   <span class="ext-badge">{{ file.extension }}</span>
                   <span v-if="file.status === 'deleted'" class="deleted-badge">deleted</span>
@@ -977,6 +1252,15 @@ const breadcrumbs = computed(() => contents.value?.folder?.breadcrumbs || [])
               :class="{ 'row-deleted': file.status === 'deleted' }"
               @click="openFile(file)"
             >
+              <button
+                type="button"
+                class="grid-star"
+                :class="{ active: file.is_favorite }"
+                :title="file.is_favorite ? 'Remove from favorites' : 'Add to favorites'"
+                @click.stop="toggleRowFavorite(file)"
+              >
+                {{ file.is_favorite ? '★' : '☆' }}
+              </button>
               <div class="grid-thumb">
                 <img v-if="file.thumbnail" :src="thumbSrc(file)" />
                 <span v-else class="grid-thumb-placeholder">{{ file.extension }}</span>
@@ -1014,6 +1298,10 @@ const breadcrumbs = computed(() => contents.value?.folder?.breadcrumbs || [])
             </button>
           </div>
         </template>
+
+        <div v-else class="pane-state">
+          Select a folder from the tree to browse its files — or use Browse by Tags or search.
+        </div>
       </main>
       </div>
     </template>
@@ -1024,6 +1312,7 @@ const breadcrumbs = computed(() => contents.value?.folder?.breadcrumbs || [])
       :render-color="activeRoot?.thumbnail_color || ''"
       @close="showFileModal = false"
       @deleted="onFileDeleted"
+      @favorite-changed="onFavoriteChanged"
     />
 
     <LibrarySettingsModal
@@ -1206,9 +1495,47 @@ const breadcrumbs = computed(() => contents.value?.folder?.breadcrumbs || [])
   font-weight: 600;
 }
 
+.tag-summary {
+  flex-wrap: wrap;
+}
+
+.search-group {
+  display: flex;
+  align-items: stretch;
+  gap: 6px;
+  /* min-width:0 lets the group shrink below its content width when the header
+     runs out of room, so the input flex-shrinks instead of overflowing onto
+     the Settings button. */
+  flex: 1 1 auto;
+  min-width: 0;
+  max-width: 340px;
+}
+
+.search-scope {
+  flex: 0 0 auto;
+  width: 120px; /* explicit cap — a bare <select> renders far too wide otherwise */
+  padding: 8px 12px;
+  border: 1px solid var(--color-border);
+  border-radius: 5px;
+  background-color: var(--color-background-soft);
+  color: var(--color-text);
+  font-size: 1rem;
+  height: 41px;
+  box-sizing: border-box;
+  cursor: pointer;
+}
+
+/* Search/filter control — gray, no-shadow focus state (design system) */
+.search-scope:focus {
+  border-color: var(--color-border);
+  box-shadow: none;
+  outline: none;
+}
+
 .search-input {
-  flex: none;
-  width: 200px;
+  flex: 1 1 150px;
+  width: auto;
+  min-width: 120px;
   padding: 8px 12px;
   border: 1px solid var(--color-border);
   border-radius: 5px;
@@ -1233,11 +1560,27 @@ const breadcrumbs = computed(() => contents.value?.folder?.breadcrumbs || [])
   flex-shrink: 0;
 }
 
+/* Extra separation so the extension filter and the list/grid toggle read as
+   two distinct control groups (not one run of buttons). */
+.view-toggle {
+  margin-left: 12px;
+}
+
 .toolbar-toggles {
   display: flex;
   align-items: center;
-  gap: 16px;
-  flex-shrink: 0;
+  gap: 12px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+/* Subtle separator between the view controls (filter + list/grid) and the
+   option toggles, for a file-manager toolbar feel. */
+.toolbar-divider {
+  width: 1px;
+  align-self: stretch;
+  min-height: 20px;
+  background-color: var(--color-border);
 }
 
 .browser-toggle {
@@ -1333,9 +1676,30 @@ const breadcrumbs = computed(() => contents.value?.folder?.breadcrumbs || [])
   word-break: break-word;
 }
 
+/* One-line notes preview in search results; the max-width on the inner span
+   bounds the column (table stays auto-layout) and drives the ellipsis, while
+   the native title tooltip shows the full note on hover. */
+.notes-preview {
+  display: block;
+  max-width: 360px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--color-text);
+  opacity: 0.8;
+}
+
 .hit-root {
   color: var(--color-heading);
   font-weight: 600;
+}
+
+.row-tags {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-left: 6px;
+  vertical-align: middle;
 }
 
 .folder-name {
@@ -1411,6 +1775,7 @@ const breadcrumbs = computed(() => contents.value?.folder?.breadcrumbs || [])
 }
 
 .grid-card {
+  position: relative;
   border: 1px solid var(--color-border);
   border-radius: 8px;
   padding: 10px;
@@ -1421,6 +1786,54 @@ const breadcrumbs = computed(() => contents.value?.folder?.breadcrumbs || [])
 
 .grid-card:hover {
   background-color: var(--color-background-mute);
+}
+
+/* Favorite stars — amber when active, subtle otherwise. */
+.row-star {
+  background: none;
+  border: none;
+  padding: 0 4px 0 0;
+  cursor: pointer;
+  font-size: 1rem;
+  line-height: 1;
+  color: var(--color-text);
+  opacity: 0.55;
+  vertical-align: middle;
+}
+
+.row-star:hover {
+  opacity: 1;
+}
+
+.row-star.active {
+  color: #f59e0b;
+  opacity: 1;
+}
+
+.grid-star {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  z-index: 1;
+  background-color: var(--color-background-soft);
+  border: 1px solid var(--color-border);
+  border-radius: 4px;
+  padding: 1px 6px;
+  cursor: pointer;
+  font-size: 0.95rem;
+  line-height: 1.2;
+  color: var(--color-text);
+  opacity: 0.7;
+}
+
+.grid-star:hover {
+  opacity: 1;
+}
+
+.grid-star.active {
+  color: #f59e0b;
+  opacity: 1;
+  border-color: #f59e0b;
 }
 
 .grid-thumb {

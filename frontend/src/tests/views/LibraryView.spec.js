@@ -9,6 +9,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { mount, flushPromises } from '@vue/test-utils'
 import { reactive } from 'vue'
 import LibraryView from '@/views/LibraryView.vue'
+import LibraryTagBrowser from '@/components/LibraryTagBrowser.vue'
 
 vi.mock('@/services/APIService', () => ({
   default: {
@@ -23,6 +24,8 @@ vi.mock('@/services/APIService', () => ({
     getLibraryPreviewSummary: vi.fn(),
     deleteLibraryFolder: vi.fn(),
     getLibraryFileDownloadUrl: vi.fn((id) => `/api/library/files/${id}/download/`),
+    getTags: vi.fn(() => Promise.resolve({ data: [] })),
+    updateLibraryFile: vi.fn((id, data) => Promise.resolve({ data: { id, ...data } })),
   },
 }))
 import APIService from '@/services/APIService'
@@ -74,6 +77,14 @@ async function mountLoaded() {
   return wrapper
 }
 
+// A fresh landing auto-selects no folder. Selecting one navigates via the
+// router (route.query.folder); the mocked router is a no-op, so simulate that
+// query change directly — the view loads contents off route.query.folder.
+async function selectRootFolder() {
+  mockRoute.query = { ...mockRoute.query, folder: '10' }
+  await flushPromises()
+}
+
 describe('LibraryView', () => {
   beforeEach(() => {
     vi.clearAllMocks()
@@ -117,17 +128,19 @@ describe('LibraryView', () => {
     expect(APIService.getLibraryFolderTree).not.toHaveBeenCalled()
   })
 
-  it('loads tree and root folder contents on mount', async () => {
+  it('opens the top root contents on mount but leaves the tree collapsed', async () => {
     const wrapper = await mountLoaded()
 
     expect(APIService.getLibraryFolderTree).toHaveBeenCalledWith(1)
+    // The top root's contents load on landing…
     expect(APIService.getLibraryFolderContents).toHaveBeenCalledWith(
       10,
       expect.objectContaining({ page: 1, ordering: 'filename' }),
     )
-    expect(wrapper.text()).toContain('widgets')
     expect(wrapper.text()).toContain('part.stl')
     expect(wrapper.text()).toContain('2.0 KB')
+    // …but the tree stays collapsed (no child folders expanded in the left nav).
+    expect(wrapper.find('.tree-children').exists()).toBe(false)
   })
 
   it('persists the view mode to localStorage', async () => {
@@ -135,6 +148,7 @@ describe('LibraryView', () => {
     // so we assert the setItem call rather than reading a value back.
     const setItemSpy = vi.spyOn(localStorage, 'setItem')
     const wrapper = await mountLoaded()
+    await selectRootFolder(wrapper)
 
     const gridBtn = wrapper.findAll('button').find((b) => b.text() === 'Grid')
     await gridBtn.trigger('click')
@@ -145,6 +159,7 @@ describe('LibraryView', () => {
 
   it('extension filter refetches with the extension param', async () => {
     const wrapper = await mountLoaded()
+    await selectRootFolder(wrapper)
     APIService.getLibraryFolderContents.mockClear()
 
     const btn3mf = wrapper.findAll('button').find((b) => b.text() === '3MF')
@@ -159,6 +174,7 @@ describe('LibraryView', () => {
 
   it('show deleted checkbox refetches with include_deleted', async () => {
     const wrapper = await mountLoaded()
+    await selectRootFolder(wrapper)
     APIService.getLibraryFolderContents.mockClear()
 
     const showDeleted = wrapper
@@ -195,6 +211,9 @@ describe('LibraryView', () => {
     // The global setup mocks localStorage as a no-op, so spy on setItem.
     const setItemSpy = vi.spyOn(localStorage, 'setItem')
     const wrapper = await mountLoaded()
+    // Expand the root so its child folders render in the collapsed-by-default tree.
+    await wrapper.find('.tree-caret').trigger('click')
+    await flushPromises()
     // Both subfolders show while the toggle is off.
     expect(wrapper.text()).toContain('widgets')
     expect(wrapper.text()).toContain('attic')
@@ -226,7 +245,156 @@ describe('LibraryView', () => {
     // Multi-root: search spans all enabled roots — no root param is sent.
     expect(APIService.searchLibrary).toHaveBeenCalledWith(expect.objectContaining({ q: 'gear' }))
     expect(APIService.searchLibrary.mock.calls[0][0]).not.toHaveProperty('root')
+    // Default scope ('all fields') sends no fields param — the backend default.
+    expect(APIService.searchLibrary.mock.calls[0][0]).not.toHaveProperty('fields')
     expect(wrapper.text()).toContain('1 result for')
+  })
+
+  it('the Notes search scope re-runs the search with fields=notes and persists', async () => {
+    const setItemSpy = vi.spyOn(localStorage, 'setItem')
+    const wrapper = await mountLoaded()
+    vi.useFakeTimers()
+
+    await wrapper.find('.search-input').setValue('fan')
+    vi.advanceTimersByTime(350)
+    vi.useRealTimers()
+    await flushPromises()
+
+    await wrapper.find('.search-scope').setValue('notes')
+    await flushPromises()
+
+    const lastCall = APIService.searchLibrary.mock.calls.at(-1)[0]
+    expect(lastCall).toMatchObject({ q: 'fan', fields: 'notes' })
+    expect(setItemSpy).toHaveBeenCalledWith('library-search-scope', 'notes')
+  })
+
+  it('shows a notes preview column with a full-text tooltip in search results', async () => {
+    APIService.searchLibrary.mockResolvedValue({
+      data: {
+        count: 1,
+        next: null,
+        previous: null,
+        results: [
+          {
+            ...CONTENTS.files.results[0],
+            relative_path: 'widgets/part.stl',
+            root_name: 'NAS',
+            notes: 'Fits a 140mm fan for cooling',
+          },
+        ],
+      },
+    })
+    const wrapper = await mountLoaded()
+    vi.useFakeTimers()
+
+    await wrapper.find('.search-input').setValue('part')
+    vi.advanceTimersByTime(350)
+    vi.useRealTimers()
+    await flushPromises()
+
+    const preview = wrapper.find('.notes-preview')
+    expect(preview.exists()).toBe(true)
+    // Truncation is CSS; the full note is available via the native title tooltip.
+    expect(preview.attributes('title')).toBe('Fits a 140mm fan for cooling')
+  })
+
+  it('offers a Tags search scope', async () => {
+    const wrapper = await mountLoaded()
+    const options = wrapper.findAll('.search-scope option').map((o) => o.text())
+    expect(options).toContain('Tags')
+  })
+
+  it('renders tag badges on search results', async () => {
+    APIService.searchLibrary.mockResolvedValue({
+      data: {
+        count: 1,
+        next: null,
+        previous: null,
+        results: [
+          {
+            ...CONTENTS.files.results[0],
+            relative_path: 'widgets/part.stl',
+            root_name: 'NAS',
+            tags: [{ id: 1, name: 'gridfinity', slug: 'gridfinity' }],
+          },
+        ],
+      },
+    })
+    const wrapper = await mountLoaded()
+    vi.useFakeTimers()
+
+    await wrapper.find('.search-input').setValue('part')
+    vi.advanceTimersByTime(350)
+    vi.useRealTimers()
+    await flushPromises()
+
+    const badge = wrapper.find('.row-tags .tag-badge')
+    expect(badge.exists()).toBe(true)
+    expect(badge.text()).toContain('gridfinity')
+  })
+
+  it('Show favorites loads the favorites results via the favorites param', async () => {
+    APIService.searchLibrary.mockResolvedValue({
+      data: {
+        count: 1,
+        next: null,
+        previous: null,
+        results: [
+          { id: 9, filename: 'fav.stl', extension: 'stl', size_bytes: 1024, status: 'active', thumbnail: null, relative_path: 'fav.stl', root_name: 'NAS', is_favorite: true },
+        ],
+      },
+    })
+    const wrapper = await mountLoaded()
+
+    const favToggle = wrapper
+      .findAll('.browser-toggle')
+      .find((l) => l.text().includes('Show favorites'))
+    await favToggle.find('input').setValue(true)
+    await flushPromises()
+
+    expect(APIService.searchLibrary).toHaveBeenCalledWith(
+      expect.objectContaining({ favorites: 'true' }),
+    )
+    expect(wrapper.text()).toContain('1 favorite')
+    expect(wrapper.text()).toContain('fav.stl')
+  })
+
+  it('a row star quick-toggles the favorite via PATCH', async () => {
+    const wrapper = await mountLoaded()
+    await selectRootFolder()
+
+    const star = wrapper.find('.row-star')
+    expect(star.exists()).toBe(true)
+    await star.trigger('click')
+    await flushPromises()
+
+    expect(APIService.updateLibraryFile).toHaveBeenCalledWith(5, { is_favorite: true })
+  })
+
+  it('browse-by-tag loads results via the tags param and shows a summary', async () => {
+    APIService.searchLibrary.mockResolvedValue({
+      data: {
+        count: 2,
+        next: null,
+        previous: null,
+        results: [
+          { id: 7, filename: 'a.stl', extension: 'stl', size_bytes: 1024, status: 'active', thumbnail: null, relative_path: 'a.stl', root_name: 'NAS' },
+          { id: 8, filename: 'b.stl', extension: 'stl', size_bytes: 1024, status: 'active', thumbnail: null, relative_path: 'b.stl', root_name: 'NAS' },
+        ],
+      },
+    })
+    const wrapper = await mountLoaded()
+
+    // Drive the tag browser's selection (its own UI has its own spec).
+    const browser = wrapper.findComponent(LibraryTagBrowser)
+    await browser.vm.$emit('update:modelValue', [{ id: 1, name: 'toys', slug: 'toys' }])
+    await flushPromises()
+
+    expect(APIService.searchLibrary).toHaveBeenCalledWith(
+      expect.objectContaining({ tags: 'toys' }),
+    )
+    expect(wrapper.text()).toContain('2 files tagged')
+    expect(wrapper.text()).toContain('a.stl')
   })
 
   it('New Models toggle loads and shows the new-files results pane', async () => {
@@ -287,6 +455,7 @@ describe('LibraryView', () => {
 
   it('unchecking Show new models returns to folder contents', async () => {
     const wrapper = await mountLoaded()
+    await selectRootFolder(wrapper)
     const newToggle = () =>
       wrapper.findAll('.browser-toggle').find((l) => l.text().includes('Show new models'))
 
@@ -302,6 +471,7 @@ describe('LibraryView', () => {
 
   it('clicking a subfolder row navigates via the router query', async () => {
     const wrapper = await mountLoaded()
+    await selectRootFolder(wrapper)
 
     const folderRow = wrapper
       .findAll('tr.row-clickable')
@@ -319,6 +489,7 @@ describe('LibraryView', () => {
       },
     })
     const wrapper = await mountLoaded()
+    await selectRootFolder(wrapper)
 
     const folderRow = wrapper
       .findAll('tr.row-clickable')
@@ -332,6 +503,7 @@ describe('LibraryView', () => {
 
   it('opens the file detail modal when a file row is clicked', async () => {
     const wrapper = await mountLoaded()
+    await selectRootFolder(wrapper)
 
     const fileRow = wrapper
       .findAll('tr.row-clickable')

@@ -5,6 +5,7 @@ from django.db import models
 from django.db.models.signals import post_delete, post_save, pre_save
 from django.dispatch import receiver
 from django.core.validators import MinValueValidator
+from django.utils.text import slugify
 
 def get_project_upload_path(instance, filename):
     """Generates the upload path for a project file."""
@@ -1680,6 +1681,45 @@ def update_tracker_stats_on_delete(sender, instance, **kwargs):
     tracker.save(update_fields=['total_quantity', 'printed_quantity_total', 'progress_percentage', 'updated_date'])
 
 # =============================================================================
+# Tags — shared, cross-entity labels (lives in the core `inventory` app,
+# NOT inventory-feature-specific). v1 is wired to LibraryFile only; other
+# entities gain a `tags` M2M in later phases.
+# (see chat_docs/planning/LIBRARY_TAGGING_PHASE1.md)
+# =============================================================================
+
+class Tag(models.Model):
+    """
+    A free-form, user-created label. Shared vocabulary: one Tag row is reused
+    across every item it's applied to (and, in later phases, across entity
+    types), so renaming or filtering by a tag is a single-source operation.
+
+    `slug` is the normalized identity used for dedupe and lookups — creating
+    "Gridfinity", "gridfinity", or " gridfinity " all resolve to one tag.
+    """
+    name = models.CharField(max_length=50, unique=True, db_index=True,
+                            help_text="Display name as the user typed it (trimmed)")
+    slug = models.SlugField(max_length=60, unique=True, db_index=True,
+                            help_text="Normalized identity for dedupe/lookup")
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['name']
+
+    def __str__(self):
+        return self.name
+
+    @staticmethod
+    def slug_for(name):
+        """Normalized slug for a raw name (lowercased, hyphenated, stripped)."""
+        return slugify(name or '')
+
+    def save(self, *args, **kwargs):
+        if not self.slug:
+            self.slug = self.slug_for(self.name)
+        super().save(*args, **kwargs)
+
+
+# =============================================================================
 # STL/3MF Library — network-share file index
 # (see chat_docs/planning/STL_LIBRARY_FEATURE_PLAN.md)
 # =============================================================================
@@ -1799,6 +1839,18 @@ class LibraryFile(models.Model):
     embedded_metadata = models.JSONField(
         default=dict, blank=True,
         help_text="Embedded 3MF slicer metadata; empty dict for .stl files"
+    )
+    notes = models.TextField(
+        blank=True, default='',
+        help_text="User-authored free-form notes; searchable alongside the filename"
+    )
+    tags = models.ManyToManyField(
+        Tag, blank=True, related_name='library_files',
+        help_text="User-applied labels; searchable and browseable"
+    )
+    is_favorite = models.BooleanField(
+        default=False, db_index=True,
+        help_text="User-flagged favorite; filterable via the Show Favorites view"
     )
     last_seen_at = models.DateTimeField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)

@@ -13,7 +13,7 @@ import pytest
 from django.utils import timezone
 from rest_framework.test import APIClient
 
-from inventory.models import LibraryFile, LibraryRoot, LibraryScan
+from inventory.models import LibraryFile, LibraryRoot, LibraryScan, Tag
 from inventory.services import library_scanner
 from inventory.tests.factories import (
     LibraryFileFactory,
@@ -289,6 +289,87 @@ class TestFileDetailAndDownload:
         assert 'embedded_metadata' in resp.data
         assert 'sha256_hash' in resp.data
 
+    def test_patch_notes_updates_field(self, client):
+        """PATCH sets user notes and echoes them back."""
+        file_row = LibraryFileFactory(filename='exhaust.stl', relative_path='exhaust.stl')
+
+        resp = client.patch(
+            f'/api/library/files/{file_row.id}/',
+            {'notes': 'Uses a 140mm fan'},
+            format='json',
+        )
+
+        assert resp.status_code == 200
+        assert resp.data['notes'] == 'Uses a 140mm fan'
+        file_row.refresh_from_db()
+        assert file_row.notes == 'Uses a 140mm fan'
+
+    def test_patch_ignores_non_notes_fields(self, client):
+        """Only `notes` is writable — a PATCH can't overwrite scanner-owned
+        fields like filename."""
+        file_row = LibraryFileFactory(filename='original.stl', relative_path='original.stl')
+
+        resp = client.patch(
+            f'/api/library/files/{file_row.id}/',
+            {'notes': 'a note', 'filename': 'hacked.stl', 'status': 'deleted'},
+            format='json',
+        )
+
+        assert resp.status_code == 200
+        file_row.refresh_from_db()
+        assert file_row.notes == 'a note'
+        assert file_row.filename == 'original.stl'  # untouched
+        assert file_row.status == 'active'  # untouched
+
+    def test_patch_tag_ids_assigns_tags(self, client):
+        """PATCH tag_ids sets the M2M and the response returns nested tags."""
+        file_row = LibraryFileFactory(filename='part.stl', relative_path='part.stl')
+        toys = Tag.objects.create(name='toys', slug='toys')
+        gridfinity = Tag.objects.create(name='gridfinity', slug='gridfinity')
+
+        resp = client.patch(
+            f'/api/library/files/{file_row.id}/',
+            {'tag_ids': [toys.id, gridfinity.id]},
+            format='json',
+        )
+
+        assert resp.status_code == 200
+        assert {t['slug'] for t in resp.data['tags']} == {'toys', 'gridfinity'}
+        assert set(file_row.tags.values_list('slug', flat=True)) == {'toys', 'gridfinity'}
+
+    def test_patch_toggles_favorite(self, client):
+        """PATCH is_favorite flags/unflags a file."""
+        file_row = LibraryFileFactory(filename='part.stl', relative_path='part.stl')
+        assert file_row.is_favorite is False
+
+        resp = client.patch(
+            f'/api/library/files/{file_row.id}/', {'is_favorite': True}, format='json',
+        )
+        assert resp.status_code == 200
+        assert resp.data['is_favorite'] is True
+        file_row.refresh_from_db()
+        assert file_row.is_favorite is True
+
+        resp = client.patch(
+            f'/api/library/files/{file_row.id}/', {'is_favorite': False}, format='json',
+        )
+        file_row.refresh_from_db()
+        assert file_row.is_favorite is False
+
+    def test_patch_tag_ids_replaces_existing(self, client):
+        """Sending a new tag_ids set replaces the old assignment."""
+        file_row = LibraryFileFactory(filename='part.stl', relative_path='part.stl')
+        a = Tag.objects.create(name='a', slug='a')
+        b = Tag.objects.create(name='b', slug='b')
+        file_row.tags.add(a)
+
+        resp = client.patch(
+            f'/api/library/files/{file_row.id}/', {'tag_ids': [b.id]}, format='json',
+        )
+
+        assert resp.status_code == 200
+        assert set(file_row.tags.values_list('slug', flat=True)) == {'b'}
+
     def test_file_download_streams_share_bytes(self, client, tmp_path):
         root = LibraryRootFactory(path=str(tmp_path))
         folder = LibraryFolderFactory(root=root, relative_path='')
@@ -562,11 +643,245 @@ class TestLibrarySearch:
         assert data['count'] == 1
         assert data['results'][0]['filename'] == 'test.3mf'
 
+    def test_search_results_include_notes(self, client):
+        """Search results carry the notes field so the results table can show a
+        preview column."""
+        LibraryFileFactory(
+            filename='vent.stl', relative_path='vent.stl', notes='Fits a 140mm fan',
+        )
+
+        data = client.get('/api/library/search/', {'q': 'vent'}).json()
+
+        assert data['results'][0]['notes'] == 'Fits a 140mm fan'
+
+    def test_search_default_matches_notes(self, client):
+        """A term only in a file's notes (not its name/path) still matches when
+        no fields param is given — the default scope spans name + notes."""
+        LibraryFileFactory(
+            filename='exhaust_shroud.stl', relative_path='exhaust_shroud.stl',
+            notes='Fits a 140mm fan for cooling',
+        )
+
+        data = client.get('/api/library/search/', {'q': 'fan'}).json()
+
+        assert data['count'] == 1
+        assert data['results'][0]['filename'] == 'exhaust_shroud.stl'
+
+    def test_search_fields_notes_only(self, client):
+        """fields=notes matches notes but not a same-named file whose only
+        occurrence is in its filename."""
+        folder = LibraryFolderFactory()
+        LibraryFileFactory(
+            folder=folder, filename='bracket.stl', relative_path='bracket.stl',
+            notes='needs a 140mm fan',
+        )
+        LibraryFileFactory(
+            folder=folder, filename='fan_duct.stl', relative_path='fan_duct.stl',
+            notes='',
+        )
+
+        data = client.get('/api/library/search/', {'q': 'fan', 'fields': 'notes'}).json()
+
+        assert data['count'] == 1
+        assert data['results'][0]['filename'] == 'bracket.stl'
+
+    def test_search_fields_name_only_ignores_notes(self, client):
+        """fields=name matches filename/path but not notes."""
+        LibraryFileFactory(
+            filename='bracket.stl', relative_path='bracket.stl',
+            notes='needs a 140mm fan',
+        )
+
+        data = client.get('/api/library/search/', {'q': 'fan', 'fields': 'name'}).json()
+
+        assert data['count'] == 0
+
+    def test_search_unknown_fields_falls_back_to_all(self, client):
+        """An unrecognized fields value searches everything rather than
+        returning nothing."""
+        LibraryFileFactory(
+            filename='bracket.stl', relative_path='bracket.stl',
+            notes='needs a 140mm fan',
+        )
+
+        data = client.get('/api/library/search/', {'q': 'fan', 'fields': 'bogus'}).json()
+
+        assert data['count'] == 1
+
+    def test_search_default_matches_tags(self, client):
+        """A term matching only a file's tag (not name/notes) still matches by
+        default (all scopes include tags)."""
+        f = LibraryFileFactory(filename='bracket.stl', relative_path='bracket.stl')
+        f.tags.add(Tag.objects.create(name='gridfinity', slug='gridfinity'))
+
+        data = client.get('/api/library/search/', {'q': 'gridfinity'}).json()
+
+        assert data['count'] == 1
+        assert data['results'][0]['filename'] == 'bracket.stl'
+
+    def test_search_fields_tags_only(self, client):
+        """fields=tags matches on tags, not on a same-worded filename."""
+        folder = LibraryFolderFactory()
+        tagged = LibraryFileFactory(folder=folder, filename='bracket.stl', relative_path='bracket.stl')
+        tagged.tags.add(Tag.objects.create(name='toys', slug='toys'))
+        LibraryFileFactory(folder=folder, filename='toys.stl', relative_path='toys.stl')
+
+        data = client.get('/api/library/search/', {'q': 'toys', 'fields': 'tags'}).json()
+
+        assert data['count'] == 1
+        assert data['results'][0]['filename'] == 'bracket.stl'
+
+    def test_browse_by_tags_default_is_intersection(self, client):
+        """tags= with no tag_mode = AND: only files carrying EVERY selected tag."""
+        folder = LibraryFolderFactory()
+        toys = Tag.objects.create(name='toys', slug='toys')
+        tools = Tag.objects.create(name='tools', slug='tools')
+        both = LibraryFileFactory(folder=folder, filename='both.stl', relative_path='both.stl')
+        both.tags.add(toys, tools)
+        only_toys = LibraryFileFactory(folder=folder, filename='toys_only.stl', relative_path='toys_only.stl')
+        only_toys.tags.add(toys)
+
+        data = client.get('/api/library/search/', {'tags': 'toys,tools'}).json()
+
+        assert data['count'] == 1
+        assert data['results'][0]['filename'] == 'both.stl'
+
+    def test_browse_by_tags_any_mode_is_union(self, client):
+        """tag_mode=any = OR: files carrying at least one selected tag."""
+        folder = LibraryFolderFactory()
+        toys = Tag.objects.create(name='toys', slug='toys')
+        tools = Tag.objects.create(name='tools', slug='tools')
+        a = LibraryFileFactory(folder=folder, filename='a.stl', relative_path='a.stl')
+        a.tags.add(toys)
+        b = LibraryFileFactory(folder=folder, filename='b.stl', relative_path='b.stl')
+        b.tags.add(tools)
+        LibraryFileFactory(folder=folder, filename='c.stl', relative_path='c.stl')  # untagged
+
+        data = client.get('/api/library/search/', {'tags': 'toys,tools', 'tag_mode': 'any'}).json()
+
+        assert data['count'] == 2
+        assert {r['filename'] for r in data['results']} == {'a.stl', 'b.stl'}
+
+    def test_browse_by_tags_no_duplicate_rows(self, client):
+        """A file carrying all requested tags appears once (distinct)."""
+        f = LibraryFileFactory(filename='a.stl', relative_path='a.stl')
+        f.tags.add(Tag.objects.create(name='toys', slug='toys'))
+        f.tags.add(Tag.objects.create(name='tools', slug='tools'))
+
+        data = client.get('/api/library/search/', {'tags': 'toys,tools'}).json()
+
+        assert data['count'] == 1
+
+    def test_search_results_include_tags(self, client):
+        """Search results carry nested tags for the badge display."""
+        f = LibraryFileFactory(filename='part.stl', relative_path='part.stl')
+        f.tags.add(Tag.objects.create(name='toys', slug='toys'))
+
+        data = client.get('/api/library/search/', {'q': 'part'}).json()
+
+        assert [t['slug'] for t in data['results'][0]['tags']] == ['toys']
+
+    def test_favorites_browse_without_query(self, client):
+        """favorites=true browses favorited files with no text query."""
+        folder = LibraryFolderFactory()
+        LibraryFileFactory(folder=folder, filename='fav.stl', relative_path='fav.stl', is_favorite=True)
+        LibraryFileFactory(folder=folder, filename='plain.stl', relative_path='plain.stl', is_favorite=False)
+
+        data = client.get('/api/library/search/', {'favorites': 'true'}).json()
+
+        assert data['count'] == 1
+        assert data['results'][0]['filename'] == 'fav.stl'
+        assert data['results'][0]['is_favorite'] is True
+
+    def test_favorites_combines_with_query(self, client):
+        """favorites=true narrows a text search to favorited hits."""
+        folder = LibraryFolderFactory()
+        LibraryFileFactory(folder=folder, filename='gear_a.stl', relative_path='gear_a.stl', is_favorite=True)
+        LibraryFileFactory(folder=folder, filename='gear_b.stl', relative_path='gear_b.stl', is_favorite=False)
+
+        data = client.get('/api/library/search/', {'q': 'gear', 'favorites': 'true'}).json()
+
+        assert data['count'] == 1
+        assert data['results'][0]['filename'] == 'gear_a.stl'
+
+
+@pytest.mark.django_db
+class TestTagsAPI:
+    """/api/tags/ — shared tag CRUD with idempotent create."""
+
+    def test_create_tag(self, client):
+        resp = client.post('/api/tags/', {'name': 'Gridfinity'}, format='json')
+
+        assert resp.status_code == 201
+        assert resp.data['name'] == 'Gridfinity'
+        assert resp.data['slug'] == 'gridfinity'
+
+    def test_create_is_idempotent_on_slug(self, client):
+        """Re-creating a name that normalizes to an existing slug returns the
+        existing tag with 200 instead of erroring or duplicating."""
+        first = client.post('/api/tags/', {'name': 'gridfinity'}, format='json')
+        assert first.status_code == 201
+
+        again = client.post('/api/tags/', {'name': 'Gridfinity'}, format='json')
+
+        assert again.status_code == 200
+        assert again.data['id'] == first.data['id']
+        assert Tag.objects.filter(slug='gridfinity').count() == 1
+
+    def test_create_blank_rejected(self, client):
+        resp = client.post('/api/tags/', {'name': '   '}, format='json')
+        assert resp.status_code == 400
+
+    def test_list_filters_by_q(self, client):
+        Tag.objects.create(name='toys', slug='toys')
+        Tag.objects.create(name='tools', slug='tools')
+        Tag.objects.create(name='gridfinity', slug='gridfinity')
+
+        data = client.get('/api/tags/', {'q': 'too'}).json()
+
+        names = {t['name'] for t in data}
+        assert names == {'tools'}
+
+    def test_list_reports_usage_count(self, client):
+        """Each listed tag carries a live usage_count (files carrying it)."""
+        popular = Tag.objects.create(name='popular', slug='popular')
+        LibraryFileFactory(filename='a.stl', relative_path='a.stl').tags.add(popular)
+        LibraryFileFactory(filename='b.stl', relative_path='b.stl').tags.add(popular)
+        Tag.objects.create(name='unused', slug='unused')
+
+        by_name = {t['name']: t for t in client.get('/api/tags/').json()}
+
+        assert by_name['popular']['usage_count'] == 2
+        assert by_name['unused']['usage_count'] == 0
+
+    def test_list_ordered_most_used_first(self, client):
+        """The list is ordered by usage_count desc (popular tags surface first)."""
+        one = Tag.objects.create(name='one_use', slug='one-use')
+        three = Tag.objects.create(name='three_use', slug='three-use')
+        LibraryFileFactory(filename='x.stl', relative_path='x.stl').tags.add(one)
+        for i in range(3):
+            LibraryFileFactory(filename=f't{i}.stl', relative_path=f't{i}.stl').tags.add(three)
+
+        names = [t['name'] for t in client.get('/api/tags/').json()]
+
+        assert names.index('three_use') < names.index('one_use')
+
+    def test_in_use_filter_hides_orphan_tags(self, client):
+        """?in_use=true returns only tags applied to at least one file."""
+        used = Tag.objects.create(name='used', slug='used')
+        LibraryFileFactory(filename='u.stl', relative_path='u.stl').tags.add(used)
+        Tag.objects.create(name='orphan', slug='orphan')  # never applied
+
+        names = {t['name'] for t in client.get('/api/tags/', {'in_use': 'true'}).json()}
+
+        assert names == {'used'}
+
 
 @pytest.mark.django_db
 class TestNewFilesSince:
     """GET /api/library/new-files/ — files first indexed by each root's most
-    recent successful scan (created_at >= that scan's start)."""
+    recent successful scan (created_at >= that scan's start). A root needs at
+    least two successful scans (a baseline) to contribute."""
 
     def _scan(self, root, started_at):
         return LibraryScanFactory(
@@ -574,10 +889,16 @@ class TestNewFilesSince:
             finished_at=started_at + timedelta(minutes=1),
         )
 
+    def _baseline(self, root, started_at):
+        """An earlier successful scan so the root clears the >=2-scan bar; its
+        time is older than the boundary scan, so it doesn't affect results."""
+        return self._scan(root, started_at - timedelta(hours=3))
+
     def test_lists_files_created_since_last_scan(self, client):
         root = LibraryRootFactory(path='/mnt/nas')
         folder = LibraryFolderFactory(root=root)
         boundary = timezone.now() - timedelta(hours=1)
+        self._baseline(root, boundary)
         self._scan(root, boundary)
 
         # "new": created after the scan started (factory sets created_at=now).
@@ -601,9 +922,20 @@ class TestNewFilesSince:
         assert data['count'] == 0
         assert data['results'] == []
 
+    def test_requires_two_scans_baseline(self, client):
+        """A root with only ONE successful scan has no baseline, so nothing is
+        "new" yet — every file was first indexed in that single pass."""
+        root = LibraryRootFactory()
+        folder = LibraryFolderFactory(root=root)
+        self._scan(root, timezone.now() - timedelta(hours=1))  # only one scan
+        LibraryFileFactory(folder=folder, filename='fresh.stl', relative_path='fresh.stl')
+
+        assert client.get('/api/library/new-files/').json()['count'] == 0
+
     def test_excludes_deleted_files(self, client):
         root = LibraryRootFactory()
         folder = LibraryFolderFactory(root=root)
+        self._baseline(root, timezone.now() - timedelta(hours=1))
         self._scan(root, timezone.now() - timedelta(hours=1))
         LibraryFileFactory(folder=folder, status='deleted')
 
@@ -612,6 +944,7 @@ class TestNewFilesSince:
     def test_extension_filter(self, client):
         root = LibraryRootFactory()
         folder = LibraryFolderFactory(root=root)
+        self._baseline(root, timezone.now() - timedelta(hours=1))
         self._scan(root, timezone.now() - timedelta(hours=1))
         LibraryFileFactory(folder=folder, filename='a.stl', relative_path='a.stl', extension='stl')
         LibraryFileFactory(folder=folder, filename='a.3mf', relative_path='a.3mf', extension='3mf')
@@ -624,7 +957,9 @@ class TestNewFilesSince:
     def test_spans_enabled_roots_excludes_disabled(self, client):
         enabled = LibraryRootFactory(path='/mnt/on')
         disabled = LibraryRootFactory(path='/mnt/off', enabled=False)
+        self._baseline(enabled, timezone.now() - timedelta(hours=1))
         self._scan(enabled, timezone.now() - timedelta(hours=1))
+        self._baseline(disabled, timezone.now() - timedelta(hours=1))
         self._scan(disabled, timezone.now() - timedelta(hours=1))
         LibraryFileFactory(
             folder=LibraryFolderFactory(root=enabled), filename='on.stl', relative_path='on.stl'
