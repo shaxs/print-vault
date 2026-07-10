@@ -16,6 +16,7 @@ from inventory.tests.factories import (
     FilamentBlueprintMaterialFactory,
     GenericMaterialFactory,
     FilamentSpoolFactory,
+    BrandFactory,
 )
 from inventory.models import Material
 
@@ -104,6 +105,92 @@ class TestMaterialViewSetFavoritesFilter:
         response = client.get(URL)
         ids = [r["id"] for r in response.data]
         assert non_fav.id in ids
+
+
+# ---------------------------------------------------------------------------
+# TestMaterialViewSetLowStockFilter
+# ---------------------------------------------------------------------------
+
+@pytest.mark.django_db
+class TestMaterialViewSetLowStockFilter:
+    """Regression tests: ?low_stock=true used to be a no-op (`pass`)."""
+
+    def test_low_stock_filter_returns_only_below_threshold(self, client):
+        low = FilamentBlueprintMaterialFactory(name="Low Stock PETG", low_stock_threshold=500)
+        FilamentSpoolFactory(
+            filament_type=low, status='opened', is_opened=True,
+            quantity=1, initial_weight=1000, current_weight=200
+        )
+
+        healthy = FilamentBlueprintMaterialFactory(name="Healthy Stock PETG", low_stock_threshold=500)
+        FilamentSpoolFactory(
+            filament_type=healthy, status='opened', is_opened=True,
+            quantity=1, initial_weight=1000, current_weight=900
+        )
+
+        response = client.get(URL, {"low_stock": "true", "type": "blueprint"})
+        ids = [r["id"] for r in response.data]
+        assert low.id in ids
+        assert healthy.id not in ids
+
+    def test_low_stock_filter_excludes_material_without_threshold(self, client):
+        """A material with no low_stock_threshold set is never considered low stock."""
+        no_threshold = FilamentBlueprintMaterialFactory(name="No Threshold PETG", low_stock_threshold=None)
+        FilamentSpoolFactory(
+            filament_type=no_threshold, status='empty', is_opened=True,
+            quantity=1, initial_weight=1000, current_weight=0
+        )
+
+        response = client.get(URL, {"low_stock": "true", "type": "blueprint"})
+        ids = [r["id"] for r in response.data]
+        assert no_threshold.id not in ids
+
+    def test_no_low_stock_param_returns_all(self, client):
+        mat = FilamentBlueprintMaterialFactory(name="Any Stock PETG")
+        response = client.get(URL, {"type": "blueprint"})
+        ids = [r["id"] for r in response.data]
+        assert mat.id in ids
+
+
+# ---------------------------------------------------------------------------
+# TestMaterialViewSetLookupFilters (brand / base_material / color_family)
+# ---------------------------------------------------------------------------
+
+@pytest.mark.django_db
+class TestMaterialViewSetLookupFilters:
+    """Regression tests: brand/base_material/color_family filters used to be
+    inert (no filterset_class was wired up on MaterialViewSet)."""
+
+    def test_brand_filter(self, client):
+        brand_a = BrandFactory(name="Prusament")
+        brand_b = BrandFactory(name="Overture")
+        mat_a = FilamentBlueprintMaterialFactory(name="Brand A Filament", brand=brand_a)
+        mat_b = FilamentBlueprintMaterialFactory(name="Brand B Filament", brand=brand_b)
+
+        response = client.get(URL, {"brand": brand_a.id})
+        ids = [r["id"] for r in response.data]
+        assert mat_a.id in ids
+        assert mat_b.id not in ids
+
+    def test_base_material_filter(self, client):
+        pla = GenericMaterialFactory(name="PLA")
+        petg = GenericMaterialFactory(name="PETG")
+        pla_blueprint = FilamentBlueprintMaterialFactory(name="PLA Blueprint", base_material=pla)
+        petg_blueprint = FilamentBlueprintMaterialFactory(name="PETG Blueprint", base_material=petg)
+
+        response = client.get(URL, {"base_material": pla.id})
+        ids = [r["id"] for r in response.data]
+        assert pla_blueprint.id in ids
+        assert petg_blueprint.id not in ids
+
+    def test_color_family_filter(self, client):
+        red_mat = FilamentBlueprintMaterialFactory(name="Red Filament", color_family="red")
+        blue_mat = FilamentBlueprintMaterialFactory(name="Blue Filament", color_family="blue")
+
+        response = client.get(URL, {"color_family": "red"})
+        ids = [r["id"] for r in response.data]
+        assert red_mat.id in ids
+        assert blue_mat.id not in ids
 
 
 # ---------------------------------------------------------------------------

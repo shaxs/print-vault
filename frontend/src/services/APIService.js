@@ -235,6 +235,9 @@ export default {
   deleteMaterial(id) {
     return apiClient.delete(`materials/${id}/`)
   },
+  toggleMaterialFavorite(id) {
+    return apiClient.post(`materials/${id}/toggle-favorite/`)
+  },
 
   getVendors() {
     return apiClient.get('vendors/')

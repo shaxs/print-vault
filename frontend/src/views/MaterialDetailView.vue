@@ -2,6 +2,7 @@
 import { ref, onMounted, computed } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import axios from 'axios'
+import APIService from '../services/APIService'
 
 const router = useRouter()
 const route = useRoute()
@@ -61,6 +62,27 @@ const deleteMaterial = async () => {
   } catch (error) {
     console.error('Failed to delete material:', error)
     alert('Failed to delete material. Please try again.')
+  }
+}
+
+const isTogglingFavorite = ref(false)
+
+const toggleFavorite = async () => {
+  if (isTogglingFavorite.value) return
+  isTogglingFavorite.value = true
+  try {
+    // toggle-favorite responds with {status: 'favorited', order: N} or
+    // {status: 'unfavorited'} - it does NOT echo back is_favorite/favorite_order.
+    const response = await APIService.toggleMaterialFavorite(material.value.id)
+    material.value.is_favorite = response.data.status === 'favorited'
+    material.value.favorite_order = response.data.order ?? null
+  } catch (error) {
+    console.error('Failed to toggle favorite:', error)
+    if (error.response?.data?.error) {
+      alert(error.response.data.error)
+    }
+  } finally {
+    isTogglingFavorite.value = false
   }
 }
 
@@ -126,7 +148,19 @@ onMounted(() => {
     <div v-else class="content-container">
       <!-- Page Header with Edit/Delete buttons -->
       <div class="detail-header">
-        <h1>{{ materialName }}</h1>
+        <h1>
+          {{ materialName }}
+          <button
+            v-if="!material.is_generic"
+            @click="toggleFavorite"
+            :disabled="isTogglingFavorite"
+            class="favorite-toggle-btn"
+            :class="{ active: material.is_favorite }"
+            :title="material.is_favorite ? 'Remove from favorites' : 'Add to favorites'"
+          >
+            {{ material.is_favorite ? '★' : '☆' }}
+          </button>
+        </h1>
         <div class="actions">
           <button @click="router.push('/filaments?tab=blueprints')" class="btn btn-secondary">
             ← Back to Blueprints
@@ -468,6 +502,34 @@ onMounted(() => {
   word-wrap: break-word;
   overflow-wrap: break-word;
   margin: 0;
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.favorite-toggle-btn {
+  background: none;
+  border: none;
+  font-size: 1.75rem;
+  line-height: 1;
+  padding: 0;
+  cursor: pointer;
+  color: var(--color-text-muted);
+  transition: transform 0.2s ease;
+}
+
+.favorite-toggle-btn.active {
+  color: #f59e0b;
+}
+
+.favorite-toggle-btn:hover {
+  transform: scale(1.15);
+}
+
+.favorite-toggle-btn:disabled {
+  cursor: default;
+  opacity: 0.6;
+  transform: none;
 }
 
 @media (max-width: 768px) {

@@ -178,3 +178,56 @@ describe('MaterialDetailView – hasPrintSettings', () => {
     expect(hasPrintSettings({})).toBe(false)
   })
 })
+
+// ---------------------------------------------------------------------------
+// Favorite toggle button (regression: there was previously no way to favorite
+// a blueprint from any reachable view — only an orphaned, unrouted component
+// had a working star toggle).
+// ---------------------------------------------------------------------------
+
+/**
+ * Pure version of the `v-if="!material.is_generic"` guard on the favorite button.
+ * Generic materials can't be favorited (the backend 400s), so the button is hidden.
+ */
+const shouldShowFavoriteToggle = (material) => !material.is_generic
+
+/**
+ * Pure version of toggleFavorite()'s state update after a successful API call.
+ * The backend action responds with {status: 'favorited', order: N} or
+ * {status: 'unfavorited'} - NOT {is_favorite, favorite_order} (regression:
+ * the first version of this code assumed the wrong response shape, which
+ * silently made the star always render as unfavorited after any click since
+ * response.is_favorite was always undefined).
+ */
+const applyFavoriteToggleResponse = (material, response) => {
+  material.is_favorite = response.status === 'favorited'
+  material.favorite_order = response.order ?? null
+  return material
+}
+
+describe('MaterialDetailView – favorite toggle visibility', () => {
+  it('shows the toggle for a blueprint (is_generic: false)', () => {
+    expect(shouldShowFavoriteToggle({ is_generic: false })).toBe(true)
+  })
+
+  it('hides the toggle for a generic material (is_generic: true)', () => {
+    expect(shouldShowFavoriteToggle({ is_generic: true })).toBe(false)
+  })
+})
+
+describe('MaterialDetailView – applyFavoriteToggleResponse', () => {
+  it('sets is_favorite true and favorite_order from a "favorited" response', () => {
+    const material = { id: 1, is_favorite: false, favorite_order: null }
+    const result = applyFavoriteToggleResponse(material, { status: 'favorited', order: 3 })
+    expect(result.is_favorite).toBe(true)
+    expect(result.favorite_order).toBe(3)
+  })
+
+  it('sets is_favorite false and clears favorite_order from an "unfavorited" response', () => {
+    const material = { id: 1, is_favorite: true, favorite_order: 2 }
+    // Real backend response for unfavoriting omits `order` entirely.
+    const result = applyFavoriteToggleResponse(material, { status: 'unfavorited' })
+    expect(result.is_favorite).toBe(false)
+    expect(result.favorite_order).toBeNull()
+  })
+})

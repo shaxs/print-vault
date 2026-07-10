@@ -20,6 +20,7 @@ const openColorSwatchModal = (colorHex) => {
 }
 
 const headers = [
+  { text: '', value: 'favorite' },
   { text: 'Photo', value: 'photo' },
   { text: 'Brand', value: 'brand' },
   { text: 'Name', value: 'name' },
@@ -59,6 +60,10 @@ const viewItem = (item) => {
     :visible-columns="visibleColumns"
     @row-click="viewItem"
   >
+    <template #cell-favorite="{ item }">
+      <span v-if="item.is_favorite" class="favorite-star" title="Favorite">★</span>
+    </template>
+
     <template #cell-photo="{ item }">
       <img v-if="item.photo" :src="item.photo" alt="Material" class="table-thumbnail" />
       <span v-else class="no-photo">—</span>
@@ -132,6 +137,11 @@ const viewItem = (item) => {
 
 .no-photo {
   color: var(--color-text-muted);
+}
+
+.favorite-star {
+  color: #f59e0b;
+  font-size: 1.1rem;
 }
 
 .color-swatches {

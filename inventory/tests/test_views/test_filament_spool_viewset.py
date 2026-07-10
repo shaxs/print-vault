@@ -296,6 +296,46 @@ class TestFilamentSpoolFiltering:
 
 
 # ============================================================================
+# SEARCH TESTS
+# ============================================================================
+
+@pytest.mark.django_db
+class TestFilamentSpoolSearch:
+    """Regression tests: SearchFilter used to crash with a Django FieldError
+    because search_fields included 'color_name', which FilamentSpool has never had."""
+
+    def test_search_does_not_crash(self, api_client, sample_blueprint_spools):
+        url = '/api/filament-spools/?search=Poly'
+        response = api_client.get(url)
+        assert response.status_code == status.HTTP_200_OK
+
+    def test_search_matches_blueprint_name(self, api_client, sample_blueprint_spools):
+        url = '/api/filament-spools/?search=PolyTerra'
+        response = api_client.get(url)
+        assert response.status_code == status.HTTP_200_OK
+        assert len(response.data) == 5
+
+    def test_search_matches_brand_name(self, api_client, sample_blueprint_spools):
+        url = '/api/filament-spools/?search=Polymaker'
+        response = api_client.get(url)
+        assert response.status_code == status.HTTP_200_OK
+        assert len(response.data) == 5
+
+    def test_search_matches_quick_add_standalone_name(self, api_client, quick_add_spool):
+        url = '/api/filament-spools/?search=Convention'
+        response = api_client.get(url)
+        assert response.status_code == status.HTTP_200_OK
+        ids = [r['id'] for r in response.data]
+        assert quick_add_spool.pk in ids
+
+    def test_search_no_match_returns_empty(self, api_client, sample_blueprint_spools):
+        url = '/api/filament-spools/?search=NoSuchThingAtAll'
+        response = api_client.get(url)
+        assert response.status_code == status.HTTP_200_OK
+        assert len(response.data) == 0
+
+
+# ============================================================================
 # CUSTOM ACTION TESTS
 # ============================================================================
 
@@ -489,6 +529,36 @@ class TestFilamentSpoolUpdateWeight:
         spool.refresh_from_db()
         assert spool.status == 'empty'
 
+    def test_update_weight_auto_status_opened_when_no_printer(self, api_client, sample_blueprint_spools):
+        """Regression: weight update used to set the nonexistent 'active' status.
+        A spool with no assigned printer should return to 'opened'."""
+        spool = sample_blueprint_spools['spool_opened']
+        assert spool.assigned_printer is None
+
+        url = f'/api/filament-spools/{spool.pk}/update-weight/'
+        data = {'current_weight': 600}  # 60% remaining - not low, not empty
+        response = api_client.post(url, data, format='json')
+
+        assert response.status_code == status.HTTP_200_OK
+
+        spool.refresh_from_db()
+        assert spool.status == 'opened'
+        assert spool.status in dict(FilamentSpool.STATUS_CHOICES)
+
+    def test_update_weight_auto_status_in_use_when_printer_assigned(self, api_client, sample_blueprint_spools):
+        """A spool with an assigned printer should return to 'in_use', not 'active'."""
+        spool = sample_blueprint_spools['spool_in_use']
+        assert spool.assigned_printer is not None
+
+        url = f'/api/filament-spools/{spool.pk}/update-weight/'
+        data = {'current_weight': 300}  # 30% remaining - not low, not empty
+        response = api_client.post(url, data, format='json')
+
+        assert response.status_code == status.HTTP_200_OK
+
+        spool.refresh_from_db()
+        assert spool.status == 'in_use'
+
 
 @pytest.mark.django_db
 class TestFilamentSpoolMarkEmpty:
@@ -532,11 +602,37 @@ class TestFilamentSpoolArchive:
         
         url = f'/api/filament-spools/{spool.pk}/archive/'
         response = api_client.post(url)
-        
+
         assert response.status_code == status.HTTP_400_BAD_REQUEST
 
+    def test_patch_status_to_archived_on_non_empty_spool_fails(self, api_client, sample_blueprint_spools):
+        """Regression: a plain PATCH must enforce the same 'only empty spools can be
+        archived' rule as the dedicated /archive/ action, not bypass it."""
+        spool = sample_blueprint_spools['spool_opened']
 
-@pytest.mark.django_db  
+        url = f'/api/filament-spools/{spool.pk}/'
+        response = api_client.patch(url, {'status': 'archived'}, format='json')
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+
+        spool.refresh_from_db()
+        assert spool.status == 'opened'
+
+    def test_patch_status_to_archived_on_empty_spool_succeeds(self, api_client, sample_blueprint_spools):
+        """A plain PATCH can still archive an already-empty spool."""
+        spool = sample_blueprint_spools['spool_empty']
+
+        url = f'/api/filament-spools/{spool.pk}/'
+        response = api_client.patch(url, {'status': 'archived'}, format='json')
+
+        assert response.status_code == status.HTTP_200_OK
+
+        spool.refresh_from_db()
+        assert spool.status == 'archived'
+        assert spool.date_archived is not None
+
+
+@pytest.mark.django_db
 class TestFilamentSpoolBulkArchive:
     """Test the bulk-archive action."""
     

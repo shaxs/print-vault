@@ -41,7 +41,7 @@ from .serializers import (
     TrackerCreateSerializer, TrackerListSerializer,
     FilamentSpoolSerializer, AppConfigurationSerializer
 )
-from .filters import InventoryItemFilter, PrinterFilter, ProjectFilter
+from .filters import InventoryItemFilter, PrinterFilter, ProjectFilter, MaterialFilter
 from .services.github_service import (
     crawl_github_repository,
     GitHubCrawlerError,
@@ -2022,6 +2022,7 @@ class MaterialViewSet(viewsets.ModelViewSet):
     serializer_class = MaterialSerializer
     permission_classes = [AllowAny]
     filter_backends = [DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter]
+    filterset_class = MaterialFilter
     search_fields = ['name', 'brand__name']
     ordering_fields = ['name', 'created_at', 'is_favorite']
     
@@ -2041,13 +2042,12 @@ class MaterialViewSet(viewsets.ModelViewSet):
         if favorites_only == 'true':
             queryset = queryset.filter(is_favorite=True).order_by('favorite_order')
         
-        # Filter by low stock
+        # Filter by low stock (is_low_stock is a computed property, so filter in Python)
         low_stock_only = self.request.query_params.get('low_stock', None)
         if low_stock_only == 'true':
-            # This requires a query that checks the property, might be slow
-            # Better to do this in the view and filter in Python or use annotation
-            pass
-        
+            low_stock_ids = [material.id for material in queryset if material.is_low_stock]
+            queryset = queryset.filter(id__in=low_stock_ids)
+
         return queryset
     
     @action(detail=True, methods=['post'], url_path='toggle-favorite')
@@ -2166,7 +2166,7 @@ class FilamentSpoolViewSet(viewsets.ModelViewSet):
     serializer_class = FilamentSpoolSerializer
     permission_classes = [AllowAny]
     filter_backends = [DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter]
-    search_fields = ['color_name', 'filament_type__name', 'filament_type__brand__name']
+    search_fields = ['filament_type__name', 'filament_type__brand__name', 'standalone_name']
     ordering_fields = ['date_added', 'status', 'current_weight']
     
     def get_queryset(self):
@@ -2187,11 +2187,6 @@ class FilamentSpoolViewSet(viewsets.ModelViewSet):
         project_id = self.request.query_params.get('project', None)
         if project_id:
             queryset = queryset.filter(project_id=project_id)
-        
-        # Filter by color (fuzzy match)
-        color = self.request.query_params.get('color', None)
-        if color:
-            queryset = queryset.filter(color_name__icontains=color)
         
         # Filter by brand
         brand_id = self.request.query_params.get('brand', None)
@@ -2430,7 +2425,8 @@ class FilamentSpoolViewSet(viewsets.ModelViewSet):
         elif new_weight < spool.initial_weight * 0.2:  # Less than 20%
             spool.status = 'low'
         else:
-            spool.status = 'active'
+            # Not empty, not low - restore to the appropriate in-use status
+            spool.status = 'in_use' if spool.assigned_printer else 'opened'
         
         spool.save()
         
