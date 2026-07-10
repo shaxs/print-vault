@@ -65,16 +65,24 @@ const deleteMaterial = async () => {
   }
 }
 
+const isTogglingFavorite = ref(false)
+
 const toggleFavorite = async () => {
+  if (isTogglingFavorite.value) return
+  isTogglingFavorite.value = true
   try {
+    // toggle-favorite responds with {status: 'favorited', order: N} or
+    // {status: 'unfavorited'} - it does NOT echo back is_favorite/favorite_order.
     const response = await APIService.toggleMaterialFavorite(material.value.id)
-    material.value.is_favorite = response.data.is_favorite
-    material.value.favorite_order = response.data.favorite_order
+    material.value.is_favorite = response.data.status === 'favorited'
+    material.value.favorite_order = response.data.order ?? null
   } catch (error) {
     console.error('Failed to toggle favorite:', error)
     if (error.response?.data?.error) {
       alert(error.response.data.error)
     }
+  } finally {
+    isTogglingFavorite.value = false
   }
 }
 
@@ -145,6 +153,7 @@ onMounted(() => {
           <button
             v-if="!material.is_generic"
             @click="toggleFavorite"
+            :disabled="isTogglingFavorite"
             class="favorite-toggle-btn"
             :class="{ active: material.is_favorite }"
             :title="material.is_favorite ? 'Remove from favorites' : 'Add to favorites'"
@@ -515,6 +524,12 @@ onMounted(() => {
 
 .favorite-toggle-btn:hover {
   transform: scale(1.15);
+}
+
+.favorite-toggle-btn:disabled {
+  cursor: default;
+  opacity: 0.6;
+  transform: none;
 }
 
 @media (max-width: 768px) {
