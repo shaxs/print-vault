@@ -71,6 +71,22 @@ def _binary_stl_bytes(face_count):
     return b'\x00' * 80 + struct.pack('<I', face_count) + b'\x00' * (50 * face_count)
 
 
+def _write_3mf(path, n_triangles):
+    """Write a minimal .3mf (zip) whose model XML declares n_triangles <triangle>
+    elements — enough for the streamed triangle-count guard to see, without real
+    geometry."""
+    import zipfile
+    tris = '<triangle v1="0" v2="1" v3="2"/>' * n_triangles
+    model = (
+        '<?xml version="1.0"?>'
+        '<model xmlns="http://schemas.microsoft.com/3dmanufacturing/core/2015/02">'
+        f'<resources><object id="1"><mesh><vertices/><triangles>{tris}</triangles>'
+        '</mesh></object></resources></model>'
+    )
+    with zipfile.ZipFile(path, 'w') as zf:
+        zf.writestr('3D/3dmodel.model', model)
+
+
 class TestGeometryGuards:
     def test_binary_stl_face_count_exact(self, tmp_path):
         p = tmp_path / "m.stl"
@@ -119,6 +135,32 @@ class TestGeometryGuards:
         p = tmp_path / "big.3mf"
         with zipfile.ZipFile(p, 'w') as zf:
             zf.writestr('3D/model.model', b'x' * 4096)
+
+        called = mock.Mock(side_effect=AssertionError("trimesh.load should not run"))
+        monkeypatch.setattr(svc.trimesh, "load", called)
+
+        assert svc._load_mesh(p) is None
+        called.assert_not_called()
+
+    def test_threemf_triangle_count_streams_and_early_bails(self, tmp_path):
+        sparse = tmp_path / "sparse.3mf"
+        _write_3mf(sparse, n_triangles=25)
+        assert svc._threemf_triangle_count(sparse, limit=2_000_000) == 25
+
+        dense = tmp_path / "dense.3mf"
+        _write_3mf(dense, n_triangles=500)
+        # Early-bail: returns limit+1 without counting all 500.
+        assert svc._threemf_triangle_count(dense, limit=100) == 101
+
+    def test_load_mesh_skips_dense_3mf_without_loading(self, tmp_path, monkeypatch):
+        """The guard that matters: a .3mf with more triangles than the cap is
+        rejected from a STREAMED count, before trimesh builds its in-memory DOM
+        of the model (which is what actually OOMs on dense .3mf files)."""
+        monkeypatch.setattr(svc, "MAX_RENDER_FACES", 100)
+        # keep the uncompressed cap high so the triangle count is what trips
+        monkeypatch.setattr(svc, "MAX_3MF_UNCOMPRESSED_BYTES", 10 ** 9)
+        p = tmp_path / "dense.3mf"
+        _write_3mf(p, n_triangles=500)
 
         called = mock.Mock(side_effect=AssertionError("trimesh.load should not run"))
         monkeypatch.setattr(svc.trimesh, "load", called)

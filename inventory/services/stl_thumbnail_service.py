@@ -23,6 +23,7 @@ import io
 import logging
 import os
 import tempfile
+import xml.etree.ElementTree as ET
 import zipfile
 from contextlib import contextmanager
 from pathlib import Path
@@ -128,6 +129,39 @@ def _threemf_uncompressed_bytes(path: Path):
         return None
 
 
+def _threemf_triangle_count(path: Path, limit):
+    """Count <triangle> elements across a .3mf's model parts by STREAMING the
+    XML (ElementTree.iterparse, never a full DOM), bailing the moment the count
+    exceeds `limit`. Returns the count (capped at limit+1) or None if the model
+    can't be read.
+
+    This is the guard that matters for .3mf: trimesh's loader builds a full
+    in-memory DOM of the model XML, so a few-hundred-MB model part balloons to
+    multiple GB DURING load — before any face count is known. A file-size or
+    uncompressed-size cap is a poor proxy (XML verbosity varies wildly); the
+    triangle count is the actual render cost, and streaming it lets us reject a
+    too-dense mesh before trimesh ever opens it. Early-bail keeps this bounded:
+    we stop at limit+1 elements, so memory/time never scale with a monster's
+    true size. iterparse elements are cleared as we go."""
+    try:
+        with zipfile.ZipFile(path) as zf:
+            model_members = [n for n in zf.namelist() if n.lower().endswith('.model')]
+            if not model_members:
+                return None
+            total = 0
+            for member in model_members:
+                with zf.open(member) as fh:
+                    for _event, elem in ET.iterparse(fh, events=('end',)):
+                        if elem.tag.rsplit('}', 1)[-1] == 'triangle':
+                            total += 1
+                            if total > limit:
+                                return total
+                        elem.clear()
+            return total
+    except (zipfile.BadZipFile, OSError, ET.ParseError):
+        return None
+
+
 def _load_mesh(file_path: Path) -> Optional[trimesh.Trimesh]:
     """Load an STL or 3MF file as a single trimesh object.
 
@@ -153,6 +187,15 @@ def _load_mesh(file_path: Path) -> Optional[trimesh.Trimesh]:
             logger.info(
                 f"Skipping mesh for {file_path}: 3MF uncompressed size "
                 f"{uncompressed} B exceeds cap {MAX_3MF_UNCOMPRESSED_BYTES} B"
+            )
+            return None
+        # The real guard: trimesh builds a full DOM of the model XML, so a dense
+        # .3mf OOMs during load itself. Reject by streamed triangle count first.
+        tri_count = _threemf_triangle_count(file_path, MAX_RENDER_FACES)
+        if tri_count is not None and tri_count > MAX_RENDER_FACES:
+            logger.info(
+                f"Skipping mesh for {file_path}: 3MF has >{MAX_RENDER_FACES} "
+                f"triangles (streamed count), too dense to load safely"
             )
             return None
 
