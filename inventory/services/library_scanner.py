@@ -30,7 +30,7 @@ import hashlib
 import logging
 import os
 import time
-from datetime import datetime, timezone as dt_timezone
+from datetime import datetime, timedelta, timezone as dt_timezone
 
 from django.conf import settings
 from django.core.files.base import ContentFile
@@ -102,6 +102,52 @@ SKIPPED_DIR_NAMES = {'@eaDir', '#recycle', '$RECYCLE.BIN', 'System Volume Inform
 # killed mid-scan without a chance to record an error) and can be displaced by
 # a new scan request.
 STALE_SCAN_AGE_HOURS = 12
+
+# How long a scan in its PROCESSING phase may sit with an empty task queue before
+# reap_stalled_scans finalizes it. Guards against a chunk worker dying (OOM /
+# container restart) mid-scan, which leaves files_processed short of
+# files_queued forever — the "stuck at 99%" the UI would otherwise show.
+SCAN_STALL_SECONDS = 600
+
+
+def reap_stalled_scans():
+    """Finalize library scans that can no longer make progress.
+
+    When a chunk task's worker dies (OOM-killed, container restart) its files
+    never increment files_processed, so a scan sits at status='running' forever
+    just short of files_queued. This periodic sweep finalizes such scans so the
+    UI stops showing "Scanning… 99%" and a fresh scan can start.
+
+    Only PROCESSING-phase scans (files_queued > 0) are reaped, and only when the
+    WHOLE Django-Q queue is empty — so nothing is left to advance them — and
+    they've been running past SCAN_STALL_SECONDS. Walk-phase scans (files_queued
+    == 0, walk task still in flight) are deliberately left to the 12 h stale
+    displacement, so a slow first walk is never cut short. Returns the count
+    reaped.
+    """
+    from django_q.models import OrmQ
+    from inventory.models import LibraryScan
+
+    # Cheap early out: if any task is queued, work can still advance a scan.
+    if OrmQ.objects.exists():
+        return 0
+
+    cutoff = timezone.now() - timedelta(seconds=SCAN_STALL_SECONDS)
+    stalled = LibraryScan.objects.filter(
+        status='running', files_queued__gt=0, started_at__lt=cutoff,
+    )
+    reaped = 0
+    for scan in stalled:
+        gap = max(scan.files_queued - scan.files_processed, 0)
+        note = (
+            f"Finalized with {gap} file(s) unprocessed after a worker "
+            f"interruption; the next scan will pick them up" if gap else ''
+        )
+        if gap:
+            logger.warning(f"Reaping stalled library scan {scan.pk}: {note}")
+        _finalize_scan(scan, success=True, error=note)
+        reaped += 1
+    return reaped
 
 
 def _scan_slot_available(root):

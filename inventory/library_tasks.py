@@ -18,6 +18,39 @@ logger = logging.getLogger(__name__)
 
 SCHEDULE_NAME_PREFIX = 'library-root-rescan-'
 
+# Global (not per-root) periodic schedule that reaps scans stuck 'running'
+# after a chunk worker died. Registered from apps.py on post_migrate.
+REAP_SCHEDULE_NAME = 'library-reap-stalled-scans'
+REAP_INTERVAL_MINUTES = 10
+
+
+def reap_stalled_library_scans():
+    """Periodic entry point: finalize library scans stuck in their processing
+    phase because a chunk worker died (see library_scanner.reap_stalled_scans)."""
+    from inventory.services.library_scanner import reap_stalled_scans
+
+    reaped = reap_stalled_scans()
+    if reaped:
+        logger.info(f"Reaped {reaped} stalled library scan(s)")
+    return reaped
+
+
+def ensure_global_library_schedules():
+    """Idempotently register the global periodic Library schedules (currently
+    just the stalled-scan reaper). Called from the inventory app's post_migrate
+    so it exists after every deploy without needing a per-root save."""
+    from django_q.models import Schedule
+
+    Schedule.objects.update_or_create(
+        name=REAP_SCHEDULE_NAME,
+        defaults={
+            'func': 'inventory.library_tasks.reap_stalled_library_scans',
+            'schedule_type': Schedule.MINUTES,
+            'minutes': REAP_INTERVAL_MINUTES,
+            'repeats': -1,
+        },
+    )
+
 
 def run_library_scan(scan_id):
     """Walk phase of a scan (enqueued by start_scan)."""

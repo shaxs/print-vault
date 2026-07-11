@@ -511,3 +511,49 @@ class ThumbnailStatusTest(TestCase):
             library_scanner._render_and_save(self.root, f, '/x/m.stl', 'a' * 64)
         f.refresh_from_db()
         self.assertEqual(f.thumbnail_status, 'too_large')
+
+
+class ReapStalledScansTest(TestCase):
+    """reap_stalled_scans finalizes scans stuck 'running' after a chunk worker
+    died. OrmQ is naturally empty in the test DB, so the queue-empty gate is
+    satisfied without mocking except where a non-empty queue is under test."""
+
+    def _stalled_scan(self, **kwargs):
+        from datetime import timedelta
+        from inventory.tests.factories import LibraryScanFactory
+        defaults = dict(
+            status='running', files_queued=100, files_processed=97,
+            started_at=timezone.now() - timedelta(seconds=3600),
+        )
+        defaults.update(kwargs)
+        return LibraryScanFactory(root=LibraryRootFactory(), **defaults)
+
+    def test_reaps_stalled_processing_scan(self):
+        scan = self._stalled_scan()
+        reaped = library_scanner.reap_stalled_scans()
+        scan.refresh_from_db()
+        self.assertEqual(reaped, 1)
+        self.assertEqual(scan.status, 'success')
+        self.assertIn('unprocessed', scan.error)
+        self.assertEqual(scan.root.last_scan_status, 'success')
+
+    def test_does_not_reap_walk_phase_scan(self):
+        # files_queued == 0: the walk hasn't finished enqueuing; never cut short.
+        scan = self._stalled_scan(files_queued=0, files_processed=0)
+        self.assertEqual(library_scanner.reap_stalled_scans(), 0)
+        scan.refresh_from_db()
+        self.assertEqual(scan.status, 'running')
+
+    def test_does_not_reap_recent_scan(self):
+        scan = self._stalled_scan(started_at=timezone.now())
+        self.assertEqual(library_scanner.reap_stalled_scans(), 0)
+        scan.refresh_from_db()
+        self.assertEqual(scan.status, 'running')
+
+    def test_does_not_reap_when_queue_has_work(self):
+        scan = self._stalled_scan()
+        with mock.patch('django_q.models.OrmQ.objects') as q:
+            q.exists.return_value = True
+            self.assertEqual(library_scanner.reap_stalled_scans(), 0)
+        scan.refresh_from_db()
+        self.assertEqual(scan.status, 'running')

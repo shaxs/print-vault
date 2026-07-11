@@ -85,8 +85,22 @@ class Command(BaseCommand):
             )
             return
 
+        # Reset the roots of the scans we're failing, otherwise their
+        # last_scan_status stays 'running' and the settings UI shows a stale
+        # "SCANNING…" badge with no scan actually running.
+        from inventory.models import LibraryRoot
+        root_ids = list(scans.values_list('root_id', flat=True))
+
         scans.update(status='error', error='Cleared by clear_stuck_jobs')
         jobs.update(status='error', error='Cleared by clear_stuck_jobs')
+
+        roots_reset = 0
+        if root_ids:
+            roots_reset = LibraryRoot.objects.filter(
+                pk__in=root_ids, last_scan_status='running'
+            ).update(last_scan_status='idle', last_scan_error='Cleared by clear_stuck_jobs')
+
         self.stdout.write(self.style.SUCCESS(
-            f'Failed {scan_count} stuck library scan(s) and {job_count} stuck thumbnail job(s).'
+            f'Failed {scan_count} stuck library scan(s) and {job_count} stuck '
+            f'thumbnail job(s); reset {roots_reset} stuck root badge(s).'
         ))

@@ -294,35 +294,86 @@ def _threemf_uncompressed_bytes(path: Path):
         return None
 
 
-def _threemf_triangle_count(path: Path, limit):
-    """Count <triangle> elements across a .3mf's model parts by STREAMING the
-    XML (ElementTree.iterparse, never a full DOM), bailing the moment the count
-    exceeds `limit`. Returns the count (capped at limit+1) or None if the model
-    can't be read.
+def _threemf_instanced_triangle_count(path: Path, limit):
+    """Total RENDERED triangle count of a .3mf, accounting for INSTANCING, or
+    None if the model can't be read. Result is capped at limit+1.
 
-    This is the guard that matters for .3mf: trimesh's loader builds a full
-    in-memory DOM of the model XML, so a few-hundred-MB model part balloons to
-    multiple GB DURING load — before any face count is known. A file-size or
-    uncompressed-size cap is a poor proxy (XML verbosity varies wildly); the
-    triangle count is the actual render cost, and streaming it lets us reject a
-    too-dense mesh before trimesh ever opens it. Early-bail keeps this bounded:
-    we stop at limit+1 elements, so memory/time never scale with a monster's
-    true size. iterparse elements are cleared as we go."""
+    This is the guard that matters for .3mf. trimesh.load(force='mesh') builds a
+    full in-memory DOM and then EXPANDS instances — build <item>s instantiate
+    objects, and <component>s reference other objects (often many times) — so
+    the mesh it materializes can be vastly larger than the raw <triangle> count
+    in the XML. A tiny base object referenced hundreds of times is exactly the
+    instanced monster that OOMed during load. Streaming the model with iterparse
+    (never a DOM), we accumulate only small per-object bookkeeping — direct
+    triangle counts and the component/build graph, never the triangles
+    themselves — then resolve the instanced total. Early-bails so memory/time
+    never scale with a monster's true size."""
     try:
         with zipfile.ZipFile(path) as zf:
             model_members = [n for n in zf.namelist() if n.lower().endswith('.model')]
             if not model_members:
                 return None
-            total = 0
+
+            direct = {}       # object id -> its own <triangle> count
+            components = {}    # object id -> [referenced object ids]
+            build_items = []   # object ids instantiated by <build><item>
+            obj_stack = []
+
             for member in model_members:
                 with zf.open(member) as fh:
-                    for _event, elem in ET.iterparse(fh, events=('end',)):
-                        if elem.tag.rsplit('}', 1)[-1] == 'triangle':
-                            total += 1
-                            if total > limit:
-                                return total
+                    for event, elem in ET.iterparse(fh, events=('start', 'end')):
+                        tag = elem.tag.rsplit('}', 1)[-1]
+                        if event == 'start':
+                            if tag == 'object':
+                                oid = elem.get('id')
+                                obj_stack.append(oid)
+                                direct.setdefault(oid, 0)
+                            continue
+                        if tag == 'triangle':
+                            if obj_stack:
+                                cur = obj_stack[-1]
+                                direct[cur] += 1
+                                if direct[cur] > limit:
+                                    return limit + 1  # one object alone is over
+                        elif tag == 'component':
+                            ref = elem.get('objectid')
+                            if obj_stack and ref is not None:
+                                components.setdefault(obj_stack[-1], []).append(ref)
+                        elif tag == 'item':
+                            ref = elem.get('objectid')
+                            if ref is not None:
+                                build_items.append(ref)
+                        elif tag == 'object' and obj_stack:
+                            obj_stack.pop()
                         elem.clear()
-            return total
+
+            memo = {}
+
+            def resolve(oid, seen):
+                if oid in memo:
+                    return memo[oid]
+                if oid in seen:  # component cycle in a malformed file
+                    return 0
+                seen = seen | {oid}
+                total = direct.get(oid, 0)
+                for ref in components.get(oid, ()):
+                    total += resolve(ref, seen)
+                    if total > limit:
+                        break
+                memo[oid] = total
+                return total
+
+            if build_items:
+                grand = 0
+                for oid in build_items:
+                    grand += resolve(oid, frozenset())
+                    if grand > limit:
+                        return limit + 1
+                return grand
+            # No <build> items (single implicit object / malformed): the raw
+            # per-object triangle sum is the best estimate.
+            total = sum(direct.values())
+            return min(total, limit + 1)
     except (zipfile.BadZipFile, OSError, ET.ParseError):
         return None
 
@@ -354,13 +405,14 @@ def _load_mesh(file_path: Path) -> Optional[trimesh.Trimesh]:
                 f"{uncompressed} B exceeds cap {MAX_3MF_UNCOMPRESSED_BYTES} B"
             )
             return None
-        # The real guard: trimesh builds a full DOM of the model XML, so a dense
-        # .3mf OOMs during load itself. Reject by streamed triangle count first.
-        tri_count = _threemf_triangle_count(file_path, MAX_RENDER_FACES)
+        # The real guard: trimesh builds a full DOM and expands instances, so a
+        # dense or instanced .3mf OOMs during load itself. Reject by the
+        # instancing-aware streamed triangle count first.
+        tri_count = _threemf_instanced_triangle_count(file_path, MAX_RENDER_FACES)
         if tri_count is not None and tri_count > MAX_RENDER_FACES:
             logger.info(
-                f"Skipping mesh for {file_path}: 3MF has >{MAX_RENDER_FACES} "
-                f"triangles (streamed count), too dense to load safely"
+                f"Skipping mesh for {file_path}: 3MF resolves to >{MAX_RENDER_FACES} "
+                f"triangles (instancing-aware count), too dense to load safely"
             )
             return None
 

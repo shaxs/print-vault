@@ -87,6 +87,29 @@ def _write_3mf(path, n_triangles):
         zf.writestr('3D/3dmodel.model', model)
 
 
+def _write_instanced_3mf(path, base_triangles, components, build_items):
+    """Write a .3mf where a base mesh object (id=1, base_triangles tris) is
+    referenced `components` times by object id=2, and <build> instantiates
+    object 2 `build_items` times — so the rendered total is
+    base_triangles * components * build_items."""
+    import zipfile
+    tris = '<triangle v1="0" v2="1" v3="2"/>' * base_triangles
+    comps = '<component objectid="1"/>' * components
+    items = '<item objectid="2"/>' * build_items
+    model = (
+        '<?xml version="1.0"?>'
+        '<model xmlns="http://schemas.microsoft.com/3dmanufacturing/core/2015/02">'
+        '<resources>'
+        f'<object id="1"><mesh><vertices/><triangles>{tris}</triangles></mesh></object>'
+        f'<object id="2"><components>{comps}</components></object>'
+        '</resources>'
+        f'<build>{items}</build>'
+        '</model>'
+    )
+    with zipfile.ZipFile(path, 'w') as zf:
+        zf.writestr('3D/3dmodel.model', model)
+
+
 class TestGeometryGuards:
     def test_binary_stl_face_count_exact(self, tmp_path):
         p = tmp_path / "m.stl"
@@ -145,12 +168,25 @@ class TestGeometryGuards:
     def test_threemf_triangle_count_streams_and_early_bails(self, tmp_path):
         sparse = tmp_path / "sparse.3mf"
         _write_3mf(sparse, n_triangles=25)
-        assert svc._threemf_triangle_count(sparse, limit=2_000_000) == 25
+        assert svc._threemf_instanced_triangle_count(sparse, limit=2_000_000) == 25
 
         dense = tmp_path / "dense.3mf"
         _write_3mf(dense, n_triangles=500)
-        # Early-bail: returns limit+1 without counting all 500.
-        assert svc._threemf_triangle_count(dense, limit=100) == 101
+        # Early-bail: one object alone is over the limit -> returns limit+1.
+        assert svc._threemf_instanced_triangle_count(dense, limit=100) == 101
+
+    def test_threemf_count_multiplies_instanced_geometry(self, tmp_path):
+        """The whole point of #3: a small base object referenced many times must
+        resolve to the INSTANCED total, not the raw triangle count in the XML."""
+        p = tmp_path / "instanced.3mf"
+        # base object 1 has 100 triangles; object 2 references it 3x; build
+        # instantiates object 2 twice -> 100 * 3 * 2 = 600 rendered triangles.
+        _write_instanced_3mf(p, base_triangles=100, components=3, build_items=2)
+
+        assert svc._threemf_instanced_triangle_count(p, limit=2_000_000) == 600
+        # With a cap below the instanced total it's rejected, even though the raw
+        # XML only holds 100 <triangle> elements.
+        assert svc._threemf_instanced_triangle_count(p, limit=500) == 501
 
     def test_load_mesh_skips_dense_3mf_without_loading(self, tmp_path, monkeypatch):
         """The guard that matters: a .3mf with more triangles than the cap is
