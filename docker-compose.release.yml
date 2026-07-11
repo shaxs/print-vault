@@ -39,6 +39,40 @@ services:
       db:
         condition: service_healthy
 
+  qcluster:
+    # Background worker (Django-Q): library scans, thumbnail rendering,
+    # scheduled rescans. Same image as backend, different entrypoint. Without
+    # this service, no background job runs at all.
+    image: ghcr.io/shaxs/print-vault-backend:latest
+    restart: unless-stopped
+    entrypoint: ["/entrypoint-qcluster.sh"]
+    # Kernel-enforced memory ceiling for the worker, swap disabled (memswap ==
+    # mem). Backstop behind the app-level render caps: the host can never be
+    # pushed into swap-thrash by a scan. Size to the host: ~1g on a 2 GB Pi,
+    # the 2g default suits 4 GB+.
+    mem_limit: ${QCLUSTER_MEM_LIMIT:-2g}
+    memswap_limit: ${QCLUSTER_MEM_LIMIT:-2g}
+    env_file:
+      - .env
+    volumes:
+      - ./data/media:/code/media
+      # The library scan runs in THIS container, so it needs the same share
+      # mount as backend — otherwise the scan can't see the path.
+      - ${LIBRARY_HOST_PATH:-./data/library}:${LIBRARY_MOUNT_PATH:-/mnt/nas/stls}:rw
+    environment:
+      - DJANGO_SETTINGS_MODULE=backend.production
+      - PYTHONPATH=/code
+      - DJANGO_SECRET_KEY=${DJANGO_SECRET_KEY}
+      - DJANGO_DEBUG=${DJANGO_DEBUG}
+      - ALLOWED_HOSTS=${ALLOWED_HOSTS}
+      - POSTGRES_USER=${POSTGRES_USER:-postgres}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+      - APP_HOST=${APP_HOST}
+      - APP_PORT=${APP_PORT}
+    depends_on:
+      db:
+        condition: service_healthy
+
   frontend:
     image: ghcr.io/shaxs/print-vault-frontend:latest
     restart: unless-stopped

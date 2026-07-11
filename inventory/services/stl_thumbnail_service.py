@@ -113,8 +113,10 @@ MAX_3MF_UNCOMPRESSED_BYTES = _env_int("LIBRARY_MAX_3MF_UNCOMPRESSED_MB", 500) * 
 # the container's memory PHYSICALLY cannot exceed the cap — whatever the file is.
 #
 # The cap is (the child's startup virtual size + this headroom), so it adapts to
-# whatever baseline the forked worker inherited. Env-tunable: lower the headroom
-# on constrained hardware (Pi), raise it if legit large models get skipped.
+# whatever baseline the forked worker inherited. At fork time the headroom is
+# additionally clamped to a fraction of MemAvailable (_effective_headroom_bytes),
+# so the default is safe even on a 1-2 GB Pi without touching .env. Env-tunable:
+# raise it if legit large models get skipped on a big box.
 RENDER_MEMORY_HEADROOM_BYTES = _env_int("LIBRARY_RENDER_HEADROOM_MB", 2048) * 1024 * 1024
 
 # Wall-clock ceiling for a single render child. Also kills the pathological slow
@@ -138,6 +140,41 @@ def _current_vsize_bytes():
     return vsize_pages * _PAGE_SIZE_BYTES
 
 
+# Fraction of MemAvailable a render child may claim. The configured headroom is
+# clamped to this so the cap is meaningful on ANY box: the 2 GB default headroom
+# is bigger than a 1-2 GB Pi's entire RAM, and an operator who never touches
+# .env must still be protected. Under memory pressure the clamp tightens
+# automatically — renders start failing with MemoryError (skipped files) instead
+# of pushing the host into swap.
+_MEMAVAILABLE_FRACTION = 0.8
+
+
+def _meminfo_available_bytes():
+    """MemAvailable from /proc/meminfo, in bytes — the kernel's estimate of what
+    can be allocated without swapping. Returns 0 where unavailable (non-Linux
+    dev), which disables the clamp."""
+    try:
+        with open('/proc/meminfo') as fh:
+            for line in fh:
+                if line.startswith('MemAvailable:'):
+                    return int(line.split()[1]) * 1024  # value is in kB
+    except (OSError, ValueError, IndexError):
+        pass
+    return 0
+
+
+def _effective_headroom_bytes():
+    """The render headroom actually applied to a child: the configured
+    LIBRARY_RENDER_HEADROOM_MB, clamped to a fraction of the memory available
+    right now. Self-tunes to the hardware — tight on a Pi, generous on a big
+    box — so the env var is an override, not a load-bearing requirement."""
+    headroom = RENDER_MEMORY_HEADROOM_BYTES
+    available = _meminfo_available_bytes()
+    if available:
+        headroom = min(headroom, int(available * _MEMAVAILABLE_FRACTION))
+    return headroom
+
+
 def _cap_child_address_space():
     """In a forked render child, cap RLIMIT_AS to (current VSZ + headroom) so a
     pathological load/render can't exhaust the container — the allocation fails
@@ -150,7 +187,7 @@ def _cap_child_address_space():
     baseline = _current_vsize_bytes()
     if not baseline:
         return
-    cap = baseline + RENDER_MEMORY_HEADROOM_BYTES
+    cap = baseline + _effective_headroom_bytes()
     try:
         _soft, hard = resource.getrlimit(resource.RLIMIT_AS)
         if hard != resource.RLIM_INFINITY:
@@ -160,11 +197,18 @@ def _cap_child_address_space():
         pass
 
 
-def _isolated_render_target(file_path, color_hex, result_queue):
-    """Runs in the forked child: cap memory, then load + render + encode and
-    hand the result back over the queue. Any allocation past the cap raises
-    MemoryError (caught here) or kills the child outright (the parent notices
-    the empty queue + non-zero exit). Never touches the DB."""
+def _isolated_render_target(file_path, color_hex, png_out_path, result_queue):
+    """Runs in the forked child: cap memory, then load + render, write the PNG
+    to `png_out_path` (a parent-owned temp file), and report over the queue.
+    Any allocation past the cap raises MemoryError (caught here) or kills the
+    child outright (the parent notices the empty queue + non-zero exit).
+    Never touches the DB.
+
+    The PNG travels via the temp file, NOT the queue, on purpose: a
+    multiprocessing.Queue feeds through an OS pipe (~64 KiB), and a child whose
+    queued payload exceeds that blocks at exit until the parent reads — but the
+    parent is in join(), waiting for the child to exit. Every queue message here
+    is a few dozen bytes, so that deadlock is structurally impossible."""
     try:
         from django.db import connections
         connections.close_all()  # don't share the inherited DB connection
@@ -178,16 +222,14 @@ def _isolated_render_target(file_path, color_hex, result_queue):
             return
         extents = mesh.extents
         image = _render_mesh_image(mesh, base_color_hex=color_hex)
-        buffer = io.BytesIO()
-        image.save(buffer, format='PNG', optimize=True)
+        image.save(png_out_path, format='PNG', optimize=True)
         result_queue.put(('ok', (
-            buffer.getvalue(),
-            (float(extents[0]), float(extents[1]), float(extents[2])),
+            float(extents[0]), float(extents[1]), float(extents[2]),
         )))
     except MemoryError:
         result_queue.put(('memory', None))
     except Exception as e:  # pragma: no cover - defensive
-        result_queue.put(('error', repr(e)))
+        result_queue.put(('error', repr(e)[:500]))
 
 
 def _fork_context():
@@ -209,44 +251,62 @@ def render_file_to_assets(file_path, color_hex):
     if ctx is None:
         return _render_file_inprocess(file_path, color_hex)
 
-    result_queue = ctx.Queue()
-    proc = ctx.Process(
-        target=_isolated_render_target,
-        args=(str(file_path), color_hex, result_queue),
-    )
-    proc.start()
-    proc.join(RENDER_TIMEOUT_SECONDS)
-
-    if proc.is_alive():
-        proc.terminate()
-        proc.join(5)
-        if proc.is_alive():
-            proc.kill()
-            proc.join()
-        logger.info(
-            f"Skipping mesh for {file_path}: render exceeded "
-            f"{RENDER_TIMEOUT_SECONDS}s wall-clock limit"
-        )
-        return None
-
+    # Parent-owned temp file carries the PNG out of the child; the queue only
+    # ever carries tiny status tuples (see _isolated_render_target for why).
+    fd, png_out_path = tempfile.mkstemp(suffix='.png', prefix='pv_render_')
+    os.close(fd)
     try:
-        status, payload = result_queue.get_nowait()
-    except queue_module.Empty:
-        # No result + process gone => it was killed (memory cap tripped / crash).
-        logger.info(
-            f"Skipping mesh for {file_path}: render child exited "
-            f"{proc.exitcode} without a result (likely over the memory cap)"
+        result_queue = ctx.Queue()
+        proc = ctx.Process(
+            target=_isolated_render_target,
+            args=(str(file_path), color_hex, png_out_path, result_queue),
         )
-        return None
+        proc.start()
+        proc.join(RENDER_TIMEOUT_SECONDS)
 
-    if status == 'ok':
-        png_bytes, bounding_box = payload
-        return {'png_bytes': png_bytes, 'bounding_box': bounding_box}
-    if status == 'memory':
-        logger.info(f"Skipping mesh for {file_path}: render hit the memory cap")
-    elif status == 'error':
-        logger.warning(f"Render failed for {file_path}: {payload}")
-    return None  # 'skip' (unrenderable/too dense) or any non-ok status
+        if proc.is_alive():
+            proc.terminate()
+            proc.join(5)
+            if proc.is_alive():
+                proc.kill()
+                proc.join()
+            logger.info(
+                f"Skipping mesh for {file_path}: render exceeded "
+                f"{RENDER_TIMEOUT_SECONDS}s wall-clock limit"
+            )
+            return None
+
+        try:
+            status, payload = result_queue.get_nowait()
+        except queue_module.Empty:
+            # No result + process gone => it was killed (memory cap tripped / crash).
+            logger.info(
+                f"Skipping mesh for {file_path}: render child exited "
+                f"{proc.exitcode} without a result (likely over the memory cap)"
+            )
+            return None
+
+        if status == 'ok':
+            try:
+                with open(png_out_path, 'rb') as fh:
+                    png_bytes = fh.read()
+            except OSError as e:  # pragma: no cover - defensive
+                logger.warning(f"Render output unreadable for {file_path}: {e}")
+                return None
+            if not png_bytes:  # pragma: no cover - defensive
+                logger.warning(f"Render produced an empty PNG for {file_path}")
+                return None
+            return {'png_bytes': png_bytes, 'bounding_box': payload}
+        if status == 'memory':
+            logger.info(f"Skipping mesh for {file_path}: render hit the memory cap")
+        elif status == 'error':
+            logger.warning(f"Render failed for {file_path}: {payload}")
+        return None  # 'skip' (unrenderable/too dense) or any non-ok status
+    finally:
+        try:
+            os.unlink(png_out_path)
+        except OSError:
+            pass
 
 
 def _render_file_inprocess(file_path, color_hex):

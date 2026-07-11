@@ -69,12 +69,28 @@ restart/rebuild of `qcluster`.
 | Variable | Default | What it does |
 | --- | --- | --- |
 | `Q_WORKERS` | `1` | Parallel background workers. Each multiplies peak memory — raise only if you have RAM to spare (e.g. 2–4 on 8 GB+). |
+| `QCLUSTER_MEM_LIMIT` | `2g` | Kernel-enforced memory ceiling for the whole worker container, with swap use disabled. The ultimate backstop: a scan can never push the host into swap-thrash — at worst one render is killed and that file is skipped. Size to your host: `1g` on a 2 GB Pi, `2g` for 4 GB+. |
 | `Q_WORKER_MEMORY_LIMIT_MB` | `600` | Recycle a worker once it exceeds this resident memory; also the mid-scan threshold at which a task hands its remaining files to a fresh one. |
 | `LIBRARY_MAX_RENDER_FILE_SIZE_MB` | `100` | Skip rendering meshes larger than this on disk. |
 | `LIBRARY_MAX_RENDER_FACES` | `2000000` | Skip meshes with more than this many triangles (the main density guard; on-disk size doesn't bound triangle count for `.3mf`). |
 | `LIBRARY_MAX_3MF_UNCOMPRESSED_MB` | `500` | Skip a `.3mf` whose uncompressed contents exceed this (guards against decompression bombs). |
-| `LIBRARY_RENDER_HEADROOM_MB` | `2048` | Hard memory ceiling for each render subprocess = its startup size + this. Any file that would allocate past it is skipped. Lower on a Pi (e.g. `1024`); raise if legit large models get skipped. |
+| `LIBRARY_RENDER_HEADROOM_MB` | `2048` | Memory ceiling for each render subprocess = its startup size + this. Automatically clamped to ~80% of the memory actually available, so the default is safe on any box (a Pi self-tunes to a tight cap). Raise it if legit large models get skipped on a machine with RAM to spare. |
 | `LIBRARY_RENDER_TIMEOUT_SECONDS` | `120` | Kill a single render that runs longer than this (skips the file). |
+
+### Running on a Raspberry Pi (or any ≤2 GB box)
+
+The defaults are designed to work untouched: one worker, a self-tuning
+per-render memory cap, and a hard container ceiling. Two things are worth
+setting explicitly on a 1–2 GB Pi:
+
+```bash
+QCLUSTER_MEM_LIMIT='1g'          # leave the other half of RAM for the app + OS
+LIBRARY_MAX_RENDER_FACES='500000' # slow ARM cores: fewer renders hit the 120 s timeout
+```
+
+Expect more files to be skipped ("no preview") than on a big machine — that is
+the system protecting the box, not a malfunction. The first index will also be
+slow (possibly a day for a very large share); it is safe to leave running.
 
 ### First index expectations
 

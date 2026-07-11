@@ -646,3 +646,130 @@ class TestRegenerateTrackerThumbnails:
         results = svc.regenerate_tracker_thumbnails(tracker)
 
         assert results['processed'] == 0
+
+
+# ============================================================================
+# Self-tuning render headroom (Pi safety: cap must fit the actual hardware)
+# ============================================================================
+
+class TestMemoryHeadroom:
+    def test_effective_headroom_uses_configured_value_when_meminfo_unavailable(self, monkeypatch):
+        """No /proc/meminfo (non-Linux dev): the configured headroom applies as-is."""
+        monkeypatch.setattr(svc, '_meminfo_available_bytes', lambda: 0)
+        assert svc._effective_headroom_bytes() == svc.RENDER_MEMORY_HEADROOM_BYTES
+
+    def test_effective_headroom_clamps_to_fraction_of_available(self, monkeypatch):
+        """The 2 GB default must shrink on a box with less memory than that —
+        the whole point of the clamp is a Pi that never edits .env."""
+        monkeypatch.setattr(svc, '_meminfo_available_bytes', lambda: 1024**3)
+        monkeypatch.setattr(svc, 'RENDER_MEMORY_HEADROOM_BYTES', 2 * 1024**3)
+        assert svc._effective_headroom_bytes() == int(1024**3 * svc._MEMAVAILABLE_FRACTION)
+
+    def test_effective_headroom_keeps_configured_when_smaller(self, monkeypatch):
+        """Plenty of free memory: the operator's configured value wins."""
+        monkeypatch.setattr(svc, '_meminfo_available_bytes', lambda: 8 * 1024**3)
+        monkeypatch.setattr(svc, 'RENDER_MEMORY_HEADROOM_BYTES', 512 * 1024**2)
+        assert svc._effective_headroom_bytes() == 512 * 1024**2
+
+    def test_meminfo_parser_reads_memavailable(self):
+        """Parses the kernel's kB line format into bytes."""
+        fake_meminfo = (
+            "MemTotal:       16000000 kB\n"
+            "MemFree:         1000000 kB\n"
+            "MemAvailable:    2000000 kB\n"
+        )
+        with mock.patch('builtins.open', mock.mock_open(read_data=fake_meminfo)):
+            assert svc._meminfo_available_bytes() == 2000000 * 1024
+
+
+class TestRenderTempFileProtocol:
+    """The PNG travels from the render child to the parent via a temp file, not
+    the result queue — a queued payload over the ~64 KiB pipe buffer would
+    deadlock child-exit against the parent's join(). These verify the parent
+    side of that protocol with a fake fork context (real fork is Linux-only)."""
+
+    def test_success_path_reads_png_from_temp_file_and_cleans_up(self, monkeypatch, tmp_path):
+        import os
+        captured_paths = []
+
+        class _FakeQueue:
+            def get_nowait(self):
+                return ('ok', (1.0, 2.0, 3.0))
+
+        class _FakeProcess:
+            exitcode = 0
+
+            def __init__(self, *args, **kwargs):
+                self.args = kwargs.get('args') or args
+                self._png_path = self.args[2]
+                captured_paths.append(self._png_path)
+
+            def start(self):
+                # Stand in for the child: write the PNG to the parent-owned path.
+                with open(self._png_path, 'wb') as f:
+                    f.write(b'\x89PNG\r\n\x1a\nfakedata')
+
+            def join(self, timeout=None):
+                pass
+
+            def is_alive(self):
+                return False
+
+        class _FakeCtx:
+            def Queue(self):
+                return _FakeQueue()
+
+            def Process(self, *args, **kwargs):
+                return _FakeProcess(*args, **kwargs)
+
+        stl_path = tmp_path / 'mesh.stl'
+        stl_path.write_bytes(_stl_bytes())
+        monkeypatch.setattr(svc, '_fork_context', lambda: _FakeCtx())
+
+        result = svc.render_file_to_assets(str(stl_path), '#000000')
+
+        assert result['png_bytes'].startswith(b'\x89PNG')
+        assert result['bounding_box'] == (1.0, 2.0, 3.0)
+        # finally-block hygiene: the temp handoff file must not outlive the call
+        assert not os.path.exists(captured_paths[0])
+
+    def test_temp_file_removed_when_child_dies(self, monkeypatch, tmp_path):
+        import os
+        import queue
+        captured_paths = []
+
+        class _FakeQueue:
+            def get_nowait(self):
+                raise queue.Empty()
+
+        class _FakeProcess:
+            exitcode = -9
+
+            def __init__(self, *args, **kwargs):
+                self.args = kwargs.get('args') or args
+                captured_paths.append(self.args[2])
+
+            def start(self):
+                pass
+
+            def join(self, timeout=None):
+                pass
+
+            def is_alive(self):
+                return False
+
+        class _FakeCtx:
+            def Queue(self):
+                return _FakeQueue()
+
+            def Process(self, *args, **kwargs):
+                return _FakeProcess(*args, **kwargs)
+
+        stl_path = tmp_path / 'mesh.stl'
+        stl_path.write_bytes(_stl_bytes())
+        monkeypatch.setattr(svc, '_fork_context', lambda: _FakeCtx())
+
+        result = svc.render_file_to_assets(str(stl_path), '#000000')
+
+        assert result is None
+        assert not os.path.exists(captured_paths[0])

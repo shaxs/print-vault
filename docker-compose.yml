@@ -33,6 +33,14 @@ services:
     build: .
     restart: unless-stopped
     entrypoint: ["/entrypoint-qcluster.sh"]
+    # Hard ceiling on the worker container's memory, with swap use disabled
+    # (memswap == mem means "no swap"). This is the kernel-enforced backstop
+    # behind the app-level render caps: whatever a scan does, the host cannot
+    # be pushed into swap-thrash — the kernel OOM-kills the fattest process
+    # (the render child) and the scan skips that file. Size it to the host:
+    # ~1g on a 2 GB Pi, the 2g default suits 4 GB+.
+    mem_limit: ${QCLUSTER_MEM_LIMIT:-2g}
+    memswap_limit: ${QCLUSTER_MEM_LIMIT:-2g}
     env_file:
       - .env
     volumes:
