@@ -21,7 +21,9 @@ Entry points:
 
 import io
 import logging
+import multiprocessing
 import os
+import queue as queue_module
 import tempfile
 import xml.etree.ElementTree as ET
 import zipfile
@@ -98,6 +100,169 @@ MAX_RENDER_FACES = _env_int("LIBRARY_MAX_RENDER_FACES", 2_000_000)
 # directory without extracting — a small .3mf can decompress to gigabytes of
 # mesh, which would OOM during load (before any face count is known).
 MAX_3MF_UNCOMPRESSED_BYTES = _env_int("LIBRARY_MAX_3MF_UNCOMPRESSED_MB", 500) * 1024 * 1024
+
+# The geometry guards above are heuristics — they can't catch everything trimesh
+# does in memory. The worst offender is an INSTANCED .3mf: a small base object
+# referenced hundreds of times via build-items/components has a tiny <triangle>
+# count in its XML, but trimesh.load(force='mesh') EXPANDS every instance into
+# one giant mesh DURING load, spiking RAM to many GB before any post-load face
+# check can run (this OOM-killed the first-index worker). Since a file's memory
+# cost can't be predicted from static inspection, the render runs in a forked
+# CHILD process whose address space is hard-capped: any allocation past the cap
+# fails with MemoryError (or the child dies), the parent skips that file, and
+# the container's memory PHYSICALLY cannot exceed the cap — whatever the file is.
+#
+# The cap is (the child's startup virtual size + this headroom), so it adapts to
+# whatever baseline the forked worker inherited. Env-tunable: lower the headroom
+# on constrained hardware (Pi), raise it if legit large models get skipped.
+RENDER_MEMORY_HEADROOM_BYTES = _env_int("LIBRARY_RENDER_HEADROOM_MB", 2048) * 1024 * 1024
+
+# Wall-clock ceiling for a single render child. Also kills the pathological slow
+# case (the pure-Python draw loop grinding for minutes on a dense mesh).
+RENDER_TIMEOUT_SECONDS = _env_int("LIBRARY_RENDER_TIMEOUT_SECONDS", 120)
+
+try:
+    _PAGE_SIZE_BYTES = os.sysconf('SC_PAGE_SIZE')
+except (AttributeError, ValueError, OSError):
+    _PAGE_SIZE_BYTES = 4096  # non-Linux dev
+
+
+def _current_vsize_bytes():
+    """This process's virtual memory size (VSZ) in bytes, from /proc/self/statm
+    field 0. Returns 0 where /proc isn't available (non-Linux dev)."""
+    try:
+        with open('/proc/self/statm') as fh:
+            vsize_pages = int(fh.read().split()[0])
+    except (OSError, ValueError, IndexError):
+        return 0
+    return vsize_pages * _PAGE_SIZE_BYTES
+
+
+def _cap_child_address_space():
+    """In a forked render child, cap RLIMIT_AS to (current VSZ + headroom) so a
+    pathological load/render can't exhaust the container — the allocation fails
+    (MemoryError) instead of succeeding and OOMing the host. No-op where the
+    resource module or /proc is unavailable (dev)."""
+    try:
+        import resource
+    except ImportError:
+        return
+    baseline = _current_vsize_bytes()
+    if not baseline:
+        return
+    cap = baseline + RENDER_MEMORY_HEADROOM_BYTES
+    try:
+        _soft, hard = resource.getrlimit(resource.RLIMIT_AS)
+        if hard != resource.RLIM_INFINITY:
+            cap = min(cap, hard)
+        resource.setrlimit(resource.RLIMIT_AS, (cap, hard))
+    except (ValueError, OSError):
+        pass
+
+
+def _isolated_render_target(file_path, color_hex, result_queue):
+    """Runs in the forked child: cap memory, then load + render + encode and
+    hand the result back over the queue. Any allocation past the cap raises
+    MemoryError (caught here) or kills the child outright (the parent notices
+    the empty queue + non-zero exit). Never touches the DB."""
+    try:
+        from django.db import connections
+        connections.close_all()  # don't share the inherited DB connection
+    except Exception:
+        pass
+    _cap_child_address_space()
+    try:
+        mesh = _load_mesh(Path(file_path))
+        if mesh is None:
+            result_queue.put(('skip', None))
+            return
+        extents = mesh.extents
+        image = _render_mesh_image(mesh, base_color_hex=color_hex)
+        buffer = io.BytesIO()
+        image.save(buffer, format='PNG', optimize=True)
+        result_queue.put(('ok', (
+            buffer.getvalue(),
+            (float(extents[0]), float(extents[1]), float(extents[2])),
+        )))
+    except MemoryError:
+        result_queue.put(('memory', None))
+    except Exception as e:  # pragma: no cover - defensive
+        result_queue.put(('error', repr(e)))
+
+
+def _fork_context():
+    """The 'fork' multiprocessing context (cheap COW start, inherits the already
+    imported numpy/trimesh), or None where fork isn't available (Windows/macOS
+    dev use 'spawn' — we fall back to in-process there)."""
+    try:
+        return multiprocessing.get_context('fork')
+    except (ValueError, AttributeError):
+        return None
+
+
+def render_file_to_assets(file_path, color_hex):
+    """Load + render `file_path` and return {'png_bytes', 'bounding_box'} or None
+    (skip). The work runs in a memory-capped, time-limited forked child so no
+    single file — however dense, instanced, or malformed — can exhaust the host.
+    Falls back to in-process rendering where fork is unavailable (dev)."""
+    ctx = _fork_context()
+    if ctx is None:
+        return _render_file_inprocess(file_path, color_hex)
+
+    result_queue = ctx.Queue()
+    proc = ctx.Process(
+        target=_isolated_render_target,
+        args=(str(file_path), color_hex, result_queue),
+    )
+    proc.start()
+    proc.join(RENDER_TIMEOUT_SECONDS)
+
+    if proc.is_alive():
+        proc.terminate()
+        proc.join(5)
+        if proc.is_alive():
+            proc.kill()
+            proc.join()
+        logger.info(
+            f"Skipping mesh for {file_path}: render exceeded "
+            f"{RENDER_TIMEOUT_SECONDS}s wall-clock limit"
+        )
+        return None
+
+    try:
+        status, payload = result_queue.get_nowait()
+    except queue_module.Empty:
+        # No result + process gone => it was killed (memory cap tripped / crash).
+        logger.info(
+            f"Skipping mesh for {file_path}: render child exited "
+            f"{proc.exitcode} without a result (likely over the memory cap)"
+        )
+        return None
+
+    if status == 'ok':
+        png_bytes, bounding_box = payload
+        return {'png_bytes': png_bytes, 'bounding_box': bounding_box}
+    if status == 'memory':
+        logger.info(f"Skipping mesh for {file_path}: render hit the memory cap")
+    elif status == 'error':
+        logger.warning(f"Render failed for {file_path}: {payload}")
+    return None  # 'skip' (unrenderable/too dense) or any non-ok status
+
+
+def _render_file_inprocess(file_path, color_hex):
+    """In-process load + render (dev fallback where fork is unavailable). The
+    geometry guards in _load_mesh still apply; there is no hard memory cap."""
+    mesh = _load_mesh(Path(file_path))
+    if mesh is None:
+        return None
+    extents = mesh.extents
+    image = _render_mesh_image(mesh, base_color_hex=color_hex)
+    buffer = io.BytesIO()
+    image.save(buffer, format='PNG', optimize=True)
+    return {
+        'png_bytes': buffer.getvalue(),
+        'bounding_box': (float(extents[0]), float(extents[1]), float(extents[2])),
+    }
 
 
 def _binary_stl_face_count(path: Path):

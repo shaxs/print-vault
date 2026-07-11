@@ -9,7 +9,6 @@ returning raw PNG bytes plus the mesh's bounding box instead of creating a
 TrackerFileImage row. Persistence is the scanner's job, not this module's.
 """
 
-import io
 import logging
 from pathlib import Path
 from typing import Optional
@@ -18,8 +17,7 @@ from inventory.services.stl_thumbnail_service import (
     FALLBACK_COLOR_HEX,
     MAX_RENDER_FILE_SIZE_BYTES,
     SUPPORTED_EXTENSIONS,
-    _load_mesh,
-    _render_mesh_image,
+    render_file_to_assets,
 )
 
 logger = logging.getLogger(__name__)
@@ -42,7 +40,13 @@ def generate_library_file_assets(file_path, color_hex=NEUTRAL_COLOR_HEX) -> Opti
     coordinate system (taken before the isometric render rotation).
 
     Never raises — returns None for unsupported extensions, oversized files
-    (same render cap as tracker thumbnails), and corrupt/unloadable meshes.
+    (same render cap as tracker thumbnails), corrupt/unloadable meshes, and
+    meshes too big to render within the memory/time budget.
+
+    The actual load + render runs in a memory-capped, time-limited subprocess
+    (render_file_to_assets), so a pathological file — a dense or instanced .3mf
+    that would balloon trimesh's memory to many GB during load — is skipped
+    instead of OOM-killing the worker and thrashing the host.
     """
     try:
         path_str = str(file_path)
@@ -59,19 +63,7 @@ def generate_library_file_assets(file_path, color_hex=NEUTRAL_COLOR_HEX) -> Opti
             )
             return None
 
-        mesh = _load_mesh(path)
-        if mesh is None:
-            return None
-
-        extents = mesh.extents  # before render rotation — the model's own AABB
-        image = _render_mesh_image(mesh, base_color_hex=color_hex or NEUTRAL_COLOR_HEX)
-
-        buffer = io.BytesIO()
-        image.save(buffer, format='PNG', optimize=True)
-        return {
-            'png_bytes': buffer.getvalue(),
-            'bounding_box': (float(extents[0]), float(extents[1]), float(extents[2])),
-        }
+        return render_file_to_assets(path, color_hex or NEUTRAL_COLOR_HEX)
     except Exception:
         logger.exception(f"Library thumbnail generation failed for {file_path}")
         return None

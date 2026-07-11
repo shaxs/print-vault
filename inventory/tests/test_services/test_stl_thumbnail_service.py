@@ -170,6 +170,72 @@ class TestGeometryGuards:
 
 
 # ============================================================================
+# render_file_to_assets — memory-capped subprocess wrapper
+# ============================================================================
+
+class TestRenderFileToAssets:
+    """The forked, memory-capped path only runs on Linux; these exercise the
+    orchestration and the in-process fallback that runs on dev (no fork)."""
+
+    def test_returns_assets_for_valid_stl(self, tmp_path):
+        p = tmp_path / "box.stl"
+        p.write_bytes(_stl_bytes())
+
+        result = svc.render_file_to_assets(p, svc.FALLBACK_COLOR_HEX)
+
+        assert result is not None
+        assert result['png_bytes'][:8] == b'\x89PNG\r\n\x1a\n'  # real PNG
+        assert len(result['bounding_box']) == 3
+
+    def test_returns_none_when_mesh_is_skipped(self, tmp_path, monkeypatch):
+        """A file _load_mesh rejects (too dense) yields None, no crash."""
+        monkeypatch.setattr(svc, "MAX_RENDER_FACES", 100)
+        monkeypatch.setattr(svc, "MAX_3MF_UNCOMPRESSED_BYTES", 10 ** 9)
+        p = tmp_path / "dense.3mf"
+        _write_3mf(p, n_triangles=500)
+
+        assert svc.render_file_to_assets(p, svc.FALLBACK_COLOR_HEX) is None
+
+    def test_parent_handles_child_killed_over_memory_cap(self, monkeypatch, tmp_path):
+        """When the render child is killed without producing a result (the
+        memory cap tripping shows up exactly like this), the parent skips the
+        file rather than raising."""
+        p = tmp_path / "box.stl"
+        p.write_bytes(_stl_bytes())
+
+        class _DeadProc:
+            exitcode = -9
+
+            def __init__(self, *a, **k):
+                pass
+
+            def start(self):
+                pass
+
+            def join(self, timeout=None):
+                pass
+
+            def is_alive(self):
+                return False
+
+        class _EmptyQueue:
+            def get_nowait(self):
+                import queue as q
+                raise q.Empty
+
+        class _Ctx:
+            def Queue(self):
+                return _EmptyQueue()
+
+            def Process(self, *a, **k):
+                return _DeadProc()
+
+        monkeypatch.setattr(svc, "_fork_context", lambda: _Ctx())
+
+        assert svc.render_file_to_assets(p, svc.FALLBACK_COLOR_HEX) is None
+
+
+# ============================================================================
 # _render_mesh_image
 # ============================================================================
 
