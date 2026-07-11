@@ -32,6 +32,7 @@ import os
 import time
 from datetime import datetime, timezone as dt_timezone
 
+from django.conf import settings
 from django.core.files.base import ContentFile
 from django.db import transaction
 from django.db.models import F, Q
@@ -47,15 +48,48 @@ logger = logging.getLogger(__name__)
 SUPPORTED_EXTENSIONS = {'stl', '3mf'}
 
 # Files per processing task. Each file costs a full read (hash) plus a render.
-# CHUNK_SIZE bounds how many tasks are enqueued up front; CHUNK_TIME_BUDGET is
-# the real safety net — a chunk task re-enqueues whatever it hasn't finished
-# once the budget trips, so 20 large files on a slow share can no longer blow
-# Q_CLUSTER's 300s task timeout (the original "reincarnated worker" bug).
-CHUNK_SIZE = 20
+# CHUNK_SIZE bounds two things: how many tasks are enqueued up front, and — the
+# reason it's small — the PEAK memory a worker reaches inside a single task.
+# Rendering loads whole meshes into numpy arrays (up to MAX_RENDER_FILE_SIZE_BYTES
+# = 100 MB of geometry), and Q_CLUSTER's max_rss guard only recycles a bloated
+# worker BETWEEN tasks — it can't reclaim mid-chunk. So a fat chunk can peak far
+# past max_rss before the check ever fires: 20 renders/task thrash-locked a
+# 6 GB LXC on the first index of a ~7k-file share (July 2026). 5 keeps the
+# in-task peak ~4x lower so max_rss can actually do its job. CHUNK_TIME_BUDGET
+# below is the separate timeout guard (re-enqueues unfinished work).
+CHUNK_SIZE = 5
 
 # Wall-clock budget per chunk task, with headroom under the 300s worker timeout
 # for one more (network read + render) file after the check trips.
 CHUNK_TIME_BUDGET_SECONDS = 150
+
+# Live-RSS ceiling for the per-file memory bail in process_file_chunk. Mirrors
+# Q_CLUSTER['max_rss'] (KB -> bytes) so the bail and Django-Q's own recycle use
+# the same number: when a worker crosses it mid-chunk we stop taking on new
+# renders, hand the remainder to a fresh task, and return so max_rss recycles
+# the bloated process (the only way to give memory back to the OS — CPython
+# won't). This bounds live peak independent of CHUNK_SIZE and mesh size, which
+# is what keeps a small box (Pi/LXC) from OOMing on a first index. Whichever
+# limit fires first — this one or the time budget — hands off the same way.
+WORKER_RSS_LIMIT_BYTES = settings.Q_CLUSTER.get('max_rss', 600 * 1024) * 1024
+
+try:
+    _PAGE_SIZE_BYTES = os.sysconf('SC_PAGE_SIZE')
+except (AttributeError, ValueError, OSError):
+    _PAGE_SIZE_BYTES = 4096  # non-Linux dev; the RSS bail no-ops there anyway
+
+
+def _worker_rss_bytes():
+    """Resident set size of this worker process, in bytes. Linux-only (reads
+    /proc/self/statm); returns 0 anywhere that's unavailable (dev on
+    Windows/macOS, or a read error) so the RSS bail simply no-ops."""
+    try:
+        with open('/proc/self/statm') as fh:
+            resident_pages = int(fh.read().split()[1])
+    except (OSError, ValueError, IndexError):
+        return 0
+    return resident_pages * _PAGE_SIZE_BYTES
+
 
 # Batch size for bulk last_seen_at bumps during the walk.
 BULK_BATCH_SIZE = 500
@@ -412,18 +446,33 @@ def process_file_chunk(scan_id, file_ids, force_render=False):
             logger.exception(f"Library scan {scan_id}: processing file {file_id} failed")
         processed += 1
 
-        # Time budget: if files remain and we've spent the budget, hand the rest
-        # to a fresh task rather than risk exceeding the worker timeout.
+        # Hand the rest of the chunk to a fresh task when either guard trips:
+        #   - time budget: don't risk exceeding the worker timeout;
+        #   - memory: a worker over the RSS ceiling must stop rendering NOW so
+        #     Django-Q's max_rss recycles it and returns memory to the OS,
+        #     rather than keep growing across the rest of the chunk. This is the
+        #     mid-chunk companion to max_rss (which only fires between tasks) and
+        #     is what keeps a single fat task from OOMing a small box.
         remaining = file_ids[index + 1:]
-        if remaining and time.monotonic() - started >= CHUNK_TIME_BUDGET_SECONDS:
-            LibraryScan.objects.filter(pk=scan_id).update(
-                files_processed=F('files_processed') + processed
-            )
-            async_task(
-                'inventory.library_tasks.process_library_file_chunk',
-                scan_id, remaining, force_render,
-            )
-            return None
+        if remaining:
+            over_time = time.monotonic() - started >= CHUNK_TIME_BUDGET_SECONDS
+            over_memory = _worker_rss_bytes() >= WORKER_RSS_LIMIT_BYTES
+            if over_time or over_memory:
+                if over_memory:
+                    logger.info(
+                        f"Library scan {scan_id}: worker RSS over "
+                        f"{WORKER_RSS_LIMIT_BYTES // (1024 * 1024)} MB after "
+                        f"{processed} file(s); handing {len(remaining)} to a "
+                        f"fresh task so the worker can recycle"
+                    )
+                LibraryScan.objects.filter(pk=scan_id).update(
+                    files_processed=F('files_processed') + processed
+                )
+                async_task(
+                    'inventory.library_tasks.process_library_file_chunk',
+                    scan_id, remaining, force_render,
+                )
+                return None
 
     LibraryScan.objects.filter(pk=scan_id).update(files_processed=F('files_processed') + processed)
     scan.refresh_from_db()

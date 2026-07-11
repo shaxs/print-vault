@@ -19,6 +19,8 @@ services:
     volumes:
       - ./data/media:/code/media
       - static_volume:/code/staticfiles
+      # STL/3MF library share — see .env (LIBRARY_HOST_PATH / LIBRARY_MOUNT_PATH).
+      - ${LIBRARY_HOST_PATH:-./data/library}:${LIBRARY_MOUNT_PATH:-/mnt/nas/stls}:rw
     expose:
       - "8000"
     ports:

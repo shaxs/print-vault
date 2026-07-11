@@ -216,25 +216,47 @@ REST_FRAMEWORK = {
 # Set max upload size to 250MB (250 * 1024 * 1024 bytes)
 DATA_UPLOAD_MAX_MEMORY_SIZE = 262144000
 
+def _env_int(name, default):
+    """Positive int from the environment, falling back to default for
+    unset/blank/invalid values so a fat-fingered .env can't crash startup."""
+    try:
+        value = int(os.environ.get(name, "") or default)
+    except (TypeError, ValueError):
+        return default
+    return value if value > 0 else default
+
+
 # Django-Q2 async task cluster.
 # Uses the ORM broker against the default database connection (SQLite in dev,
 # Postgres in production via backend/production.py) — no separate broker
 # infrastructure (e.g. Redis) required.
+#
+# Defaults are tuned for the WEAKEST supported hardware (Raspberry Pi / small
+# self-hosted LXC), because a large first-time STL library index is the heaviest
+# thing this app does and must never OOM a small box — slower is fine, exploding
+# is not. Operators on capable hardware raise Q_WORKERS (and, if they have RAM,
+# Q_WORKER_MEMORY_LIMIT_MB) in .env to index faster. See LIBRARY_MAX_RENDER_
+# FILE_SIZE_MB (stl_thumbnail_service) for the per-file render ceiling.
 Q_CLUSTER = {
     "name": "printvault",
-    "workers": 2,
+    # One worker by default: each worker multiplies peak memory, and the STL
+    # renderer can hold a mesh at hundreds of MB, so a pool is what thrashed a
+    # small box on the first index (July 2026).
+    "workers": _env_int("Q_WORKERS", 1),
     "timeout": 300,
     "retry": 420,
     "queue_limit": 50,
     "bulk": 10,
     "orm": "default",
-    # Runaway-worker guards. Thumbnail rendering loads whole meshes into
-    # numpy arrays, and CPython never returns freed arena memory to the OS —
-    # a worker that peaks at 1.8 GB stays there (observed thrashing a 2 GB
-    # LXC container in July 2026). recycle/max_rss replace bloated workers;
-    # max_attempts stops a task the OOM killer keeps interrupting from being
-    # re-queued forever (django-q2's default of 0 = infinite retries).
+    # Runaway-worker guards. Thumbnail rendering loads whole meshes into numpy
+    # arrays, and CPython never returns freed arena memory to the OS — a bloated
+    # worker stays bloated until the process is recycled. recycle/max_rss
+    # replace such workers; max_attempts stops a task the OOM killer keeps
+    # interrupting from being re-queued forever (django-q2's default 0 =
+    # infinite retries). max_rss only fires BETWEEN tasks — the per-file RSS
+    # bail in library_scanner.process_file_chunk is the mid-chunk companion that
+    # keeps a single fat task from blowing past this ceiling.
     "recycle": 20,
-    "max_rss": 1024 * 1024,  # KB — recycle any worker above ~1 GB resident
+    "max_rss": _env_int("Q_WORKER_MEMORY_LIMIT_MB", 600) * 1024,  # KB
     "max_attempts": 2,
 }

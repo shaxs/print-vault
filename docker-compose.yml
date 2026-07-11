@@ -7,6 +7,10 @@ services:
     volumes:
       - ./data/media:/code/media
       - static_volume:/code/staticfiles
+      # STL/3MF library share. Host path and in-container mount point are both
+      # configurable via .env; the mount point must match the path entered in
+      # the library settings UI. Defaults keep a local-only setup working.
+      - ${LIBRARY_HOST_PATH:-./data/library}:${LIBRARY_MOUNT_PATH:-/mnt/nas/stls}:rw
     expose:
       - "8000"
     ports:
@@ -33,6 +37,9 @@ services:
       - .env
     volumes:
       - ./data/media:/code/media
+      # The library scan runs as a Django-Q task in THIS container, so it needs
+      # the same share mount as backend — otherwise the scan can't see the path.
+      - ${LIBRARY_HOST_PATH:-./data/library}:${LIBRARY_MOUNT_PATH:-/mnt/nas/stls}:rw
     environment:
       - DJANGO_SETTINGS_MODULE=backend.production
       - PYTHONPATH=/code

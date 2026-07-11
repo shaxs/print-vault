@@ -21,6 +21,7 @@ Entry points:
 
 import io
 import logging
+import os
 import tempfile
 from contextlib import contextmanager
 from pathlib import Path
@@ -64,7 +65,20 @@ ROTATION_Y_RADIANS = 0.6
 # the painter's-algorithm draw loop is linear in face count. Everything under
 # this cap renders every face (see _render_mesh_image); a 256x256 preview
 # gains nothing from a mesh denser than this, so skipping it is the right trade.
-MAX_RENDER_FILE_SIZE_BYTES = 100 * 1024 * 1024
+#
+# Configurable via LIBRARY_MAX_RENDER_FILE_SIZE_MB (default 100) so operators on
+# constrained hardware (e.g. a Raspberry Pi) can lower the ceiling: no single
+# render can then spike memory past it. Files over the cap still appear in the
+# library, just without a generated preview.
+def _env_int(name, default):
+    try:
+        value = int(os.environ.get(name, "") or default)
+    except (TypeError, ValueError):
+        return default
+    return value if value > 0 else default
+
+
+MAX_RENDER_FILE_SIZE_BYTES = _env_int("LIBRARY_MAX_RENDER_FILE_SIZE_MB", 100) * 1024 * 1024
 
 
 def _load_mesh(file_path: Path) -> Optional[trimesh.Trimesh]:
