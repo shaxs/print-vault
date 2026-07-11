@@ -259,4 +259,12 @@ Q_CLUSTER = {
     "recycle": 20,
     "max_rss": _env_int("Q_WORKER_MEMORY_LIMIT_MB", 600) * 1024,  # KB
     "max_attempts": 2,
+    # REQUIRED for library thumbnails: the renderer forks a memory-capped child
+    # per file (stl_thumbnail_service.render_file_to_assets), and Python forbids
+    # daemonic processes from having children — with the default (True), every
+    # proc.start() in a worker dies with "daemonic processes are not allowed to
+    # have children" and no thumbnail ever renders. Only the workers are
+    # affected; django-q's sentinel still manages/reaps them, so recycle and
+    # max_rss behave the same.
+    "daemonize_workers": False,
 }

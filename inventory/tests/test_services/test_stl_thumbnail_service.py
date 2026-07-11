@@ -682,6 +682,37 @@ class TestMemoryHeadroom:
             assert svc._meminfo_available_bytes() == 2000000 * 1024
 
 
+class TestDaemonicWorkerGuard:
+    """Python forbids daemonic processes from spawning children, so the render
+    subprocess can only work if Q_CLUSTER un-daemonizes the workers — and the
+    renderer must not silently fail every file if that setting is ever lost
+    (July 2026: every proc.start() raised and zero thumbnails rendered)."""
+
+    def test_q_cluster_undaemonizes_workers(self):
+        from django.conf import settings
+        assert settings.Q_CLUSTER.get('daemonize_workers') is False
+
+    def test_daemonic_parent_falls_back_to_inprocess(self, monkeypatch, tmp_path):
+        class _MustNotBeUsedCtx:
+            def Queue(self):
+                raise AssertionError("fork path must not be used in a daemonic parent")
+
+            def Process(self, *a, **k):
+                raise AssertionError("fork path must not be used in a daemonic parent")
+
+        monkeypatch.setattr(svc, "_fork_context", lambda: _MustNotBeUsedCtx())
+        monkeypatch.setattr(svc, "_in_daemonic_process", lambda: True)
+        monkeypatch.setattr(svc, "_warned_daemonic_parent", False)
+
+        stl_path = tmp_path / 'mesh.stl'
+        stl_path.write_bytes(_stl_bytes())
+
+        result = svc.render_file_to_assets(str(stl_path), svc.FALLBACK_COLOR_HEX)
+
+        assert result is not None
+        assert result['png_bytes'][:8] == b'\x89PNG\r\n\x1a\n'
+
+
 class TestRenderTempFileProtocol:
     """The PNG travels from the render child to the parent via a temp file, not
     the result queue — a queued payload over the ~64 KiB pipe buffer would

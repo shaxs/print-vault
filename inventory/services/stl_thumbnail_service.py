@@ -242,6 +242,20 @@ def _fork_context():
         return None
 
 
+_warned_daemonic_parent = False
+
+
+def _in_daemonic_process():
+    """True when this process may not spawn children (multiprocessing asserts
+    on it). Django-Q workers are daemonic unless Q_CLUSTER sets
+    'daemonize_workers': False — which backend/settings.py does; this check is
+    the backstop for any environment that loses that setting."""
+    try:
+        return bool(multiprocessing.current_process().daemon)
+    except Exception:  # pragma: no cover - defensive
+        return False
+
+
 def render_file_to_assets(file_path, color_hex):
     """Load + render `file_path` and return {'png_bytes', 'bounding_box'} or None
     (skip). The work runs in a memory-capped, time-limited forked child so no
@@ -249,6 +263,25 @@ def render_file_to_assets(file_path, color_hex):
     Falls back to in-process rendering where fork is unavailable (dev)."""
     ctx = _fork_context()
     if ctx is None:
+        return _render_file_inprocess(file_path, color_hex)
+
+    if _in_daemonic_process():
+        # A daemonic parent cannot start children — proc.start() would raise
+        # for EVERY file and no thumbnail would ever render (bit us on the
+        # first post-deploy scan, July 2026: Q_CLUSTER was missing
+        # 'daemonize_workers': False). Rendering in-process keeps thumbnails
+        # working — the geometry guards in _load_mesh still apply, and the
+        # container-level mem_limit bounds the true worst case — but the
+        # per-file hard cap is lost, so say exactly how to get it back.
+        global _warned_daemonic_parent
+        if not _warned_daemonic_parent:
+            _warned_daemonic_parent = True
+            logger.error(
+                "Render worker is a daemonic process, so the memory-capped "
+                "render subprocess cannot be used; falling back to in-process "
+                "rendering. Set Q_CLUSTER['daemonize_workers'] = False to "
+                "restore the per-file memory cap."
+            )
         return _render_file_inprocess(file_path, color_hex)
 
     # Parent-owned temp file carries the PNG out of the child; the queue only

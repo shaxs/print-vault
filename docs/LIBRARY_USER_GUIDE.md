@@ -31,11 +31,19 @@ The bundled `docker-compose.yml` mounts `${LIBRARY_HOST_PATH}:${LIBRARY_MOUNT_PA
 into **both** `backend` and `qcluster`. After setting these, rebuild and recreate:
 
 ```bash
+docker compose down
 docker compose build backend qcluster
 docker compose up -d
 # confirm the worker can see the share:
 docker compose exec qcluster ls -la /mnt/nas/stls
 ```
+
+Build-then-`up -d` **without** a `down` first can leave `backend` unreachable
+(nginx logs "connect() failed... Connection refused") — `depends_on`'s
+`service_healthy` ordering doesn't reliably replay across a partial recreate
+while other containers (`db`) are untouched. `down` before rebuilding avoids
+it entirely; a plain `docker compose restart backend qcluster` after an
+already-built image is fine.
 
 ### Multiple libraries
 
@@ -114,3 +122,10 @@ incremental (already-indexed, unchanged files are skipped), so they're fast.
 - **A scan exhausted the host before these safeguards existed:** stop the worker
   (`docker compose stop qcluster`), run `clear_stuck_jobs`, then rebuild to the
   current version — the memory caps above make a runaway scan impossible.
+- **Site unreachable / `502` on every `/api/...` route after an upgrade:**
+  nginx logs `connect() failed (111: Connection refused)` because `backend`
+  isn't listening at all — check `docker compose ps` (`backend` will be
+  `Restarting` or absent) and `docker compose logs backend`. This happens when
+  `docker compose build ... && docker compose up -d` is run without a `down`
+  first (see the rebuild note above); `docker compose down` then rebuild then
+  `up -d` resolves it.
