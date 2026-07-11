@@ -60,6 +60,74 @@ class TestLoadMesh:
 
 
 # ============================================================================
+# Geometry render guards (memory-safety: a dense mesh must never OOM a worker)
+# ============================================================================
+
+def _binary_stl_bytes(face_count):
+    """Minimal well-formed binary STL: 80-byte header + uint32 count + 50 bytes
+    per triangle. Body is zeroed — enough to satisfy the size identity the guard
+    checks, without generating real geometry."""
+    import struct
+    return b'\x00' * 80 + struct.pack('<I', face_count) + b'\x00' * (50 * face_count)
+
+
+class TestGeometryGuards:
+    def test_binary_stl_face_count_exact(self, tmp_path):
+        p = tmp_path / "m.stl"
+        p.write_bytes(_binary_stl_bytes(7))
+        assert svc._binary_stl_face_count(p) == 7
+
+    def test_binary_stl_face_count_none_for_ascii(self, tmp_path):
+        """ASCII STL must not be misread as binary — the size identity fails, so
+        we return None and let it load normally instead of wrongly skipping."""
+        p = tmp_path / "a.stl"
+        p.write_text("solid x\nendsolid x\n")
+        assert svc._binary_stl_face_count(p) is None
+
+    def test_load_mesh_skips_dense_binary_stl_without_loading(self, tmp_path, monkeypatch):
+        """A binary STL over the face cap is skipped from its header alone —
+        trimesh.load must never be called (that's the whole point: don't pull
+        gigabytes of geometry into RAM)."""
+        monkeypatch.setattr(svc, "MAX_RENDER_FACES", 100)
+        p = tmp_path / "dense.stl"
+        p.write_bytes(_binary_stl_bytes(101))
+
+        called = mock.Mock(side_effect=AssertionError("trimesh.load should not run"))
+        monkeypatch.setattr(svc.trimesh, "load", called)
+
+        assert svc._load_mesh(p) is None
+        called.assert_not_called()
+
+    def test_load_mesh_allows_stl_under_face_cap(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(svc, "MAX_RENDER_FACES", 1_000_000)
+        p = tmp_path / "box.stl"
+        p.write_bytes(_stl_bytes())
+        assert svc._load_mesh(p) is not None
+
+    def test_threemf_uncompressed_bytes(self, tmp_path):
+        import zipfile
+        p = tmp_path / "m.3mf"
+        with zipfile.ZipFile(p, 'w') as zf:
+            zf.writestr('3D/model.model', b'x' * 2048)
+        assert svc._threemf_uncompressed_bytes(p) == 2048
+
+    def test_load_mesh_skips_3mf_over_uncompressed_cap(self, tmp_path, monkeypatch):
+        """A .3mf whose uncompressed contents exceed the cap is skipped before
+        loading — protects against a decompression bomb OOMing during load."""
+        import zipfile
+        monkeypatch.setattr(svc, "MAX_3MF_UNCOMPRESSED_BYTES", 1024)
+        p = tmp_path / "big.3mf"
+        with zipfile.ZipFile(p, 'w') as zf:
+            zf.writestr('3D/model.model', b'x' * 4096)
+
+        called = mock.Mock(side_effect=AssertionError("trimesh.load should not run"))
+        monkeypatch.setattr(svc.trimesh, "load", called)
+
+        assert svc._load_mesh(p) is None
+        called.assert_not_called()
+
+
+# ============================================================================
 # _render_mesh_image
 # ============================================================================
 

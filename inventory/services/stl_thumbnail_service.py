@@ -23,6 +23,7 @@ import io
 import logging
 import os
 import tempfile
+import zipfile
 from contextlib import contextmanager
 from pathlib import Path
 from typing import Optional
@@ -80,9 +81,81 @@ def _env_int(name, default):
 
 MAX_RENDER_FILE_SIZE_BYTES = _env_int("LIBRARY_MAX_RENDER_FILE_SIZE_MB", 100) * 1024 * 1024
 
+# On-disk file size does NOT bound a mesh's memory cost. A compressed .3mf (a
+# zip) or a multi-object model that _load_mesh concatenates can hold tens of
+# millions of faces in well under MAX_RENDER_FILE_SIZE_BYTES, and both the
+# rasterizer's setup (vertices[faces], mesh.copy()) and its per-face Python draw
+# loop are linear in face count — so a dense mesh spikes RAM into the GBs and
+# grinds for minutes inside a single render. That OOM-killed a worker mid-task
+# on the first library index (July 2026), which the between-file RSS bail can't
+# catch because it only runs after a file completes. These caps bound the render
+# by GEOMETRY, skipping too-dense meshes (the file still appears, just without a
+# preview). Both are env-tunable for constrained hardware.
+MAX_RENDER_FACES = _env_int("LIBRARY_MAX_RENDER_FACES", 2_000_000)
+
+# Skip a .3mf whose UNCOMPRESSED contents exceed this, read from the zip
+# directory without extracting — a small .3mf can decompress to gigabytes of
+# mesh, which would OOM during load (before any face count is known).
+MAX_3MF_UNCOMPRESSED_BYTES = _env_int("LIBRARY_MAX_3MF_UNCOMPRESSED_MB", 500) * 1024 * 1024
+
+
+def _binary_stl_face_count(path: Path):
+    """Exact triangle count from a binary STL's header (the uint32 at byte 80),
+    or None if the file isn't a binary STL. A binary STL is exactly
+    84 + 50*count bytes, so that identity both confirms the format and yields
+    the count from an 84-byte read — letting us skip a too-dense mesh before
+    trimesh pulls the whole thing into memory."""
+    try:
+        size = path.stat().st_size
+        if size < 84:
+            return None
+        with open(path, 'rb') as fh:
+            fh.seek(80)
+            count = int.from_bytes(fh.read(4), 'little')
+        return count if 84 + count * 50 == size else None
+    except OSError:
+        return None
+
+
+def _threemf_uncompressed_bytes(path: Path):
+    """Total uncompressed size of a .3mf (zip) from its central directory, or
+    None if it isn't a readable zip. Read without extracting, so a decompression
+    bomb is never loaded into memory."""
+    try:
+        with zipfile.ZipFile(path) as zf:
+            return sum(info.file_size for info in zf.infolist())
+    except (zipfile.BadZipFile, OSError):
+        return None
+
 
 def _load_mesh(file_path: Path) -> Optional[trimesh.Trimesh]:
-    """Load an STL or 3MF file as a single trimesh object."""
+    """Load an STL or 3MF file as a single trimesh object.
+
+    Returns None (skip, no preview) not only for corrupt/empty meshes but also
+    for meshes too dense to rasterize within a safe memory/time budget — see
+    MAX_RENDER_FACES / MAX_3MF_UNCOMPRESSED_BYTES. Callers already treat None as
+    'no thumbnail', so both the library and tracker pipelines inherit the guard.
+    """
+    ext = file_path.suffix.lower()
+    # Pre-load guards: refuse a mesh we can tell is too big BEFORE trimesh reads
+    # it in — the only protection against an OOM during load itself.
+    if ext == '.stl':
+        stl_faces = _binary_stl_face_count(file_path)
+        if stl_faces is not None and stl_faces > MAX_RENDER_FACES:
+            logger.info(
+                f"Skipping mesh for {file_path}: binary STL has {stl_faces} "
+                f"faces, over cap {MAX_RENDER_FACES}"
+            )
+            return None
+    elif ext == '.3mf':
+        uncompressed = _threemf_uncompressed_bytes(file_path)
+        if uncompressed is not None and uncompressed > MAX_3MF_UNCOMPRESSED_BYTES:
+            logger.info(
+                f"Skipping mesh for {file_path}: 3MF uncompressed size "
+                f"{uncompressed} B exceeds cap {MAX_3MF_UNCOMPRESSED_BYTES} B"
+            )
+            return None
+
     try:
         mesh = trimesh.load(str(file_path), force='mesh')
 
@@ -93,6 +166,16 @@ def _load_mesh(file_path: Path) -> Optional[trimesh.Trimesh]:
             mesh = trimesh.util.concatenate(geometries)
 
         if mesh is None or len(mesh.vertices) == 0 or len(mesh.faces) == 0:
+            return None
+
+        # Post-load backstop: catches ASCII STL and any multi-object/3MF mesh
+        # that got past the pre-load checks but is still too dense to rasterize
+        # safely. Bounds the render's vertices[faces]/draw-loop cost.
+        if len(mesh.faces) > MAX_RENDER_FACES:
+            logger.info(
+                f"Skipping mesh for {file_path}: {len(mesh.faces)} faces "
+                f"exceeds render cap {MAX_RENDER_FACES}"
+            )
             return None
 
         return mesh
