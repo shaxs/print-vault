@@ -19,6 +19,21 @@ const props = defineProps({
 const emit = defineEmits(['update:modelValue'])
 
 const options = ref([])
+const multiselect = ref(null)
+const isOpen = ref(false)
+
+// When the dropdown is open, Escape should close just the dropdown — not the
+// whole modal. vue-multiselect doesn't handle Escape itself, so the keystroke
+// would bubble up to BaseModal's window listener and close the modal. We catch
+// it in the CAPTURE phase (before it reaches window), close the dropdown, and
+// stop it there. When the dropdown is closed, Escape passes through as normal
+// (so it still closes the modal).
+function onEscape(event) {
+  if (!isOpen.value) return
+  event.stopPropagation()
+  event.preventDefault()
+  multiselect.value?.deactivate?.()
+}
 
 const selected = computed({
   get: () => props.modelValue,
@@ -50,16 +65,21 @@ async function onCreate(name) {
 </script>
 
 <template>
-  <Multiselect
-    v-model="selected"
-    :options="options"
-    :multiple="true"
-    :taggable="true"
-    :close-on-select="false"
-    label="name"
-    track-by="id"
-    :placeholder="placeholder"
-    tag-placeholder="Press enter to create tag"
-    @tag="onCreate"
-  />
+  <div @keydown.esc.capture="onEscape">
+    <Multiselect
+      ref="multiselect"
+      v-model="selected"
+      :options="options"
+      :multiple="true"
+      :taggable="true"
+      :close-on-select="false"
+      label="name"
+      track-by="id"
+      :placeholder="placeholder"
+      tag-placeholder="Press enter to create tag"
+      @tag="onCreate"
+      @open="isOpen = true"
+      @close="isOpen = false"
+    />
+  </div>
 </template>

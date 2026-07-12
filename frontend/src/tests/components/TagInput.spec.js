@@ -22,7 +22,8 @@ vi.mock('vue-multiselect', () => ({
   default: {
     name: 'Multiselect',
     props: ['modelValue', 'options'],
-    emits: ['tag', 'update:modelValue'],
+    emits: ['tag', 'update:modelValue', 'open', 'close'],
+    methods: { deactivate() { this.$emit('close') } },
     template: '<div class="multiselect-stub"></div>',
   },
 }))
@@ -70,5 +71,30 @@ describe('TagInput', () => {
 
     // createTag returns the same id (2); it's already selected, so no re-emit.
     expect(wrapper.emitted('update:modelValue')).toBeFalsy()
+  })
+
+  it('swallows Escape while the dropdown is open, but lets it through when closed', async () => {
+    const wrapper = mount(TagInput, { props: { modelValue: [] }, attachTo: document.body })
+    await flushPromises()
+    // Stand-in for BaseModal's window-level Escape → close listener.
+    const windowEsc = vi.fn()
+    window.addEventListener('keydown', windowEsc)
+    const fireEsc = () =>
+      wrapper
+        .find('.multiselect-stub')
+        .element.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
+
+    // Closed dropdown: Escape reaches window (would close the modal).
+    fireEsc()
+    expect(windowEsc).toHaveBeenCalledTimes(1)
+
+    // Open dropdown: the capture handler stops Escape before it reaches window.
+    await findMultiselect(wrapper).vm.$emit('open')
+    windowEsc.mockClear()
+    fireEsc()
+    expect(windowEsc).not.toHaveBeenCalled()
+
+    window.removeEventListener('keydown', windowEsc)
+    wrapper.unmount()
   })
 })

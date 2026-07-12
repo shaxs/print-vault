@@ -130,6 +130,7 @@ const favoritesLoading = ref(false)
 const activeJobs = ref([]) // scan objects (status pending/running) being polled
 const jobNotices = ref([]) // transient completion lines: { id, tone, text }
 let jobPollTimer = null
+let folderNoticeTimer = null // auto-dismiss timer for the folder-tags notice
 
 const anyJobActive = computed(() => activeJobs.value.length > 0)
 const scanJobActive = computed(() => activeJobs.value.some((j) => j.kind === 'scan'))
@@ -605,14 +606,17 @@ function onFolderMetadataSaved(result) {
   refreshCurrentView()
   tagBrowser.value?.reload()
   const n = result?.affected_files ?? 0
+  // Stable id so a second save REPLACES the prior folder-tags notice instead of
+  // stacking another banner on top of it.
   const notice = {
-    id: `folder-tags-${Date.now()}`,
+    id: 'folder-tags',
     tone: 'success',
     text: `Folder tags applied to ${n} file${n === 1 ? '' : 's'}.`,
   }
-  jobNotices.value = [...jobNotices.value, notice]
-  setTimeout(() => {
-    jobNotices.value = jobNotices.value.filter((x) => x !== notice)
+  jobNotices.value = [...jobNotices.value.filter((x) => x.id !== 'folder-tags'), notice]
+  if (folderNoticeTimer) clearTimeout(folderNoticeTimer)
+  folderNoticeTimer = setTimeout(() => {
+    jobNotices.value = jobNotices.value.filter((x) => x.id !== 'folder-tags')
   }, 6000)
 }
 
