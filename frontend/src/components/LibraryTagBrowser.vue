@@ -64,6 +64,11 @@ function clearAll() {
 function setMode(mode) {
   if (mode !== props.matchMode) emit('update:matchMode', mode)
 }
+
+// Let the parent re-pull the tag list after a file's tags change in the detail
+// modal, so a just-added tag shows up (or a just-orphaned one disappears) in the
+// filter without a page reload.
+defineExpose({ reload: loadTags })
 </script>
 
 <template>

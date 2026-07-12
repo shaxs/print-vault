@@ -20,7 +20,7 @@ const props = defineProps({
   renderColor: { type: String, default: '' },
 })
 
-const emit = defineEmits(['close', 'deleted', 'favorite-changed'])
+const emit = defineEmits(['close', 'deleted', 'favorite-changed', 'tags-changed'])
 
 const VIEWER_BG_KEY = 'library-viewer-background'
 
@@ -103,6 +103,10 @@ async function saveTags(newTags) {
     })
     fileTags.value = response.data.tags
     file.value.tags = response.data.tags
+    // Tell the library to refresh the left-pane tag browser: a newly created
+    // (or newly orphaned) tag must appear in / drop out of the filter list
+    // immediately, without a page reload.
+    emit('tags-changed', { id: file.value.id, tags: response.data.tags })
   } catch (err) {
     console.error('Failed to save tags:', err)
     fileTags.value = previous // roll back

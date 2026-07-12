@@ -260,6 +260,7 @@ describe('LibraryFileDetailModal', () => {
     await flushPromises()
 
     expect(APIService.updateLibraryFile).toHaveBeenCalledWith(5, { tag_ids: [1, 2] })
+    expect(wrapper.emitted('tags-changed').at(-1)[0]).toEqual({ id: 5, tags: newTags })
   })
 
   // ---- Favorite ----

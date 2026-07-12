@@ -77,6 +77,7 @@ const loadingTree = ref(true)
 const loadingContents = ref(false)
 const loadError = ref(null)
 
+const tagBrowser = ref(null) // LibraryTagBrowser instance (for reload after tag edits)
 const detailFileId = ref(null)
 const showFileModal = ref(false)
 const showSettingsModal = ref(false)
@@ -566,6 +567,23 @@ function onFavoriteChanged({ id, is_favorite }) {
   }
 }
 
+// Keep a visible row's tag badges in sync after the detail modal edits them, and
+// refresh the left-pane tag browser so a newly created (or newly orphaned) tag
+// shows up in / drops out of the filter list without a page reload.
+function onFileTagsChanged({ id, tags }) {
+  for (const list of [
+    contents.value?.files?.results,
+    searchResults.value?.results,
+    tagResults.value?.results,
+    favoritesResults.value?.results,
+    newFilesResults.value?.results,
+  ]) {
+    const row = list?.find((f) => f.id === id)
+    if (row) row.tags = tags
+  }
+  tagBrowser.value?.reload()
+}
+
 // ---- Unified results pane (search / tag-browse / new-models share one table) ----
 
 const resultsMode = computed(
@@ -947,6 +965,7 @@ const breadcrumbs = computed(() => contents.value?.folder?.breadcrumbs || [])
       <!-- Left pane: browse-by-tag control + folder tree -->
       <aside class="tree-pane">
         <LibraryTagBrowser
+          ref="tagBrowser"
           :model-value="selectedTags"
           :match-mode="tagMatchMode"
           @update:model-value="onTagSelectionChange"
@@ -1313,6 +1332,7 @@ const breadcrumbs = computed(() => contents.value?.folder?.breadcrumbs || [])
       @close="showFileModal = false"
       @deleted="onFileDeleted"
       @favorite-changed="onFavoriteChanged"
+      @tags-changed="onFileTagsChanged"
     />
 
     <LibrarySettingsModal
