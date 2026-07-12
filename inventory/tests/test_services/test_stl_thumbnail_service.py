@@ -682,6 +682,66 @@ class TestMemoryHeadroom:
             assert svc._meminfo_available_bytes() == 2000000 * 1024
 
 
+class TestForkDbConnectionSafety:
+    """Forking with a live psycopg2 socket lets the child kill the parent's DB
+    session (closing/GC-ing the inherited connection sends the wire-level
+    Terminate on the shared socket). The parent must close its connections
+    BEFORE forking, and the child must never touch django.db."""
+
+    def test_parent_closes_db_connections_before_forking(self, monkeypatch, tmp_path):
+        calls = []
+        monkeypatch.setattr(
+            svc, '_close_parent_db_connections', lambda: calls.append('closed')
+        )
+        monkeypatch.setattr(svc, '_in_daemonic_process', lambda: False)
+
+        class _FakeQueue:
+            def get_nowait(self):
+                return ('skip', None)
+
+        class _FakeProcess:
+            exitcode = 0
+
+            def __init__(self, *args, **kwargs):
+                calls.append('forked')
+
+            def start(self):
+                pass
+
+            def join(self, timeout=None):
+                pass
+
+            def is_alive(self):
+                return False
+
+        class _FakeCtx:
+            def Queue(self):
+                return _FakeQueue()
+
+            def Process(self, *args, **kwargs):
+                return _FakeProcess(*args, **kwargs)
+
+        monkeypatch.setattr(svc, '_fork_context', lambda: _FakeCtx())
+        stl_path = tmp_path / 'mesh.stl'
+        stl_path.write_bytes(_stl_bytes())
+
+        svc.render_file_to_assets(str(stl_path), svc.FALLBACK_COLOR_HEX)
+
+        assert calls.index('closed') < calls.index('forked')
+
+    def test_close_helper_skips_connections_in_atomic_block(self, monkeypatch):
+        idle = mock.Mock(in_atomic_block=False)
+        in_txn = mock.Mock(in_atomic_block=True)
+        fake_handler = mock.Mock()
+        fake_handler.all.return_value = [idle, in_txn]
+        monkeypatch.setattr('django.db.connections', fake_handler)
+
+        svc._close_parent_db_connections()
+
+        idle.close.assert_called_once()
+        in_txn.close.assert_not_called()
+
+
 class TestDaemonicWorkerGuard:
     """Python forbids daemonic processes from spawning children, so the render
     subprocess can only work if Q_CLUSTER un-daemonizes the workers — and the

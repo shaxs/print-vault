@@ -197,23 +197,42 @@ def _cap_child_address_space():
         pass
 
 
+def _close_parent_db_connections():
+    """Close this (parent) process's Django DB connections BEFORE forking a
+    render child. Forking with a live psycopg2 socket is a footgun: any close
+    of the inherited connection object in the child — explicit close_all() or
+    garbage collection — sends the wire-level Terminate message down the
+    SHARED socket and kills the parent worker's session ("server closed the
+    connection unexpectedly" storms, July 2026). Closing in the parent first
+    means the child inherits no DB socket at all; Django transparently
+    reconnects on the parent's next query. Connections inside an atomic block
+    (test transactions) are left alone — Django forbids closing those."""
+    try:
+        from django.db import connections
+        for conn in connections.all():
+            if not conn.in_atomic_block:
+                conn.close()
+    except Exception:  # pragma: no cover - defensive
+        pass
+
+
 def _isolated_render_target(file_path, color_hex, png_out_path, result_queue):
     """Runs in the forked child: cap memory, then load + render, write the PNG
     to `png_out_path` (a parent-owned temp file), and report over the queue.
     Any allocation past the cap raises MemoryError (caught here) or kills the
     child outright (the parent notices the empty queue + non-zero exit).
-    Never touches the DB.
+
+    MUST NEVER touch django.db: the parent closed its connections pre-fork
+    (_close_parent_db_connections), and closing or GC-ing an inherited psycopg2
+    connection here would send Terminate on the parent's socket — the exact bug
+    that killed every chunk task's DB session. There is deliberately no
+    connections cleanup in this child.
 
     The PNG travels via the temp file, NOT the queue, on purpose: a
     multiprocessing.Queue feeds through an OS pipe (~64 KiB), and a child whose
     queued payload exceeds that blocks at exit until the parent reads — but the
     parent is in join(), waiting for the child to exit. Every queue message here
     is a few dozen bytes, so that deadlock is structurally impossible."""
-    try:
-        from django.db import connections
-        connections.close_all()  # don't share the inherited DB connection
-    except Exception:
-        pass
     _cap_child_address_space()
     try:
         mesh = _load_mesh(Path(file_path))
@@ -283,6 +302,11 @@ def render_file_to_assets(file_path, color_hex):
                 "restore the per-file memory cap."
             )
         return _render_file_inprocess(file_path, color_hex)
+
+    # Fork with NO live DB socket (see _close_parent_db_connections) — the
+    # child would otherwise share psycopg2's socket and any teardown there
+    # kills this worker's session.
+    _close_parent_db_connections()
 
     # Parent-owned temp file carries the PNG out of the child; the queue only
     # ever carries tiny status tuples (see _isolated_render_target for why).

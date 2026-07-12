@@ -109,6 +109,35 @@ STALE_SCAN_AGE_HOURS = 12
 # files_queued forever — the "stuck at 99%" the UI would otherwise show.
 SCAN_STALL_SECONDS = 600
 
+# Task funcs that can still advance a library scan. Only these postpone
+# reaping: the reaper itself is ALSO a queued task while it executes (django-q's
+# ORM broker keeps the row until the monitor acks it after completion), so a
+# naive "whole queue empty" gate can never pass from inside the reaper — it
+# blocked on its own queue row and never reaped anything (July 2026). Unrelated
+# tasks (tracker thumbnails, etc.) don't advance scans, so they don't postpone
+# reaping either.
+_SCAN_ADVANCING_TASK_FUNCS = frozenset({
+    'inventory.library_tasks.run_library_scan',
+    'inventory.library_tasks.run_thumbnail_regeneration',
+    'inventory.library_tasks.process_library_file_chunk',
+    'inventory.library_tasks.scheduled_root_rescan',
+})
+
+
+def _scan_work_is_queued():
+    """True if any queued/running Django-Q task could still advance a library
+    scan. Decodes each queued payload; undecodable rows are treated as
+    non-library (a permanently corrupt row must not disable the reaper)."""
+    from django_q.models import OrmQ
+
+    for queued in OrmQ.objects.all():
+        try:
+            if queued.func() in _SCAN_ADVANCING_TASK_FUNCS:
+                return True
+        except Exception:  # pragma: no cover - defensive
+            continue
+    return False
+
 
 def reap_stalled_scans():
     """Finalize library scans that can no longer make progress.
@@ -118,18 +147,16 @@ def reap_stalled_scans():
     just short of files_queued. This periodic sweep finalizes such scans so the
     UI stops showing "Scanning… 99%" and a fresh scan can start.
 
-    Only PROCESSING-phase scans (files_queued > 0) are reaped, and only when the
-    WHOLE Django-Q queue is empty — so nothing is left to advance them — and
-    they've been running past SCAN_STALL_SECONDS. Walk-phase scans (files_queued
-    == 0, walk task still in flight) are deliberately left to the 12 h stale
-    displacement, so a slow first walk is never cut short. Returns the count
-    reaped.
+    Only PROCESSING-phase scans (files_queued > 0) are reaped, and only when no
+    scan-advancing task remains queued (see _SCAN_ADVANCING_TASK_FUNCS — the
+    reaper's own queue row and unrelated tasks don't count) and they've been
+    running past SCAN_STALL_SECONDS. Walk-phase scans (files_queued == 0, walk
+    task still in flight) are deliberately left to the 12 h stale displacement,
+    so a slow first walk is never cut short. Returns the count reaped.
     """
-    from django_q.models import OrmQ
     from inventory.models import LibraryScan
 
-    # Cheap early out: if any task is queued, work can still advance a scan.
-    if OrmQ.objects.exists():
+    if _scan_work_is_queued():
         return 0
 
     cutoff = timezone.now() - timedelta(seconds=SCAN_STALL_SECONDS)

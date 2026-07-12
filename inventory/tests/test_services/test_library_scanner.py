@@ -550,10 +550,32 @@ class ReapStalledScansTest(TestCase):
         scan.refresh_from_db()
         self.assertEqual(scan.status, 'running')
 
-    def test_does_not_reap_when_queue_has_work(self):
+    @staticmethod
+    def _queued_task(func_path):
+        row = mock.Mock()
+        row.func.return_value = func_path
+        return row
+
+    def test_does_not_reap_when_scan_work_is_queued(self):
         scan = self._stalled_scan()
         with mock.patch('django_q.models.OrmQ.objects') as q:
-            q.exists.return_value = True
+            q.all.return_value = [
+                self._queued_task('inventory.library_tasks.process_library_file_chunk'),
+            ]
             self.assertEqual(library_scanner.reap_stalled_scans(), 0)
         scan.refresh_from_db()
         self.assertEqual(scan.status, 'running')
+
+    def test_reaps_despite_own_queue_row_and_unrelated_tasks(self):
+        """The reaper is itself a queued task while executing (the ORM broker
+        keeps the row until post-completion ack), so its own row — and any
+        non-library task — must NOT postpone reaping, or nothing ever reaps."""
+        scan = self._stalled_scan()
+        with mock.patch('django_q.models.OrmQ.objects') as q:
+            q.all.return_value = [
+                self._queued_task('inventory.library_tasks.reap_stalled_library_scans'),
+                self._queued_task('inventory.tasks.some_unrelated_task'),
+            ]
+            self.assertEqual(library_scanner.reap_stalled_scans(), 1)
+        scan.refresh_from_db()
+        self.assertEqual(scan.status, 'success')
