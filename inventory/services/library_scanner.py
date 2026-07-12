@@ -30,6 +30,7 @@ import hashlib
 import logging
 import os
 import time
+from collections import defaultdict
 from datetime import datetime, timedelta, timezone as dt_timezone
 
 from django.conf import settings
@@ -335,6 +336,9 @@ def _walk(scan, root, root_path, start_path, scope_rel, scan_time):
     seen_folder_ids = []
     seen_file_ids = []  # unchanged files: last_seen bump only
     to_process = []
+    # folder.pk -> [new file pk, ...]: brand-new rows only, stamped with their
+    # folder's tags after the walk (folder tag cascade for future files).
+    new_files_by_folder = defaultdict(list)
     files_seen = 0
     new_count = 0       # walk-created rows (paths not previously indexed)
     updated_count = 0   # stat-changed rows reprocessed
@@ -404,6 +408,7 @@ def _walk(scan, root, root_path, start_path, scope_rel, scan_time):
                     last_seen_at=scan_time,
                 )
                 to_process.append(created.pk)
+                new_files_by_folder[folder.pk].append(created.pk)
                 new_count += 1
                 continue
 
@@ -438,6 +443,10 @@ def _walk(scan, root, root_path, start_path, scope_rel, scan_time):
 
     _bump_seen(LibraryFile, seen_file_ids, scan_time)
     _bump_seen(LibraryFolder, seen_folder_ids, scan_time)
+    # Cascade folder tags onto the files this walk newly created, so a folder
+    # tagged earlier keeps stamping files that appear in it on later scans.
+    from inventory.services.library_folder_tags import stamp_new_files
+    stamp_new_files(new_files_by_folder)
     scan.files_seen = files_seen
     scan.files_new = new_count
     scan.files_updated = updated_count

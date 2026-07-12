@@ -43,6 +43,7 @@ from .serializers import (
     TrackerSerializer, TrackerFileSerializer, TrackerFileImageSerializer, TrackerCreateSerializer, TrackerListSerializer,
     FilamentSpoolSerializer,
     LibraryRootSerializer, LibraryFolderSerializer, LibraryFolderTreeSerializer,
+    LibraryFolderMetadataSerializer, LibraryFolderSearchSerializer,
     LibraryFileListSerializer, LibraryFileDetailSerializer, LibraryFileSearchSerializer,
     LibraryFileUpdateSerializer, TagSerializer,
     LibraryScanSerializer, TrackerThumbnailJobSerializer
@@ -4906,6 +4907,49 @@ class LibraryFolderViewSet(mixins.DestroyModelMixin, viewsets.ReadOnlyModelViewS
             )
         return Response(LibraryScanSerializer(scan).data, status=status.HTTP_202_ACCEPTED)
 
+    def _metadata_payload(self, folder):
+        return {
+            'id': folder.id,
+            'name': folder.name,
+            'relative_path': folder.relative_path,
+            'notes': folder.notes,
+            'tags': TagSerializer(folder.tags.all(), many=True).data,
+        }
+
+    @action(detail=True, methods=['get', 'put'])
+    def metadata(self, request, pk=None):
+        """GET the folder's tags + notes (for the editor modal); PUT saves them.
+
+        On PUT, the tag delta cascades DOWN the subtree: added tags are applied
+        to every descendant folder and file, removed tags are stripped from
+        them (see services/library_folder_tags.apply_folder_metadata). Notes are
+        folder-local and never cascade. Returns the saved metadata plus
+        affected_folders / affected_files counts."""
+        folder = self.get_object()
+        if request.method == 'GET':
+            return Response(self._metadata_payload(folder))
+        serializer = LibraryFolderMetadataSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        from inventory.services.library_folder_tags import apply_folder_metadata
+        result = apply_folder_metadata(
+            folder,
+            tag_ids=[t.pk for t in serializer.validated_data.get('tags', [])],
+            notes=serializer.validated_data.get('notes', ''),
+        )
+        folder.refresh_from_db()
+        payload = self._metadata_payload(folder)
+        payload.update(result)
+        return Response(payload)
+
+    @action(detail=True, methods=['post'])
+    def resync(self, request, pk=None):
+        """Forceful re-apply: push this folder's CURRENT tags onto every
+        descendant folder and file (add-only), recovering from drift. Overrides
+        a deliberate subfolder-only removal."""
+        folder = self.get_object()
+        from inventory.services.library_folder_tags import resync_folder
+        return Response(resync_folder(folder))
+
     def destroy(self, request, *args, **kwargs):
         """Permanent delete — only for folders already soft-deleted by a scan
         sweep, and only when nothing active still lives under the subtree
@@ -5147,11 +5191,31 @@ class LibrarySearchView(APIView):
         paginator = LibraryContentsPagination()
         page = paginator.paginate_queryset(files, request, view=self)
         data = LibraryFileSearchSerializer(page, many=True, context={'request': request}).data
+
+        # Folder hits: a text query also matches folders on name/notes so a user
+        # searching e.g. "10 inch rack" can jump straight to the folder. Only for
+        # text queries (tag/favorite browse has no folder text to match), and
+        # only on the first page so they aren't repeated as the file list pages.
+        folders_data = []
+        if q and str(request.query_params.get('page', '1')) in ('1', ''):
+            folders = LibraryFolder.objects.select_related('root').filter(
+                models.Q(name__icontains=q) | models.Q(notes__icontains=q)
+            )
+            if root_id:
+                folders = folders.filter(root_id=root_id)
+            else:
+                folders = folders.filter(root__enabled=True)
+            if request.query_params.get('include_deleted') not in ('true', '1'):
+                folders = folders.filter(status='active')
+            folders = folders.order_by('relative_path')[:50]
+            folders_data = LibraryFolderSearchSerializer(folders, many=True).data
+
         return Response({
             'count': paginator.page.paginator.count,
             'next': paginator.get_next_link(),
             'previous': paginator.get_previous_link(),
             'results': data,
+            'folders': folders_data,
         })
 
 

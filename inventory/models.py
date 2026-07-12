@@ -1785,6 +1785,17 @@ class LibraryFolder(models.Model):
         choices=[('active', 'Active'), ('deleted', 'Deleted')],
         default='active',
     )
+    notes = models.TextField(
+        blank=True, default='',
+        help_text="User-authored folder notes; folder-local — never cascades to files or "
+                  "subfolders. Matched by library search (name + notes)."
+    )
+    tags = models.ManyToManyField(
+        Tag, blank=True, related_name='library_folders',
+        help_text="Folder-level tags. Cascade DOWN into descendant folders and their files "
+                  "(copy-down model); never bubble up to a parent. See "
+                  "services/library_folder_tags.py."
+    )
     last_seen_at = models.DateTimeField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
 

@@ -19,6 +19,7 @@ import LibraryFileDetailModal from '@/components/LibraryFileDetailModal.vue'
 import LibrarySettingsModal from '@/components/LibrarySettingsModal.vue'
 import TagBadge from '@/components/TagBadge.vue'
 import LibraryTagBrowser from '@/components/LibraryTagBrowser.vue'
+import LibraryFolderMetadataModal from '@/components/LibraryFolderMetadataModal.vue'
 
 const VIEW_MODE_KEY = 'library-view-mode'
 const HIDE_EMPTY_KEY = 'library-hide-empty-folders'
@@ -80,6 +81,9 @@ const loadError = ref(null)
 const tagBrowser = ref(null) // LibraryTagBrowser instance (for reload after tag edits)
 const detailFileId = ref(null)
 const showFileModal = ref(false)
+const showFolderModal = ref(false)
+const folderModalId = ref(null)
+const folderModalName = ref('')
 const showSettingsModal = ref(false)
 const thumbVersion = ref(0) // bumped after regeneration to bust stale img cache
 
@@ -220,6 +224,7 @@ provide(
       return selectedFolderId.value
     },
     select: (id) => selectFolder(id),
+    openMetadata: (folder) => openFolderMetadata(folder),
     toggle: (id) => {
       const next = new Set(expandedIds.value)
       next.has(id) ? next.delete(id) : next.add(id)
@@ -582,6 +587,33 @@ function onFileTagsChanged({ id, tags }) {
     if (row) row.tags = tags
   }
   tagBrowser.value?.reload()
+}
+
+// ---- Folder tags & notes (right-click a folder in the tree) ----
+
+function openFolderMetadata(folder) {
+  folderModalId.value = folder.id
+  folderModalName.value = folder.name
+  showFolderModal.value = true
+}
+
+function onFolderMetadataSaved(result) {
+  showFolderModal.value = false
+  // Folder tags cascaded down: refresh the tree, the current file view (so tag
+  // badges/filters reflect the change), and the tag browser's usage counts.
+  reloadTree()
+  refreshCurrentView()
+  tagBrowser.value?.reload()
+  const n = result?.affected_files ?? 0
+  const notice = {
+    id: `folder-tags-${Date.now()}`,
+    tone: 'success',
+    text: `Folder tags applied to ${n} file${n === 1 ? '' : 's'}.`,
+  }
+  jobNotices.value = [...jobNotices.value, notice]
+  setTimeout(() => {
+    jobNotices.value = jobNotices.value.filter((x) => x !== notice)
+  }, 6000)
 }
 
 // ---- Unified results pane (search / tag-browse / new-models share one table) ----
@@ -1092,6 +1124,27 @@ const breadcrumbs = computed(() => contents.value?.folder?.breadcrumbs || [])
             {{ searchMode ? 'Searching…' : 'Loading…' }}
           </div>
           <template v-else-if="resultsData">
+            <!-- Folder hits: only in text-search mode, matched on folder name/notes -->
+            <div
+              v-if="searchMode && searchResults.folders && searchResults.folders.length"
+              class="folder-hits"
+            >
+              <div class="folder-hits-label">Folders</div>
+              <button
+                v-for="fhit in searchResults.folders"
+                :key="`fhit-${fhit.id}`"
+                type="button"
+                class="folder-hit"
+                @click="selectFolder(fhit.id)"
+              >
+                <span class="folder-glyph" aria-hidden="true"></span>
+                <span class="folder-hit-name">{{ fhit.name }}</span>
+                <span class="folder-hit-path">
+                  {{ fhit.root_name
+                  }}{{ parentPath(fhit.relative_path) ? ' / ' + parentPath(fhit.relative_path) : '' }}
+                </span>
+              </button>
+            </div>
             <table class="file-table">
               <thead>
                 <tr>
@@ -1333,6 +1386,14 @@ const breadcrumbs = computed(() => contents.value?.folder?.breadcrumbs || [])
       @deleted="onFileDeleted"
       @favorite-changed="onFavoriteChanged"
       @tags-changed="onFileTagsChanged"
+    />
+
+    <LibraryFolderMetadataModal
+      :show="showFolderModal"
+      :folder-id="folderModalId"
+      :folder-name="folderModalName"
+      @close="showFolderModal = false"
+      @saved="onFolderMetadataSaved"
     />
 
     <LibrarySettingsModal
@@ -1712,6 +1773,52 @@ const breadcrumbs = computed(() => contents.value?.folder?.breadcrumbs || [])
 .hit-root {
   color: var(--color-heading);
   font-weight: 600;
+}
+
+/* ---- Folder hits (search results) ---- */
+
+.folder-hits {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  margin-bottom: 12px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.folder-hits-label {
+  color: var(--color-heading);
+  font-weight: 600;
+  margin-right: 4px;
+}
+
+.folder-hit {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 10px;
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+  background-color: var(--color-background);
+  color: var(--color-text);
+  cursor: pointer;
+  font-size: 0.85rem;
+}
+
+.folder-hit:hover {
+  background-color: var(--color-background-mute);
+  border-color: var(--color-border-hover, var(--color-border));
+}
+
+.folder-hit-name {
+  font-weight: 600;
+  color: var(--color-heading);
+}
+
+.folder-hit-path {
+  color: var(--color-text);
+  opacity: 0.7;
 }
 
 .row-tags {

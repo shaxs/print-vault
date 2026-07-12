@@ -480,6 +480,16 @@ export default {
   rescanLibraryFolder(id) {
     return apiClient.post(`library/folders/${id}/rescan/`)
   },
+  getLibraryFolderMetadata(id) {
+    return apiClient.get(`library/folders/${id}/metadata/`)
+  },
+  // { tag_ids: [], notes: '' } — saves folder tags/notes; tag delta cascades down.
+  updateLibraryFolderMetadata(id, data) {
+    return apiClient.put(`library/folders/${id}/metadata/`, data)
+  },
+  resyncLibraryFolder(id) {
+    return apiClient.post(`library/folders/${id}/resync/`)
+  },
   getLibraryFile(id) {
     return apiClient.get(`library/files/${id}/`)
   },

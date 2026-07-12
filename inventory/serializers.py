@@ -1406,7 +1406,7 @@ class LibraryFolderSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = LibraryFolder
-        fields = ['id', 'root', 'parent', 'name', 'relative_path', 'status', 'breadcrumbs']
+        fields = ['id', 'root', 'parent', 'name', 'relative_path', 'status', 'notes', 'breadcrumbs']
 
     def get_breadcrumbs(self, obj):
         """Ancestry chain root-first, ending with the folder itself."""
@@ -1417,6 +1417,29 @@ class LibraryFolderSerializer(serializers.ModelSerializer):
             current = current.parent
         crumbs.reverse()
         return crumbs
+
+
+class LibraryFolderMetadataSerializer(serializers.Serializer):
+    """Write payload for a folder's tags + notes (PUT folders/{id}/metadata/).
+    `tag_ids` is the folder's authoritative tag set — the delta vs. its current
+    tags cascades down the subtree. `notes` is folder-local (never cascades)."""
+    tag_ids = serializers.PrimaryKeyRelatedField(
+        many=True, queryset=Tag.objects.all(), required=False, source='tags', default=list,
+    )
+    notes = serializers.CharField(
+        required=False, allow_blank=True, trim_whitespace=False, default='',
+    )
+
+
+class LibraryFolderSearchSerializer(serializers.ModelSerializer):
+    """Folder search hit — a folder whose name or notes matched the query.
+    Carries enough path/root context for the results list to render and jump
+    into it (clicking selects the folder)."""
+    root_name = serializers.CharField(source='root.name', read_only=True)
+
+    class Meta:
+        model = LibraryFolder
+        fields = ['id', 'name', 'relative_path', 'status', 'root', 'root_name', 'notes']
 
 
 class LibraryFileListSerializer(serializers.ModelSerializer):

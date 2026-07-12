@@ -579,3 +579,25 @@ class ReapStalledScansTest(TestCase):
             self.assertEqual(library_scanner.reap_stalled_scans(), 1)
         scan.refresh_from_db()
         self.assertEqual(scan.status, 'success')
+
+
+class FolderTagStampOnScanTest(LibraryScannerTestBase):
+    """New files discovered under a tagged folder inherit that folder's tags on
+    a rescan; pre-existing files are not retro-stamped (only new rows inherit)."""
+
+    def test_new_file_inherits_folder_tags_on_rescan(self):
+        from inventory.models import Tag
+
+        self.scan()  # initial index: creates widgets/ + gear.stl, cover.3mf
+        widgets = self.folder_row('widgets')
+        rack = Tag.objects.create(name='rack', slug='rack')
+        widgets.tags.add(rack)
+
+        write_stl(os.path.join(self.share_dir, 'widgets', 'newpart.stl'), extents=(4, 4, 4))
+        self.scan()
+
+        new_row = self.file_row('widgets/newpart.stl')
+        self.assertIn('rack', new_row.tags.values_list('slug', flat=True))
+        # Files that already existed before the folder was tagged stay untouched.
+        gear = self.file_row('widgets/gear.stl')
+        self.assertNotIn('rack', gear.tags.values_list('slug', flat=True))

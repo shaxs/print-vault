@@ -28,7 +28,9 @@ const isSelected = computed(() => tree.selectedId === props.folder.id)
     <div
       class="tree-row"
       :class="{ 'tree-row-selected': isSelected }"
+      title="Click to open · right-click for tags & notes"
       @click="tree.select(folder.id)"
+      @contextmenu.prevent="tree.openMetadata(folder)"
     >
       <span
         v-if="hasChildren"
