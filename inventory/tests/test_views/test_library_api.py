@@ -426,11 +426,13 @@ class TestScanStatus:
     def test_active_filter_returns_only_running_and_pending(self, client):
         """?active=true powers banner re-attachment after a page refresh — it
         must return in-flight jobs (pending/running) and drop finished ones."""
-        root = LibraryRootFactory()
-        running = LibraryScanFactory(root=root, status='running')
-        pending = LibraryScanFactory(root=root, status='pending')
-        LibraryScanFactory(root=root, status='success')
-        LibraryScanFactory(root=root, status='error')
+        # running + pending live on separate roots (one active scan per root).
+        root_a = LibraryRootFactory()
+        root_b = LibraryRootFactory()
+        running = LibraryScanFactory(root=root_a, status='running')
+        pending = LibraryScanFactory(root=root_b, status='pending')
+        LibraryScanFactory(root=root_a, status='success')
+        LibraryScanFactory(root=root_b, status='error')
 
         resp = client.get('/api/library/scans/?active=true')
 

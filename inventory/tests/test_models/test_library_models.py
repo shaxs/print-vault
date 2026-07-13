@@ -126,8 +126,10 @@ class LibraryScanModelTest(TestCase):
     def test_ordering_newest_first(self):
         """Default ordering returns the most recent scan first."""
         root = LibraryRootFactory()
-        LibraryScanFactory(root=root)
+        # Finalized status so both can coexist under the one-active-scan-per-root
+        # constraint; ordering is by created_at and is independent of status.
+        LibraryScanFactory(root=root, status='success')
         time.sleep(0.01)  # ensure distinct auto_now_add timestamps
-        newer = LibraryScanFactory(root=root)
+        newer = LibraryScanFactory(root=root, status='success')
 
         self.assertEqual(LibraryScan.objects.first(), newer)

@@ -255,7 +255,7 @@ class TestRenderFileToAssets:
                 return False
 
         class _EmptyQueue:
-            def get_nowait(self):
+            def get(self, timeout=None):
                 import queue as q
                 raise q.Empty
 
@@ -696,7 +696,7 @@ class TestForkDbConnectionSafety:
         monkeypatch.setattr(svc, '_in_daemonic_process', lambda: False)
 
         class _FakeQueue:
-            def get_nowait(self):
+            def get(self, timeout=None):
                 return ('skip', None)
 
         class _FakeProcess:
@@ -784,7 +784,7 @@ class TestRenderTempFileProtocol:
         captured_paths = []
 
         class _FakeQueue:
-            def get_nowait(self):
+            def get(self, timeout=None):
                 return ('ok', (1.0, 2.0, 3.0))
 
         class _FakeProcess:
@@ -830,7 +830,7 @@ class TestRenderTempFileProtocol:
         captured_paths = []
 
         class _FakeQueue:
-            def get_nowait(self):
+            def get(self, timeout=None):
                 raise queue.Empty()
 
         class _FakeProcess:

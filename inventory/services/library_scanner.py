@@ -35,7 +35,7 @@ from datetime import datetime, timedelta, timezone as dt_timezone
 
 from django.conf import settings
 from django.core.files.base import ContentFile
-from django.db import transaction
+from django.db import IntegrityError, transaction
 from django.db.models import F, Q
 from django.utils import timezone
 from django_q.tasks import async_task
@@ -206,7 +206,14 @@ def start_scan(root, folder=None):
 
     if not _scan_slot_available(root):
         return None
-    scan = LibraryScan.objects.create(root=root, folder=folder, kind='scan')
+    try:
+        # The atomic block lets us catch the partial-unique-constraint violation
+        # cleanly (a concurrent request won the per-root slot between the check
+        # above and this insert) and treat it as "slot taken".
+        with transaction.atomic():
+            scan = LibraryScan.objects.create(root=root, folder=folder, kind='scan')
+    except IntegrityError:
+        return None
     async_task('inventory.library_tasks.run_library_scan', scan.pk)
     return scan
 
@@ -222,7 +229,11 @@ def start_thumbnail_regeneration(root):
 
     if not _scan_slot_available(root):
         return None
-    scan = LibraryScan.objects.create(root=root, kind='thumbnails')
+    try:
+        with transaction.atomic():
+            scan = LibraryScan.objects.create(root=root, kind='thumbnails')
+    except IntegrityError:
+        return None
     async_task('inventory.library_tasks.run_thumbnail_regeneration', scan.pk)
     return scan
 

@@ -122,6 +122,10 @@ RENDER_MEMORY_HEADROOM_BYTES = _env_int("LIBRARY_RENDER_HEADROOM_MB", 2048) * 10
 # Wall-clock ceiling for a single render child. Also kills the pathological slow
 # case (the pure-Python draw loop grinding for minutes on a dense mesh).
 RENDER_TIMEOUT_SECONDS = _env_int("LIBRARY_RENDER_TIMEOUT_SECONDS", 120)
+# After the render child exits, the tiny status tuple is normally already on the
+# queue; this short bounded wait only covers the rare feeder-thread flush lag so
+# a successful render is never dropped as "empty". Empty after it = child died.
+RESULT_QUEUE_TIMEOUT_SECONDS = 5
 
 try:
     _PAGE_SIZE_BYTES = os.sysconf('SC_PAGE_SIZE')
@@ -334,7 +338,11 @@ def render_file_to_assets(file_path, color_hex):
             return None
 
         try:
-            status, payload = result_queue.get_nowait()
+            # Bounded blocking get (not get_nowait): join() above confirmed the
+            # child exited, and a child flushes its queue feeder before exiting,
+            # so the status tuple is normally already here — the timeout just
+            # covers rare parent-side delivery lag so a good render isn't dropped.
+            status, payload = result_queue.get(timeout=RESULT_QUEUE_TIMEOUT_SECONDS)
         except queue_module.Empty:
             # No result + process gone => it was killed (memory cap tripped / crash).
             logger.info(

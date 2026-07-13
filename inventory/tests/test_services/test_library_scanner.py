@@ -601,3 +601,28 @@ class FolderTagStampOnScanTest(LibraryScannerTestBase):
         # Files that already existed before the folder was tagged stay untouched.
         gear = self.file_row('widgets/gear.stl')
         self.assertNotIn('rack', gear.tags.values_list('slug', flat=True))
+
+
+class ActiveScanUniquenessTest(TestCase):
+    """The DB-level per-root concurrency guard (partial unique constraint):
+    at most one pending/running LibraryScan per root."""
+
+    def test_second_active_scan_for_root_is_rejected(self):
+        from django.db import IntegrityError, transaction
+
+        root = LibraryRootFactory()
+        LibraryScan.objects.create(root=root, status='running')
+        with self.assertRaises(IntegrityError):
+            with transaction.atomic():
+                LibraryScan.objects.create(root=root, status='pending')
+
+    def test_finished_scans_do_not_occupy_the_slot(self):
+        root = LibraryRootFactory()
+        LibraryScan.objects.create(root=root, status='success')
+        LibraryScan.objects.create(root=root, status='error')
+        # A fresh pending scan is allowed once the prior ones are finalized.
+        LibraryScan.objects.create(root=root, status='pending')
+
+    def test_different_roots_are_independent(self):
+        LibraryScan.objects.create(root=LibraryRootFactory(), status='running')
+        LibraryScan.objects.create(root=LibraryRootFactory(), status='running')

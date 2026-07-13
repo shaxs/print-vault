@@ -1927,6 +1927,19 @@ class LibraryScan(models.Model):
         verbose_name = "Library Scan"
         verbose_name_plural = "Library Scans"
         ordering = ['-created_at']
+        constraints = [
+            # DB-level per-root concurrency guard: at most one pending/running job
+            # per root. Stops two concurrent scan/regeneration requests from both
+            # slipping past the in-Python slot check and creating duplicate jobs
+            # that would double-render and race the deletion sweep. The losing
+            # INSERT raises IntegrityError, handled in start_scan /
+            # start_thumbnail_regeneration (treated as "slot taken" → None).
+            models.UniqueConstraint(
+                fields=['root'],
+                condition=models.Q(status__in=['pending', 'running']),
+                name='uniq_active_library_scan_per_root',
+            ),
+        ]
 
     def __str__(self):
         scope = self.folder.relative_path if self.folder_id else 'full root'

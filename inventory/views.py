@@ -3128,7 +3128,7 @@ class TrackerViewSet(viewsets.ModelViewSet):
         if project_id is not None:
             queryset = queryset.filter(project_id=project_id)
         return queryset
-    
+
     def create(self, request, *args, **kwargs):
         """
         Create a new tracker and optionally download files if storage_type is 'download'.
@@ -3351,7 +3351,7 @@ class TrackerViewSet(viewsets.ModelViewSet):
         generate_thumbnails_for_linked_files = parse_bool(
             request.data.get('generate_thumbnails_for_linked_files')
         )
-        
+
         files = request.data.get('files', [])
         
         if not name:
@@ -4602,11 +4602,11 @@ class TrackerFileViewSet(viewsets.ModelViewSet):
             # Other/Multicolor/Clear - use custom materials if provided
             material_data = request.data.get('material')
             material_ids_data = request.data.get('material_ids')
-            
+
             # Update material_ids if provided (even if it's an empty list or null)
             if 'material_ids' in request.data:
                 file.material_ids = material_ids_data if material_ids_data else []
-            
+
             # Update material string if provided
             if 'material' in request.data:
                 file.material = material_data if material_data else ''
