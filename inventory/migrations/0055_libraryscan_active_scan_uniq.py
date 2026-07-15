@@ -26,7 +26,7 @@ def resolve_duplicate_active_scans(apps, schema_editor):
 class Migration(migrations.Migration):
 
     dependencies = [
-        ('inventory', '0053_libraryfolder_tags_notes'),
+        ('inventory', '0054_libraryfolder_tags_notes'),
     ]
 
     operations = [

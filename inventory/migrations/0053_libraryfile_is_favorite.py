@@ -4,7 +4,7 @@ from django.db import migrations, models
 class Migration(migrations.Migration):
 
     dependencies = [
-        ('inventory', '0051_tag_libraryfile_tags'),
+        ('inventory', '0052_tag_libraryfile_tags'),
     ]
 
     operations = [

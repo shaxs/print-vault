@@ -8,7 +8,7 @@ from django.db import migrations, models
 class Migration(migrations.Migration):
 
     dependencies = [
-        ('inventory', '0044_library_models'),
+        ('inventory', '0045_library_models'),
     ]
 
     operations = [

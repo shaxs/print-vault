@@ -9,7 +9,7 @@ from django.db import migrations, models
 class Migration(migrations.Migration):
 
     dependencies = [
-        ('inventory', '0045_libraryroot_thumbnail_color'),
+        ('inventory', '0046_libraryroot_thumbnail_color'),
     ]
 
     operations = [

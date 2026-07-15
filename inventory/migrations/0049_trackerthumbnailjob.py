@@ -10,7 +10,7 @@ import django.db.models.deletion
 class Migration(migrations.Migration):
 
     dependencies = [
-        ('inventory', '0047_libraryfile_thumbnail_status'),
+        ('inventory', '0048_libraryfile_thumbnail_status'),
     ]
 
     operations = [

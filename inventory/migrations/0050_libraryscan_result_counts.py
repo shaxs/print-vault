@@ -9,7 +9,7 @@ from django.db import migrations, models
 class Migration(migrations.Migration):
 
     dependencies = [
-        ('inventory', '0048_trackerthumbnailjob'),
+        ('inventory', '0049_trackerthumbnailjob'),
     ]
 
     operations = [

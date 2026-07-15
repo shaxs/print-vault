@@ -9,7 +9,7 @@ from django.db import migrations, models
 class Migration(migrations.Migration):
 
     dependencies = [
-        ('inventory', '0046_libraryscan_kind'),
+        ('inventory', '0047_libraryscan_kind'),
     ]
 
     operations = [

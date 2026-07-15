@@ -10,7 +10,7 @@ import django.db.models.deletion
 class Migration(migrations.Migration):
 
     dependencies = [
-        ('inventory', '0043_tracker_viewer_settings_trackerfileimage_auto_generated'),
+        ('inventory', '0044_appconfiguration'),
     ]
 
     operations = [

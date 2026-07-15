@@ -4,7 +4,7 @@ from django.db import migrations, models
 class Migration(migrations.Migration):
 
     dependencies = [
-        ('inventory', '0052_libraryfile_is_favorite'),
+        ('inventory', '0053_libraryfile_is_favorite'),
     ]
 
     operations = [

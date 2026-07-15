@@ -4,7 +4,7 @@ from django.db import migrations, models
 class Migration(migrations.Migration):
 
     dependencies = [
-        ('inventory', '0049_libraryscan_result_counts'),
+        ('inventory', '0050_libraryscan_result_counts'),
     ]
 
     operations = [
