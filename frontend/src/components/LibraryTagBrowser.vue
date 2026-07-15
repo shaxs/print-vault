@@ -77,6 +77,7 @@ defineExpose({ reload: loadTags })
       type="button"
       class="tag-browse-toggle"
       :class="{ active: modelValue.length }"
+      :aria-expanded="expanded"
       @click="expanded = !expanded"
     >
       <span class="chevron" :class="{ open: expanded }">▸</span>
@@ -90,6 +91,7 @@ defineExpose({ reload: loadTags })
         type="text"
         class="tag-filter-input"
         placeholder="Filter tags…"
+        aria-label="Filter tags"
         spellcheck="false"
       />
       <!-- Multi-tag semantics: only meaningful with 2+ tags selected. -->
@@ -99,6 +101,7 @@ defineExpose({ reload: loadTags })
           <button
             type="button"
             :class="{ active: matchMode === 'all' }"
+            :aria-pressed="matchMode === 'all'"
             @click="setMode('all')"
           >
             All
@@ -106,6 +109,7 @@ defineExpose({ reload: loadTags })
           <button
             type="button"
             :class="{ active: matchMode === 'any' }"
+            :aria-pressed="matchMode === 'any'"
             @click="setMode('any')"
           >
             Any
@@ -121,6 +125,7 @@ defineExpose({ reload: loadTags })
             type="button"
             class="tag-chip"
             :class="{ selected: isSelected(tag) }"
+            :aria-pressed="isSelected(tag)"
             @click="toggle(tag)"
           >
             {{ tag.name }}

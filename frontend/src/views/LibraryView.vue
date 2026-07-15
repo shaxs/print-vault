@@ -246,6 +246,21 @@ function expandAncestorsOf(folderId) {
 
 // ---- Data loading ----
 
+// Guards a single async loader against out-of-order responses: rapid
+// navigation (folder clicks, tag/favorites/new-files toggles, re-paginating)
+// can fire a loader again before an earlier call's response lands, and
+// without this an OLDER response arriving AFTER a newer one silently
+// overwrites what's now correctly displayed. Each loader gets its own guard
+// (independent sequence numbers); `start()` returns a token to capture before
+// the request, `isCurrent(token)` checks it right before committing state.
+function createLoadGuard() {
+  let seq = 0
+  return {
+    start: () => ++seq,
+    isCurrent: (token) => token === seq,
+  }
+}
+
 async function loadLibrary() {
   loadingTree.value = true
   loadError.value = null
@@ -310,6 +325,8 @@ onBeforeUnmount(() => {
 function selectFolder(id) {
   clearSearch()
   clearNewFiles()
+  clearTagBrowse()
+  clearFavorites()
   if (id === selectedFolderId.value) return
   router.replace({ query: { ...route.query, folder: id } })
 }
@@ -326,7 +343,10 @@ watch(
   },
 )
 
+const contentsGuard = createLoadGuard()
+
 async function fetchContents(folderId) {
+  const token = contentsGuard.start()
   loadingContents.value = true
   try {
     const ordering = sortDirection.value === 'desc' ? `-${sortField.value}` : sortField.value
@@ -334,12 +354,14 @@ async function fetchContents(folderId) {
     if (extensionFilter.value) params.extension = extensionFilter.value
     if (showDeleted.value) params.include_deleted = 'true'
     const response = await APIService.getLibraryFolderContents(folderId, params)
+    if (!contentsGuard.isCurrent(token)) return
     contents.value = response.data
   } catch (err) {
+    if (!contentsGuard.isCurrent(token)) return
     console.error('Failed to load folder contents:', err)
     loadError.value = 'Failed to load folder contents.'
   } finally {
-    loadingContents.value = false
+    if (contentsGuard.isCurrent(token)) loadingContents.value = false
   }
 }
 
@@ -371,12 +393,15 @@ watch(searchQuery, (value) => {
   searchDebounce = setTimeout(() => runSearch(1), 300)
 })
 
+const searchGuard = createLoadGuard()
+
 async function runSearch(pageN) {
   const q = searchQuery.value.trim()
   if (q.length < 2 || !enabledRoots.value.length) return
   if (newFilesActive.value) clearNewFiles() // search wins over new-models mode
   if (selectedTags.value.length) clearTagBrowse() // and over tag-browse
   if (favoritesActive.value) clearFavorites() // and over favorites
+  const token = searchGuard.start()
   searchLoading.value = true
   searchPage.value = pageN
   try {
@@ -388,12 +413,14 @@ async function runSearch(pageN) {
     // is omitted — so only send the param for a narrowed scope.
     if (searchScope.value !== 'all') params.fields = searchScope.value
     const response = await APIService.searchLibrary(params)
+    if (!searchGuard.isCurrent(token)) return
     searchResults.value = response.data
   } catch (err) {
+    if (!searchGuard.isCurrent(token)) return
     console.error('Search failed:', err)
     loadError.value = 'Search failed.'
   } finally {
-    searchLoading.value = false
+    if (searchGuard.isCurrent(token)) searchLoading.value = false
   }
 }
 
@@ -417,20 +444,25 @@ const newFilesMode = computed(
 )
 const newFilesCount = computed(() => newFilesResults.value?.count ?? 0)
 
+const newFilesGuard = createLoadGuard()
+
 async function loadNewFiles(pageN) {
   if (!enabledRoots.value.length) return
+  const token = newFilesGuard.start()
   newFilesLoading.value = true
   newFilesPage.value = pageN
   try {
     const params = { page: pageN, page_size: PAGE_SIZE }
     if (extensionFilter.value) params.extension = extensionFilter.value
     const response = await APIService.getNewLibraryFiles(params)
+    if (!newFilesGuard.isCurrent(token)) return
     newFilesResults.value = response.data
   } catch (err) {
+    if (!newFilesGuard.isCurrent(token)) return
     console.error('Failed to load new models:', err)
     loadError.value = 'Failed to load new models.'
   } finally {
-    newFilesLoading.value = false
+    if (newFilesGuard.isCurrent(token)) newFilesLoading.value = false
   }
 }
 
@@ -473,8 +505,11 @@ function onTagSelectionChange(tags) {
   loadTagResults(1)
 }
 
+const tagResultsGuard = createLoadGuard()
+
 async function loadTagResults(pageN) {
   if (!selectedTags.value.length || !enabledRoots.value.length) return
+  const token = tagResultsGuard.start()
   tagLoading.value = true
   tagPage.value = pageN
   try {
@@ -488,12 +523,14 @@ async function loadTagResults(pageN) {
     if (extensionFilter.value) params.extension = extensionFilter.value
     if (showDeleted.value) params.include_deleted = 'true'
     const response = await APIService.searchLibrary(params)
+    if (!tagResultsGuard.isCurrent(token)) return
     tagResults.value = response.data
   } catch (err) {
+    if (!tagResultsGuard.isCurrent(token)) return
     console.error('Tag browse failed:', err)
     loadError.value = 'Failed to load tagged files.'
   } finally {
-    tagLoading.value = false
+    if (tagResultsGuard.isCurrent(token)) tagLoading.value = false
   }
 }
 
@@ -519,8 +556,11 @@ const favoritesMode = computed(
 )
 const favoritesCount = computed(() => favoritesResults.value?.count ?? 0)
 
+const favoritesGuard = createLoadGuard()
+
 async function loadFavorites(pageN) {
   if (!enabledRoots.value.length) return
+  const token = favoritesGuard.start()
   favoritesLoading.value = true
   favoritesPage.value = pageN
   try {
@@ -528,12 +568,14 @@ async function loadFavorites(pageN) {
     if (extensionFilter.value) params.extension = extensionFilter.value
     if (showDeleted.value) params.include_deleted = 'true'
     const response = await APIService.searchLibrary(params)
+    if (!favoritesGuard.isCurrent(token)) return
     favoritesResults.value = response.data
   } catch (err) {
+    if (!favoritesGuard.isCurrent(token)) return
     console.error('Failed to load favorites:', err)
     loadError.value = 'Failed to load favorites.'
   } finally {
-    favoritesLoading.value = false
+    if (favoritesGuard.isCurrent(token)) favoritesLoading.value = false
   }
 }
 
@@ -646,6 +688,12 @@ const resultsPage = computed(() => {
 const resultsTotalPages = computed(() =>
   resultsData.value ? Math.max(1, Math.ceil(resultsData.value.count / PAGE_SIZE)) : 1,
 )
+const resultsEmptyMessage = computed(() => {
+  if (searchMode.value) return 'No matching files.'
+  if (tagBrowseMode.value) return 'No files match the selected tag(s).'
+  if (favoritesMode.value) return 'No favorited files yet.'
+  return 'No new models since the last scan.'
+})
 
 function gotoResultsPage(pageN) {
   if (searchMode.value) runSearch(pageN)
@@ -830,10 +878,18 @@ function onLibraryJobStarted(scan) {
 
 // ---- Settings ----
 
-function onSettingsSaved(updatedRoot) {
+async function onSettingsSaved(updatedRoot) {
   roots.value = roots.value.map((r) => (r.id === updatedRoot.id ? updatedRoot : r))
   // enabling/disabling or a path change alters which roots' trees appear.
-  reloadTree()
+  await reloadTree()
+  // A disabled root's folders drop out of the tree — if that just orphaned
+  // the current selection, fall back the same way onRootDeleted does rather
+  // than leaving the right pane showing stale content for a folder that no
+  // longer exists in the (now-reloaded) tree.
+  if (selectedFolderId.value != null && !folderMap.value.has(selectedFolderId.value)) {
+    selectedFolderId.value = null
+    await loadLibrary()
+  }
 }
 
 async function onRootCreated(newRoot) {
@@ -1165,7 +1221,12 @@ const breadcrumbs = computed(() => contents.value?.folder?.breadcrumbs || [])
                   :key="`hit-${file.id}`"
                   class="row-clickable"
                   :class="{ 'row-deleted': file.status === 'deleted' }"
+                  tabindex="0"
+                  role="button"
+                  :aria-label="`Open ${file.filename}`"
                   @click="openFile(file)"
+                  @keydown.enter="(e) => e.target === e.currentTarget && openFile(file)"
+                  @keydown.space.prevent="(e) => e.target === e.currentTarget && openFile(file)"
                 >
                   <td class="col-thumb">
                     <img v-if="file.thumbnail" :src="thumbSrc(file)" class="row-thumb" />
@@ -1203,7 +1264,7 @@ const breadcrumbs = computed(() => contents.value?.folder?.breadcrumbs || [])
                 </tr>
                 <tr v-if="!resultsData.results.length">
                   <td colspan="5" class="pane-state">
-                    {{ searchMode ? 'No matching files.' : 'No new models since the last scan.' }}
+                    {{ resultsEmptyMessage }}
                   </td>
                 </tr>
               </tbody>
@@ -1254,7 +1315,22 @@ const breadcrumbs = computed(() => contents.value?.folder?.breadcrumbs || [])
                 :key="`folder-${subfolder.id}`"
                 class="row-clickable"
                 :class="{ 'row-deleted': subfolder.status === 'deleted' }"
+                tabindex="0"
+                role="button"
+                :aria-label="`Open folder ${subfolder.name}`"
                 @click="subfolder.status === 'deleted' ? null : selectFolder(subfolder.id)"
+                @keydown.enter="
+                  (e) =>
+                    e.target === e.currentTarget &&
+                    subfolder.status !== 'deleted' &&
+                    selectFolder(subfolder.id)
+                "
+                @keydown.space.prevent="
+                  (e) =>
+                    e.target === e.currentTarget &&
+                    subfolder.status !== 'deleted' &&
+                    selectFolder(subfolder.id)
+                "
               >
                 <td class="col-thumb"><span class="folder-glyph"></span></td>
                 <td class="col-name folder-name">
@@ -1277,7 +1353,12 @@ const breadcrumbs = computed(() => contents.value?.folder?.breadcrumbs || [])
                 :key="`file-${file.id}`"
                 class="row-clickable"
                 :class="{ 'row-deleted': file.status === 'deleted' }"
+                tabindex="0"
+                role="button"
+                :aria-label="`Open ${file.filename}`"
                 @click="openFile(file)"
+                @keydown.enter="(e) => e.target === e.currentTarget && openFile(file)"
+                @keydown.space.prevent="(e) => e.target === e.currentTarget && openFile(file)"
               >
                 <td class="col-thumb">
                   <img v-if="file.thumbnail" :src="thumbSrc(file)" class="row-thumb" />
@@ -1313,7 +1394,22 @@ const breadcrumbs = computed(() => contents.value?.folder?.breadcrumbs || [])
               :key="`folder-${subfolder.id}`"
               class="grid-card"
               :class="{ 'row-deleted': subfolder.status === 'deleted' }"
+              tabindex="0"
+              role="button"
+              :aria-label="`Open folder ${subfolder.name}`"
               @click="subfolder.status === 'deleted' ? null : selectFolder(subfolder.id)"
+              @keydown.enter="
+                (e) =>
+                  e.target === e.currentTarget &&
+                  subfolder.status !== 'deleted' &&
+                  selectFolder(subfolder.id)
+              "
+              @keydown.space.prevent="
+                (e) =>
+                  e.target === e.currentTarget &&
+                  subfolder.status !== 'deleted' &&
+                  selectFolder(subfolder.id)
+              "
             >
               <div class="grid-thumb grid-thumb-folder"><span class="folder-glyph-large"></span></div>
               <div class="grid-label" :title="subfolder.name">{{ subfolder.name }}</div>
@@ -1326,7 +1422,12 @@ const breadcrumbs = computed(() => contents.value?.folder?.breadcrumbs || [])
               :key="`file-${file.id}`"
               class="grid-card"
               :class="{ 'row-deleted': file.status === 'deleted' }"
+              tabindex="0"
+              role="button"
+              :aria-label="`Open ${file.filename}`"
               @click="openFile(file)"
+              @keydown.enter="(e) => e.target === e.currentTarget && openFile(file)"
+              @keydown.space.prevent="(e) => e.target === e.currentTarget && openFile(file)"
             >
               <button
                 type="button"
@@ -1719,6 +1820,11 @@ const breadcrumbs = computed(() => contents.value?.folder?.breadcrumbs || [])
   background-color: var(--color-background-mute);
 }
 
+.row-clickable:focus-visible {
+  outline: 2px solid var(--color-blue);
+  outline-offset: -2px;
+}
+
 .row-deleted {
   opacity: 0.55;
 }
@@ -1917,6 +2023,11 @@ const breadcrumbs = computed(() => contents.value?.folder?.breadcrumbs || [])
 
 .grid-card:hover {
   background-color: var(--color-background-mute);
+}
+
+.grid-card:focus-visible {
+  outline: 2px solid var(--color-blue);
+  outline-offset: -2px;
 }
 
 /* Favorite stars — amber when active, subtle otherwise. */

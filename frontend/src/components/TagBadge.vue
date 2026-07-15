@@ -18,7 +18,7 @@ const emit = defineEmits(['remove'])
       v-if="removable"
       type="button"
       class="tag-remove"
-      aria-label="Remove tag"
+      :aria-label="`Remove tag: ${tag.name}`"
       @click.stop="emit('remove', tag)"
     >
       &times;

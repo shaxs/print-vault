@@ -45,6 +45,13 @@ const tagsError = ref(null)
 const isFavorite = ref(false)
 const favoriteSaving = ref(false)
 
+// Bumped on every file switch (open/close/change). Each async operation below
+// captures the id it was started under and checks it's still current before
+// applying its result — otherwise a slow response for a file the user has
+// since navigated away from could land AFTER a newer load/save and silently
+// overwrite what's now displayed for a different file.
+let requestId = 0
+
 watch(
   () => [props.show, props.fileId],
   async ([show, fileId]) => {
@@ -52,6 +59,7 @@ watch(
     // fixed overlay from lingering across file switches.
     viewerFullscreen.value = false
     if (!show || !fileId) return
+    const myRequestId = ++requestId
     file.value = null
     error.value = null
     notesError.value = null
@@ -60,15 +68,17 @@ watch(
     loading.value = true
     try {
       const response = await APIService.getLibraryFile(fileId)
+      if (myRequestId !== requestId) return // superseded by a later file switch
       file.value = response.data
       notesDraft.value = response.data.notes || ''
       fileTags.value = response.data.tags || []
       isFavorite.value = !!response.data.is_favorite
     } catch (err) {
+      if (myRequestId !== requestId) return
       console.error('Failed to load library file:', err)
       error.value = 'Failed to load file details.'
     } finally {
-      loading.value = false
+      if (myRequestId === requestId) loading.value = false
     }
   },
   { immediate: true },
@@ -76,38 +86,53 @@ watch(
 
 async function saveNotes() {
   if (!file.value || notesSaving.value) return
+  const myRequestId = requestId
   notesSaving.value = true
   notesError.value = null
   notesJustSaved.value = false
   try {
     const response = await APIService.updateLibraryFile(file.value.id, { notes: notesDraft.value })
+    if (myRequestId !== requestId) return // modal moved to a different file meanwhile
     file.value.notes = response.data.notes
     notesDraft.value = response.data.notes
     notesJustSaved.value = true
   } catch (err) {
+    if (myRequestId !== requestId) return
     console.error('Failed to save notes:', err)
     notesError.value = 'Failed to save notes.'
   } finally {
-    notesSaving.value = false
+    if (myRequestId === requestId) notesSaving.value = false
   }
 }
 
+// Separate from `requestId` (which only changes on a file switch): tracks the
+// latest of possibly several rapid-fire saves on the SAME file (e.g. quickly
+// adding two tags in a row), whose responses could resolve out of order. Only
+// the response matching the most recently STARTED call is applied locally —
+// an older response landing after a newer one must not roll the tags back.
+let tagsSeq = 0
+
 async function saveTags(newTags) {
   if (!file.value) return
+  const myRequestId = requestId
+  const mySeq = ++tagsSeq
+  const savedFileId = file.value.id
   const previous = fileTags.value
   fileTags.value = newTags // optimistic
   tagsError.value = null
   try {
-    const response = await APIService.updateLibraryFile(file.value.id, {
+    const response = await APIService.updateLibraryFile(savedFileId, {
       tag_ids: newTags.map((t) => t.id),
     })
+    // Tell the library to refresh the left-pane tag browser regardless of
+    // whether the modal has since moved on — the save itself landed on the
+    // right file server-side, so the filter list must still pick it up.
+    emit('tags-changed', { id: savedFileId, tags: response.data.tags })
+    if (myRequestId !== requestId || mySeq !== tagsSeq) return // superseded
     fileTags.value = response.data.tags
     file.value.tags = response.data.tags
-    // Tell the library to refresh the left-pane tag browser: a newly created
-    // (or newly orphaned) tag must appear in / drop out of the filter list
-    // immediately, without a page reload.
-    emit('tags-changed', { id: file.value.id, tags: response.data.tags })
   } catch (err) {
+    if (myRequestId !== requestId || mySeq !== tagsSeq) return
     console.error('Failed to save tags:', err)
     fileTags.value = previous // roll back
     tagsError.value = 'Failed to update tags.'
@@ -116,20 +141,25 @@ async function saveTags(newTags) {
 
 async function toggleFavorite() {
   if (!file.value || favoriteSaving.value) return
+  const myRequestId = requestId
+  const savedFileId = file.value.id
   const next = !isFavorite.value
   isFavorite.value = next // optimistic
   favoriteSaving.value = true
   try {
-    const response = await APIService.updateLibraryFile(file.value.id, { is_favorite: next })
+    const response = await APIService.updateLibraryFile(savedFileId, { is_favorite: next })
+    // Let the browser sync the row's star without a refetch, regardless of
+    // whether the modal has since moved on — the save landed on the right file.
+    emit('favorite-changed', { id: savedFileId, is_favorite: response.data.is_favorite })
+    if (myRequestId !== requestId) return // modal moved to a different file meanwhile
     isFavorite.value = response.data.is_favorite
     file.value.is_favorite = response.data.is_favorite
-    // Let the browser sync the row's star without a refetch.
-    emit('favorite-changed', { id: file.value.id, is_favorite: response.data.is_favorite })
   } catch (err) {
+    if (myRequestId !== requestId) return
     console.error('Failed to update favorite:', err)
     isFavorite.value = !next // roll back
   } finally {
-    favoriteSaving.value = false
+    if (myRequestId === requestId) favoriteSaving.value = false
   }
 }
 

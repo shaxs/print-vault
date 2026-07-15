@@ -25,6 +25,11 @@ const emit = defineEmits(['close', 'saved'])
 const loading = ref(false)
 const saving = ref(false)
 const error = ref(null)
+// True only after a successful load for the CURRENTLY selected folder. A
+// failed load must never leave Save/Re-apply clickable while folderTags/
+// notesDraft are still their empty reset state — that would submit tag_ids:
+// [] and cascade-delete every tag on the whole subtree.
+const loadedOk = ref(false)
 
 const folderTags = ref([]) // selected tag objects { id, name, slug }
 const notesDraft = ref('')
@@ -36,31 +41,42 @@ const removedTags = computed(() =>
   [...originalTagIds.value].filter((id) => !folderTags.value.some((t) => t.id === id)),
 )
 
+// Bumped on every folder selection. Each load captures the id it started
+// under and checks it's still current before applying its result — a slow
+// response for a folder the user has since navigated away from must not
+// overwrite what's now displayed for a different folder.
+let requestId = 0
+
 watch(
   () => [props.show, props.folderId],
   async ([show, folderId]) => {
     if (!show || !folderId) return
+    const myRequestId = ++requestId
     loading.value = true
     error.value = null
+    loadedOk.value = false
     folderTags.value = []
     notesDraft.value = ''
     try {
       const { data } = await APIService.getLibraryFolderMetadata(folderId)
+      if (myRequestId !== requestId) return // superseded by a later folder selection
       folderTags.value = data.tags || []
       notesDraft.value = data.notes || ''
       originalTagIds.value = new Set(folderTags.value.map((t) => t.id))
+      loadedOk.value = true
     } catch (err) {
+      if (myRequestId !== requestId) return
       console.error('Failed to load folder metadata:', err)
       error.value = 'Failed to load folder tags and notes.'
     } finally {
-      loading.value = false
+      if (myRequestId === requestId) loading.value = false
     }
   },
   { immediate: true },
 )
 
 async function save() {
-  if (!props.folderId || saving.value) return
+  if (!props.folderId || saving.value || !loadedOk.value) return
   if (
     removedTags.value.length &&
     !confirm(
@@ -86,7 +102,7 @@ async function save() {
 }
 
 async function reapply() {
-  if (!props.folderId || saving.value) return
+  if (!props.folderId || saving.value || !loadedOk.value) return
   if (
     !confirm(
       "Re-apply this folder's tags to every file and subfolder beneath it? This " +
@@ -149,13 +165,13 @@ async function reapply() {
       <button class="btn btn-secondary" @click="emit('close')">Cancel</button>
       <button
         class="btn btn-outline"
-        :disabled="loading || saving"
+        :disabled="!loadedOk || saving"
         title="Push this folder's tags onto everything beneath it"
         @click="reapply"
       >
         Re-apply to all below
       </button>
-      <button class="btn btn-primary" :disabled="loading || saving" @click="save">
+      <button class="btn btn-primary" :disabled="!loadedOk || saving" @click="save">
         {{ saving ? 'Saving…' : 'Save' }}
       </button>
     </template>

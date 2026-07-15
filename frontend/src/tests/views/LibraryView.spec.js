@@ -531,11 +531,19 @@ describe('LibraryView', () => {
       ],
     })
 
+    // This is the one test where an active job is present, so it's the one
+    // that actually starts the progress-banner's polling interval — must
+    // unmount (stopping it via the component's onUnmounted) even if an
+    // assertion below fails, or a leaked interval keeps firing in real time
+    // against APIService after afterEach's restoreAllMocks() un-mocks it.
     const wrapper = await mountLoaded()
-
-    expect(wrapper.find('.job-banner').exists()).toBe(true)
-    expect(wrapper.text()).toContain('Scanning NAS…')
-    expect(wrapper.text()).toContain('42 files found, 30% processed')
+    try {
+      expect(wrapper.find('.job-banner').exists()).toBe(true)
+      expect(wrapper.text()).toContain('Scanning NAS…')
+      expect(wrapper.text()).toContain('42 files found, 30% processed')
+    } finally {
+      wrapper.unmount()
+    }
   })
 
   it('renders a top-level tree node per enabled root (merged multi-root tree)', async () => {
