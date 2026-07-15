@@ -29,6 +29,17 @@ class LibraryRootModelTest(TestCase):
         self.assertIn("Alpha Root", str(root))
         self.assertIn("/mnt/alpha", str(root))
 
+    def test_rescan_interval_hours_over_cap_fails_validation(self):
+        """547h*60=32820 overflows django_q.Schedule.minutes (PositiveSmallIntegerField,
+        max 32767) — full_clean must reject it before sync_root_schedule ever runs."""
+        root = LibraryRoot(name="Beta Root", path="/mnt/beta", rescan_interval_hours=547)
+        with self.assertRaises(Exception):
+            root.full_clean()
+
+    def test_rescan_interval_hours_at_cap_is_valid(self):
+        root = LibraryRoot(name="Gamma Root", path="/mnt/gamma", rescan_interval_hours=546)
+        root.full_clean()  # must not raise
+
 
 class LibraryFolderModelTest(TestCase):
     def test_unique_together_root_relative_path(self):

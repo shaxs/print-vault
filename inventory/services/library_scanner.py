@@ -110,34 +110,44 @@ STALE_SCAN_AGE_HOURS = 12
 # files_queued forever — the "stuck at 99%" the UI would otherwise show.
 SCAN_STALL_SECONDS = 600
 
-# Task funcs that can still advance a library scan. Only these postpone
-# reaping: the reaper itself is ALSO a queued task while it executes (django-q's
-# ORM broker keeps the row until the monitor acks it after completion), so a
-# naive "whole queue empty" gate can never pass from inside the reaper — it
-# blocked on its own queue row and never reaped anything (July 2026). Unrelated
-# tasks (tracker thumbnails, etc.) don't advance scans, so they don't postpone
-# reaping either.
+# Task funcs that target a SPECIFIC existing scan (its scan_id is args[0]) and
+# so can still advance it. Only these postpone reaping — and only for the
+# scan_id they actually name, not globally: the reaper itself is ALSO a queued
+# task while it executes (django-q's ORM broker keeps the row until the
+# monitor acks it after completion), so a naive "whole queue empty" gate can
+# never pass from inside the reaper (July 2026), and a naive "any scan
+# anywhere is advancing" gate would let one root's legitimately long-running
+# scan indefinitely block reaping a dead scan on a completely different root
+# (multi-root deployments). scheduled_root_rescan(root_id) is deliberately
+# excluded: it targets a root, not an existing scan, and blocking on it would
+# be self-defeating — it calls start_scan(), which itself waits on the stalled
+# scan's slot, so protecting the stalled scan from being reaped would only
+# delay the very rescan the schedule is trying to run.
 _SCAN_ADVANCING_TASK_FUNCS = frozenset({
     'inventory.library_tasks.run_library_scan',
     'inventory.library_tasks.run_thumbnail_regeneration',
     'inventory.library_tasks.process_library_file_chunk',
-    'inventory.library_tasks.scheduled_root_rescan',
 })
 
 
-def _scan_work_is_queued():
-    """True if any queued/running Django-Q task could still advance a library
-    scan. Decodes each queued payload; undecodable rows are treated as
-    non-library (a permanently corrupt row must not disable the reaper)."""
+def _queued_scan_ids():
+    """scan_ids from queued Django-Q tasks that could still advance THAT scan
+    (args[0] on all _SCAN_ADVANCING_TASK_FUNCS). Undecodable rows and
+    unrelated tasks are skipped — a corrupt or unrelated row must not disable
+    the reaper for every scan."""
     from django_q.models import OrmQ
 
+    scan_ids = set()
     for queued in OrmQ.objects.all():
         try:
-            if queued.func() in _SCAN_ADVANCING_TASK_FUNCS:
-                return True
+            if queued.func() not in _SCAN_ADVANCING_TASK_FUNCS:
+                continue
+            args = queued.task.get('args') or ()
+            if args:
+                scan_ids.add(args[0])
         except Exception:  # pragma: no cover - defensive
             continue
-    return False
+    return scan_ids
 
 
 def reap_stalled_scans():
@@ -149,23 +159,28 @@ def reap_stalled_scans():
     UI stops showing "Scanning… 99%" and a fresh scan can start.
 
     Only PROCESSING-phase scans (files_queued > 0) are reaped, and only when no
-    scan-advancing task remains queued (see _SCAN_ADVANCING_TASK_FUNCS — the
-    reaper's own queue row and unrelated tasks don't count) and they've been
-    running past SCAN_STALL_SECONDS. Walk-phase scans (files_queued == 0, walk
-    task still in flight) are deliberately left to the 12 h stale displacement,
-    so a slow first walk is never cut short. Returns the count reaped.
+    task in the queue still names that SPECIFIC scan_id (see
+    _queued_scan_ids — the reaper's own queue row, unrelated tasks, and other
+    scans' tasks don't count) and they've been running past
+    SCAN_STALL_SECONDS. Walk-phase scans (files_queued == 0, walk task still in
+    flight) are deliberately left to the 12 h stale displacement, so a slow
+    first walk is never cut short. Returns the count reaped.
     """
     from inventory.models import LibraryScan
 
-    if _scan_work_is_queued():
+    cutoff = timezone.now() - timedelta(seconds=SCAN_STALL_SECONDS)
+    stalled = list(LibraryScan.objects.filter(
+        status='running', files_queued__gt=0, started_at__lt=cutoff,
+    ))
+    if not stalled:
         return 0
 
-    cutoff = timezone.now() - timedelta(seconds=SCAN_STALL_SECONDS)
-    stalled = LibraryScan.objects.filter(
-        status='running', files_queued__gt=0, started_at__lt=cutoff,
-    )
+    blocked_scan_ids = _queued_scan_ids()
+
     reaped = 0
     for scan in stalled:
+        if scan.pk in blocked_scan_ids:
+            continue
         gap = max(scan.files_queued - scan.files_processed, 0)
         note = (
             f"Finalized with {gap} file(s) unprocessed after a worker "
@@ -214,7 +229,15 @@ def start_scan(root, folder=None):
             scan = LibraryScan.objects.create(root=root, folder=folder, kind='scan')
     except IntegrityError:
         return None
-    async_task('inventory.library_tasks.run_library_scan', scan.pk)
+    try:
+        async_task('inventory.library_tasks.run_library_scan', scan.pk)
+    except Exception as e:
+        # Enqueue failed after the row was already committed — fail it now
+        # instead of leaving a 'pending' scan that nothing will ever service
+        # (and that _scan_slot_available would otherwise treat as active for
+        # up to STALE_SCAN_AGE_HOURS, blocking a retry).
+        _fail_scan(scan, f"Failed to enqueue walk task: {e}")
+        raise
     return scan
 
 
@@ -234,7 +257,11 @@ def start_thumbnail_regeneration(root):
             scan = LibraryScan.objects.create(root=root, kind='thumbnails')
     except IntegrityError:
         return None
-    async_task('inventory.library_tasks.run_thumbnail_regeneration', scan.pk)
+    try:
+        async_task('inventory.library_tasks.run_thumbnail_regeneration', scan.pk)
+    except Exception as e:
+        _fail_scan(scan, f"Failed to enqueue regeneration task: {e}")
+        raise
     return scan
 
 
@@ -529,6 +556,14 @@ def process_file_chunk(scan_id, file_ids, force_render=False):
     scan = LibraryScan.objects.select_related('root').filter(pk=scan_id).first()
     if scan is None:
         return None
+    if scan.status != 'running':
+        # A worker killed mid-chunk (the exact scenario the reaper exists for)
+        # can have its django-q task redelivered to a fresh worker after
+        # 'retry' seconds even though the scan has since been finalized
+        # (success/error) or reaped. Processing again would just be wasted
+        # duplicate render work with no effect on an already-closed scan.
+        logger.info(f"Library scan {scan_id} is {scan.status}, not running; skipping redelivered chunk")
+        return None
 
     started = time.monotonic()
     processed = 0
@@ -558,12 +593,17 @@ def process_file_chunk(scan_id, file_ids, force_render=False):
                         f"{processed} file(s); handing {len(remaining)} to a "
                         f"fresh task so the worker can recycle"
                     )
-                LibraryScan.objects.filter(pk=scan_id).update(
-                    files_processed=F('files_processed') + processed
-                )
+                # Enqueue the handoff FIRST: if it raises, `remaining` must NOT
+                # be counted as processed — bumping files_processed first would
+                # silently drop those files from the scan (reported done, never
+                # actually enqueued). Leaving files_processed short lets the
+                # stalled-scan reaper catch it honestly instead.
                 async_task(
                     'inventory.library_tasks.process_library_file_chunk',
                     scan_id, remaining, force_render,
+                )
+                LibraryScan.objects.filter(pk=scan_id).update(
+                    files_processed=F('files_processed') + processed
                 )
                 return None
 
@@ -603,12 +643,25 @@ def _process_one_file(root, file_id, force_render=False):
 
     twins = LibraryFile.objects.filter(root=root, sha256_hash=file_hash).exclude(pk=lib_file.pk)
 
-    move_source = twins.filter(status='deleted').first()
-    if move_source is not None:
-        # Same content, old row soft-deleted: this is a move/rename. Keep the
-        # old row's identity (v2 tags/notes will hang off it) and its rendered
-        # assets; drop the placeholder row the walk created for the new path.
-        with transaction.atomic():
+    # Locked, single query: if two DIFFERENT new paths are byte-identical
+    # (common in this domain — duplicate STLs across folders) and both match
+    # the same soft-deleted twin, both would otherwise "win" the same move,
+    # each overwriting the other's location update and losing track of one
+    # file entirely. select_for_update() serializes the two transactions;
+    # filtering by status='deleted' IN THE SAME locked query (not a separate
+    # unlocked pre-check) means the second transaction re-evaluates the WHERE
+    # clause after the first commits and finds the row no longer 'deleted' —
+    # so it naturally falls through to the duplicate/render path below instead
+    # of double-claiming the same identity.
+    with transaction.atomic():
+        move_source = (
+            twins.select_for_update().filter(status='deleted').first()
+        )
+        if move_source is not None:
+            # Same content, old row soft-deleted: this is a move/rename. Keep
+            # the old row's identity (v2 tags/notes will hang off it) and its
+            # rendered assets; drop the placeholder row the walk created for
+            # the new path.
             new_location = {
                 'folder': lib_file.folder,
                 'filename': lib_file.filename,
@@ -625,7 +678,7 @@ def _process_one_file(root, file_id, force_render=False):
             for field, value in new_location.items():
                 setattr(move_source, field, value)
             move_source.save()
-        return
+            return
 
     duplicate = twins.filter(status='active').exclude(thumbnail='').exclude(thumbnail__isnull=True).first()
     if duplicate is not None and duplicate.thumbnail:

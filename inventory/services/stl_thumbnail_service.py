@@ -772,6 +772,8 @@ def generate_auto_thumbnail(tracker_file, *, allow_linked_download: bool = False
             )
             return None
 
+        base_color_hex = _resolve_file_hex_color(tracker_file)
+
         with _resolve_file_path(tracker_file) as file_path:
             if file_path is None:
                 return None
@@ -785,21 +787,22 @@ def generate_auto_thumbnail(tracker_file, *, allow_linked_download: bool = False
                 )
                 return None
 
-            mesh = _load_mesh(file_path)
-            if mesh is None:
+            # Same memory-capped, time-limited forked render as the library
+            # pipeline (render_file_to_assets) rather than a direct
+            # _load_mesh/_render_mesh_image call — "curated tracker upload"
+            # doesn't mean "immune to a pathological/instanced mesh"; an
+            # in-process render here still runs in the qcluster worker, and a
+            # worker-level OOM is strictly worse than a subprocess dying
+            # (it interrupts every other task the worker was holding, not
+            # just this one file).
+            assets = render_file_to_assets(file_path, base_color_hex)
+            if assets is None:
                 return None
-
-            base_color_hex = _resolve_file_hex_color(tracker_file)
-            image = _render_mesh_image(mesh, base_color_hex=base_color_hex)
-
-        buffer = io.BytesIO()
-        image.save(buffer, format='PNG', optimize=True)
-        buffer.seek(0)
 
         base_name = Path(tracker_file.filename).stem
         return TrackerFileImage.objects.create(
             tracker_file=tracker_file,
-            image=ContentFile(buffer.read(), name=f"{base_name}_auto_thumb.png"),
+            image=ContentFile(assets['png_bytes'], name=f"{base_name}_auto_thumb.png"),
             caption='Auto-generated preview',
             order=0,
             is_auto_generated=True,

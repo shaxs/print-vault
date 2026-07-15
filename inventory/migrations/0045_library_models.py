@@ -10,7 +10,12 @@ import django.db.models.deletion
 class Migration(migrations.Migration):
 
     dependencies = [
-        ('inventory', '0044_appconfiguration'),
+        # NOTE: repoint this to ('inventory', '0044_appconfiguration') at the
+        # point main is actually merged in — that migration doesn't exist on
+        # this branch on its own, only after the merge. Kept pointing at this
+        # branch's real prior migration meanwhile so the graph is
+        # self-consistent for standalone testing.
+        ('inventory', '0043_tracker_viewer_settings_trackerfileimage_auto_generated'),
     ]
 
     operations = [

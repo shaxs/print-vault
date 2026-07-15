@@ -15,6 +15,7 @@ inventory/tasks.py (same convention as the library).
 import logging
 import time
 
+from django.db import IntegrityError, transaction
 from django.db.models import F
 from django.utils import timezone
 from django_q.tasks import async_task
@@ -59,8 +60,24 @@ def start_tracker_thumbnail_regeneration(tracker, include_linked=False):
 
     if not _job_slot_available(tracker):
         return None
-    job = TrackerThumbnailJob.objects.create(tracker=tracker, include_linked=include_linked)
-    async_task('inventory.tasks.run_tracker_thumbnail_regeneration_task', job.pk)
+    try:
+        # _job_slot_available is an optimistic pre-check (and handles stale-job
+        # displacement); the atomic create + uniq_active_tracker_thumbnail_job_
+        # per_tracker DB constraint is what actually stops two concurrent
+        # requests both slipping past it and creating duplicate jobs — the
+        # losing INSERT raises IntegrityError here, same pattern as
+        # library_scanner.start_scan.
+        with transaction.atomic():
+            job = TrackerThumbnailJob.objects.create(tracker=tracker, include_linked=include_linked)
+    except IntegrityError:
+        return None
+    try:
+        async_task('inventory.tasks.run_tracker_thumbnail_regeneration_task', job.pk)
+    except Exception as e:
+        # Enqueue failed after the row was already committed — fail it now
+        # instead of leaving a 'pending' job that nothing will ever service.
+        _fail_job(job, f"Failed to enqueue orchestrator task: {e}")
+        raise
     return job
 
 
@@ -150,8 +167,11 @@ def process_chunk(job_id, file_ids):
 
         remaining = file_ids[index + 1:]
         if remaining and time.monotonic() - started >= CHUNK_TIME_BUDGET_SECONDS:
-            _bump_progress(job_id, processed, generated)
+            # Enqueue the handoff FIRST: if it raises, `remaining` must NOT be
+            # counted as processed — bumping progress first would silently
+            # drop those files (reported done, never actually enqueued).
             async_task('inventory.tasks.process_tracker_thumbnail_chunk_task', job_id, remaining)
+            _bump_progress(job_id, processed, generated)
             return None
 
     _bump_progress(job_id, processed, generated)

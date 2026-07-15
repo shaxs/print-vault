@@ -28,6 +28,15 @@ from inventory.models import LibraryFile, LibraryFolder, Tag
 _FOLDER_TAGS = LibraryFolder.tags.through   # fields: libraryfolder_id, tag_id
 _FILE_TAGS = LibraryFile.tags.through       # fields: libraryfile_id, tag_id
 
+# Cap on in-memory through-rows before a flush. The additions list is a
+# Cartesian product (rows x tags), and stamp_new_files runs once per WHOLE
+# SCAN in the walk phase — which the module docstring requires to "stay
+# cheap" because Django-Q kills the walk task at the 300s timeout. A first
+# scan of a large, heavily-tagged library could otherwise build one unbounded
+# list and blow that budget in a single bulk_create call. Matches
+# library_scanner.BULK_BATCH_SIZE's convention.
+_BATCH_SIZE = 500
+
 
 def _subtree_prefix(folder):
     """The ``relative_path`` prefix matching everything strictly BELOW *folder*.
@@ -65,8 +74,10 @@ def descendant_files(folder):
 def _bulk_apply(through, left_field, left_ids, added_ids, removed_ids):
     """Add/remove a set of tag ids across many left-side rows in bulk.
 
-    Two queries max regardless of how many rows/tags: a single DELETE for the
-    removals and one bulk_create (ignore_conflicts) for the additions."""
+    The removal is always a single DELETE regardless of size. The addition
+    side is a Cartesian product (rows x tags) — built and inserted in
+    _BATCH_SIZE-row chunks rather than one unbounded list, so a large subtree
+    cascade can't hold the whole result set in memory at once."""
     left_ids = list(left_ids)
     if not left_ids:
         return 0
@@ -75,12 +86,16 @@ def _bulk_apply(through, left_field, left_ids, added_ids, removed_ids):
             **{f'{left_field}_id__in': left_ids, 'tag_id__in': list(removed_ids)}
         ).delete()
     if added_ids:
-        rows = [
-            through(**{f'{left_field}_id': lid, 'tag_id': tid})
-            for lid in left_ids
-            for tid in added_ids
-        ]
-        through.objects.bulk_create(rows, ignore_conflicts=True)
+        added_ids = list(added_ids)
+        chunk = []
+        for lid in left_ids:
+            for tid in added_ids:
+                chunk.append(through(**{f'{left_field}_id': lid, 'tag_id': tid}))
+                if len(chunk) >= _BATCH_SIZE:
+                    through.objects.bulk_create(chunk, ignore_conflicts=True)
+                    chunk = []
+        if chunk:
+            through.objects.bulk_create(chunk, ignore_conflicts=True)
     return len(left_ids)
 
 
@@ -151,11 +166,16 @@ def stamp_new_files(new_files_by_folder):
     if not tag_map:
         return 0
 
-    rows = []
+    total = 0
+    chunk = []
     for folder_id, file_ids in new_files_by_folder.items():
         for tag_id in tag_map.get(folder_id, ()):
             for file_id in file_ids:
-                rows.append(_FILE_TAGS(libraryfile_id=file_id, tag_id=tag_id))
-    if rows:
-        _FILE_TAGS.objects.bulk_create(rows, ignore_conflicts=True)
-    return len(rows)
+                chunk.append(_FILE_TAGS(libraryfile_id=file_id, tag_id=tag_id))
+                total += 1
+                if len(chunk) >= _BATCH_SIZE:
+                    _FILE_TAGS.objects.bulk_create(chunk, ignore_conflicts=True)
+                    chunk = []
+    if chunk:
+        _FILE_TAGS.objects.bulk_create(chunk, ignore_conflicts=True)
+    return total

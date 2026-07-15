@@ -551,16 +551,17 @@ class ReapStalledScansTest(TestCase):
         self.assertEqual(scan.status, 'running')
 
     @staticmethod
-    def _queued_task(func_path):
+    def _queued_task(func_path, args=()):
         row = mock.Mock()
         row.func.return_value = func_path
+        row.task = {'args': args}
         return row
 
-    def test_does_not_reap_when_scan_work_is_queued(self):
+    def test_does_not_reap_when_that_scans_work_is_queued(self):
         scan = self._stalled_scan()
         with mock.patch('django_q.models.OrmQ.objects') as q:
             q.all.return_value = [
-                self._queued_task('inventory.library_tasks.process_library_file_chunk'),
+                self._queued_task('inventory.library_tasks.process_library_file_chunk', args=(scan.pk, [1, 2])),
             ]
             self.assertEqual(library_scanner.reap_stalled_scans(), 0)
         scan.refresh_from_db()
@@ -573,8 +574,41 @@ class ReapStalledScansTest(TestCase):
         scan = self._stalled_scan()
         with mock.patch('django_q.models.OrmQ.objects') as q:
             q.all.return_value = [
-                self._queued_task('inventory.library_tasks.reap_stalled_library_scans'),
-                self._queued_task('inventory.tasks.some_unrelated_task'),
+                self._queued_task('inventory.library_tasks.reap_stalled_library_scans', args=()),
+                self._queued_task('inventory.tasks.some_unrelated_task', args=(scan.pk,)),
+            ]
+            self.assertEqual(library_scanner.reap_stalled_scans(), 1)
+        scan.refresh_from_db()
+        self.assertEqual(scan.status, 'success')
+
+    def test_reaps_despite_queued_work_for_a_different_scan(self):
+        """A legitimately long-running scan on another root must NOT block
+        reaping a genuinely dead scan elsewhere — a global 'any scan work
+        queued' gate would let one busy root starve every other root's
+        recovery in a multi-root deployment."""
+        dead_scan = self._stalled_scan()
+        other_scan = self._stalled_scan()  # different root, different pk
+        with mock.patch('django_q.models.OrmQ.objects') as q:
+            q.all.return_value = [
+                self._queued_task(
+                    'inventory.library_tasks.process_library_file_chunk',
+                    args=(other_scan.pk, [1, 2]),
+                ),
+            ]
+            self.assertEqual(library_scanner.reap_stalled_scans(), 1)
+        dead_scan.refresh_from_db()
+        other_scan.refresh_from_db()
+        self.assertEqual(dead_scan.status, 'success')
+        self.assertEqual(other_scan.status, 'running')
+
+    def test_scheduled_root_rescan_does_not_block_reaping(self):
+        """scheduled_root_rescan(root_id) targets a root, not an existing scan
+        — it must never protect a stalled scan from being reaped, since it
+        calls start_scan() which itself waits on that scan's slot."""
+        scan = self._stalled_scan()
+        with mock.patch('django_q.models.OrmQ.objects') as q:
+            q.all.return_value = [
+                self._queued_task('inventory.library_tasks.scheduled_root_rescan', args=(scan.root_id,)),
             ]
             self.assertEqual(library_scanner.reap_stalled_scans(), 1)
         scan.refresh_from_db()

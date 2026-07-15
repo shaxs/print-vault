@@ -161,3 +161,25 @@ class TestJobStatusEndpoint:
         assert running.pk in ids
         assert done.pk not in ids   # not active
         assert other.pk not in ids  # different tracker
+
+
+@pytest.mark.django_db
+class TestActiveJobUniqueness:
+    """DB-level per-tracker concurrency guard (partial unique constraint):
+    at most one pending/running TrackerThumbnailJob per tracker. Mirrors
+    LibraryScan's uniq_active_library_scan_per_root."""
+
+    def test_second_active_job_for_tracker_is_rejected(self):
+        from django.db import IntegrityError, transaction
+
+        tracker = TrackerFactory()
+        TrackerThumbnailJob.objects.create(tracker=tracker, status='running')
+        with pytest.raises(IntegrityError):
+            with transaction.atomic():
+                TrackerThumbnailJob.objects.create(tracker=tracker, status='pending')
+
+    def test_finished_jobs_do_not_occupy_the_slot(self):
+        tracker = TrackerFactory()
+        TrackerThumbnailJob.objects.create(tracker=tracker, status='success')
+        # Must not raise — a finished job leaves the slot free.
+        TrackerThumbnailJob.objects.create(tracker=tracker, status='pending')

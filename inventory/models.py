@@ -4,7 +4,7 @@ from datetime import timedelta
 from django.db import models
 from django.db.models.signals import post_delete, post_save, pre_save
 from django.dispatch import receiver
-from django.core.validators import MinValueValidator
+from django.core.validators import MaxValueValidator, MinValueValidator
 from django.utils.text import slugify
 
 def get_project_upload_path(instance, filename):
@@ -1742,7 +1742,12 @@ class LibraryRoot(models.Model):
     rescan_interval_hours = models.PositiveIntegerField(
         null=True,
         blank=True,
-        help_text="Periodic rescan interval in hours; NULL = manual rescans only"
+        # 546h * 60 = 32760, the largest multiple of 60 that still fits
+        # django_q.Schedule.minutes (PositiveSmallIntegerField, max 32767 —
+        # a Postgres smallint). sync_root_schedule writes hours*60 straight
+        # into it; anything above 546 overflows the column at save time.
+        validators=[MaxValueValidator(546)],
+        help_text="Periodic rescan interval in hours (max 546, ~22.75 days); NULL = manual rescans only"
     )
     thumbnail_color = models.CharField(
         max_length=7,
@@ -2006,6 +2011,19 @@ class TrackerThumbnailJob(models.Model):
         verbose_name = "Tracker Thumbnail Job"
         verbose_name_plural = "Tracker Thumbnail Jobs"
         ordering = ['-created_at']
+        constraints = [
+            # Mirrors LibraryScan's uniq_active_library_scan_per_root: DB-level
+            # per-tracker concurrency guard so two concurrent regenerate
+            # requests can't both slip past the in-Python slot check
+            # (_job_slot_available) and create duplicate jobs that double-
+            # render the same files. The losing INSERT raises IntegrityError,
+            # handled in start_tracker_thumbnail_regeneration as "slot taken".
+            models.UniqueConstraint(
+                fields=['tracker'],
+                condition=models.Q(status__in=['pending', 'running']),
+                name='uniq_active_tracker_thumbnail_job_per_tracker',
+            ),
+        ]
 
     def __str__(self):
         return f"Thumbnail job for {self.tracker.name}: {self.status}"
