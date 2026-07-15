@@ -4585,8 +4585,11 @@ class TrackerFileViewSet(viewsets.ModelViewSet):
             if tracker.primary_material:
                 file.material_ids = [tracker.primary_material.id]
                 file.material = tracker.primary_material.name
-            elif tracker.primary_color:
-                # Fallback to hex color if no material set
+            else:
+                # No material configured — whether or not there's a fallback
+                # hex color, the file must not keep stale material_ids/material
+                # from whatever it was configured with before switching to
+                # Primary (e.g. leftover custom materials from 'Other').
                 file.material_ids = []
                 file.material = ''  # Empty string, not None (field doesn't allow null)
         elif new_color == 'Accent':
@@ -4594,8 +4597,7 @@ class TrackerFileViewSet(viewsets.ModelViewSet):
             if tracker.accent_material:
                 file.material_ids = [tracker.accent_material.id]
                 file.material = tracker.accent_material.name
-            elif tracker.accent_color:
-                # Fallback to hex color if no material set
+            else:
                 file.material_ids = []
                 file.material = ''  # Empty string, not None (field doesn't allow null)
         else:
@@ -4898,6 +4900,14 @@ class LibraryFolderViewSet(mixins.DestroyModelMixin, viewsets.ReadOnlyModelViewS
         """Scoped async rescan of just this folder's subtree — deletion sweep
         stays inside the subtree, sibling folders are never touched."""
         folder = self.get_object()
+        if not folder.root.enabled:
+            # start_scan has no enabled check of its own (the gate is purely
+            # at the view layer) — the root-level rescan endpoint already
+            # enforces this; a scoped folder rescan must not bypass it.
+            return Response(
+                {'error': 'This library root is disabled.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
         from inventory.services.library_scanner import start_scan
         scan = start_scan(folder.root, folder=folder)
         if scan is None:

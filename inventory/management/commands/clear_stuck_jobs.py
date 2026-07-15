@@ -14,7 +14,7 @@ Usage:
     python manage.py clear_stuck_jobs --jobs-only     # leave the queue alone
 """
 
-from django.core.management.base import BaseCommand
+from django.core.management.base import BaseCommand, CommandError
 
 from inventory.models import LibraryScan, TrackerThumbnailJob
 
@@ -44,8 +44,10 @@ class Command(BaseCommand):
         jobs_only = options['jobs_only']
 
         if queue_only and jobs_only:
-            self.stderr.write('--queue-only and --jobs-only are mutually exclusive.')
-            return
+            # CommandError -> nonzero exit code, so a script/cron job checking
+            # the exit status actually notices the bad flag combination
+            # instead of seeing "success" after the command did nothing.
+            raise CommandError('--queue-only and --jobs-only are mutually exclusive.')
 
         if not jobs_only:
             self._clear_queue(dry_run)

@@ -1522,7 +1522,20 @@ class LibraryFileUpdateSerializer(serializers.ModelSerializer):
         read_only_fields = ['id']
 
 
-class LibraryScanSerializer(serializers.ModelSerializer):
+class ProgressPercentMixin:
+    """Shared progress_percent calculation for any polled-job serializer with
+    status/files_queued/files_processed fields (LibraryScan,
+    TrackerThumbnailJob)."""
+
+    def get_progress_percent(self, obj):
+        if obj.status == 'success':
+            return 100
+        if obj.files_queued:
+            return int(obj.files_processed / obj.files_queued * 100)
+        return 0 if obj.status in ('pending', 'running') else 100
+
+
+class LibraryScanSerializer(ProgressPercentMixin, serializers.ModelSerializer):
     progress_percent = serializers.SerializerMethodField()
     root_name = serializers.CharField(source='root.name', read_only=True)
 
@@ -1535,15 +1548,8 @@ class LibraryScanSerializer(serializers.ModelSerializer):
             'started_at', 'finished_at', 'created_at', 'progress_percent',
         ]
 
-    def get_progress_percent(self, obj):
-        if obj.status == 'success':
-            return 100
-        if obj.files_queued:
-            return int(obj.files_processed / obj.files_queued * 100)
-        return 0 if obj.status in ('pending', 'running') else 100
 
-
-class TrackerThumbnailJobSerializer(serializers.ModelSerializer):
+class TrackerThumbnailJobSerializer(ProgressPercentMixin, serializers.ModelSerializer):
     """Progress polling for the tracker page's thumbnail-regeneration banner —
     same shape/idea as LibraryScanSerializer."""
     progress_percent = serializers.SerializerMethodField()
@@ -1555,10 +1561,3 @@ class TrackerThumbnailJobSerializer(serializers.ModelSerializer):
             'files_queued', 'files_processed', 'files_generated',
             'started_at', 'finished_at', 'created_at', 'progress_percent',
         ]
-
-    def get_progress_percent(self, obj):
-        if obj.status == 'success':
-            return 100
-        if obj.files_queued:
-            return int(obj.files_processed / obj.files_queued * 100)
-        return 0 if obj.status in ('pending', 'running') else 100

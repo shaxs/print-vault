@@ -74,3 +74,12 @@ class TestClearStuckJobs:
 
         done.refresh_from_db()
         assert done.status == 'success'
+
+    def test_mutually_exclusive_flags_raise_command_error(self):
+        """Must exit nonzero, not just print to stderr and return — a
+        script/cron job checking the exit code otherwise sees 'success'
+        after the command silently did nothing."""
+        from django.core.management import CommandError
+
+        with pytest.raises(CommandError):
+            call_command('clear_stuck_jobs', '--queue-only', '--jobs-only', stdout=StringIO())

@@ -206,18 +206,39 @@ class TestFileConfigurationMaterialIds:
         tracker = TrackerFactory()
         file = TrackerFileFactory(tracker=tracker, color="Primary")
         custom_mat = MaterialFactory(name="Custom", is_generic=False, colors=["#000000"])
-        
+
         url = f'/api/tracker-files/{file.id}/update_configuration/'
         data = {
             'color': 'Primary',
             'material_ids': [custom_mat.id]  # Should be ignored
         }
         response = api_client.patch(url, data, format='json')
-        
+
         # Backend should ignore material_ids for Primary files
         file.refresh_from_db()
         # Material should come from tracker, not custom
         assert file.color == "Primary"
+        assert file.material_ids != [custom_mat.id]
+
+    def test_primary_with_no_material_or_color_clears_stale_materials(self, api_client):
+        """Regression: a tracker with NEITHER primary_material NOR primary_color
+        set previously left a file's material_ids/material completely untouched
+        when switched to Primary (missing else branch) — silently keeping stale
+        custom materials from its prior 'Other' configuration."""
+        tracker = TrackerFactory(primary_material=None, primary_color='')
+        custom_mat = MaterialFactory(name="Stale Custom", is_generic=False, colors=["#123456"])
+        file = TrackerFileFactory(
+            tracker=tracker, color="Other", material_ids=[custom_mat.id], material="Stale Custom",
+        )
+
+        url = f'/api/tracker-files/{file.id}/update_configuration/'
+        response = api_client.patch(url, {'color': 'Primary'}, format='json')
+
+        assert response.status_code == status.HTTP_200_OK
+        file.refresh_from_db()
+        assert file.color == "Primary"
+        assert file.material_ids == []
+        assert file.material == ''
     
     def test_change_from_primary_to_other_allows_custom_material(self, api_client):
         """Test changing file from Primary to Other allows custom material."""
