@@ -1,0 +1,54 @@
+# yaml-language-server: $schema=https://coderabbit.ai/integrations/schema.v2.json
+language: en-US
+
+reviews:
+  profile: chill              # quiet | chill | assertive — chill is bugs/security/logic, quiet is even less
+  request_changes_workflow: false
+  high_level_summary: true
+  auto_review:
+    enabled: true
+    drafts: false
+
+  # noise suppression
+  poem: false
+  in_progress_fortune: false
+  sequence_diagrams: false
+  estimate_code_review_effort: false
+  collapse_walkthrough: true
+  review_status: false
+
+  # the bits that write code
+  finishing_touches:
+    docstrings:
+      enabled: false
+    unit_tests:
+      enabled: false
+
+  tone_instructions: |
+    Be direct, technical, brief. No praise, emojis, or headings.
+    Prefix each comment with one of:
+    - suggestion: optional improvement
+    - important: must-fix / high-impact risk
+    - critical: blocking correctness, security, or data loss
+
+  instructions: |
+    Report findings only. Do not propose rewrites or refactors.
+    Focus on bugs, security issues, and logic errors.
+    Skip style, naming, and documentation commentary.
+
+  path_filters:
+    - "!**/*.lock"
+    - "!**/node_modules/**"
+    - "!**/migrations/**"
+
+  path_instructions:
+    - path: "**/*.py"
+      instructions: |
+        Django/DRF. Check for N+1 queries, missing select_related/prefetch_related,
+        serializer validation gaps, and permission class coverage on viewsets.
+    - path: "**/*.vue"
+      instructions: |
+        Vue 3 Composition API. Check reactivity correctness and prop/emit contracts.
+
+chat:
+  auto_reply: true
