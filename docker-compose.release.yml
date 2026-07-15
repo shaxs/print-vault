@@ -10,6 +10,20 @@
 # To pin to a specific version instead of latest, change the image tags:
 #   image: ghcr.io/shaxs/print-vault-backend:1.1.0
 
+# Shared by backend and qcluster — they run the same Django app against the
+# same database, just with a different entrypoint. Single source of truth so
+# the two service definitions can't drift out of sync.
+x-django-env: &django-env
+  - DJANGO_SETTINGS_MODULE=backend.production
+  - PYTHONPATH=/code
+  - DJANGO_SECRET_KEY=${DJANGO_SECRET_KEY}
+  - DJANGO_DEBUG=${DJANGO_DEBUG}
+  - ALLOWED_HOSTS=${ALLOWED_HOSTS}
+  - POSTGRES_USER=${POSTGRES_USER:-postgres}
+  - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+  - APP_HOST=${APP_HOST}
+  - APP_PORT=${APP_PORT}
+
 services:
   backend:
     image: ghcr.io/shaxs/print-vault-backend:latest
@@ -25,16 +39,7 @@ services:
       - "8000"
     ports:
       - "8000:8000"
-    environment:
-      - DJANGO_SETTINGS_MODULE=backend.production
-      - PYTHONPATH=/code
-      - DJANGO_SECRET_KEY=${DJANGO_SECRET_KEY}
-      - DJANGO_DEBUG=${DJANGO_DEBUG}
-      - ALLOWED_HOSTS=${ALLOWED_HOSTS}
-      - POSTGRES_USER=${POSTGRES_USER:-postgres}
-      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
-      - APP_HOST=${APP_HOST}
-      - APP_PORT=${APP_PORT}
+    environment: *django-env
     depends_on:
       db:
         condition: service_healthy
@@ -59,16 +64,7 @@ services:
       # The library scan runs in THIS container, so it needs the same share
       # mount as backend — otherwise the scan can't see the path.
       - ${LIBRARY_HOST_PATH:-./data/library}:${LIBRARY_MOUNT_PATH:-/mnt/nas/stls}:rw
-    environment:
-      - DJANGO_SETTINGS_MODULE=backend.production
-      - PYTHONPATH=/code
-      - DJANGO_SECRET_KEY=${DJANGO_SECRET_KEY}
-      - DJANGO_DEBUG=${DJANGO_DEBUG}
-      - ALLOWED_HOSTS=${ALLOWED_HOSTS}
-      - POSTGRES_USER=${POSTGRES_USER:-postgres}
-      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
-      - APP_HOST=${APP_HOST}
-      - APP_PORT=${APP_PORT}
+    environment: *django-env
     depends_on:
       db:
         condition: service_healthy
